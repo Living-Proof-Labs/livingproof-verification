@@ -8,6 +8,7 @@ check (robot lock re-read at the locked commit) is
 import hashlib
 import json
 from pathlib import Path
+import re
 import tomllib
 
 import pytest
@@ -125,15 +126,41 @@ def test_the_pin_matches_the_owner_case_insensitively():
 
 def test_verification_waits_for_the_lock_guard():
     jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
-    assert "pytest tests/test_locks.py" in jobs["locks"]["steps"][-1]["run"]
+    assert '/tests/bin/pytest" tests/test_locks.py' in jobs["locks"]["steps"][-1]["run"]
     check = [st.get("run", "") for st in jobs["locks"]["steps"]]
     assert any(
-        "capability-verifier@043c221cff81444b8134caadcced6a9e12ae9552" in r
-        and "verify lock --check --workflow .github/workflows/verify.yml" in r
-        for r in check
+        "verify lock --check" in r and "--workflow .github/workflows/verify.yml" in r for r in check
+    )
+    installs = [r for r in check if "uv pip install" in r]
+    assert installs and all(
+        r.count("uv pip install --verify-hashes --no-deps") == r.count("uv pip install")
+        for r in installs
+    )
+    tools = (ROOT / ".github/requirements/lock-check.txt").read_text()
+    assert (
+        "capability-verifier @ git+https://github.com/Living-Proof-Labs/capability-verifier@043c221cff81444b8134caadcced6a9e12ae9552"
+        in tools
     )
     for definition in DEFINITIONS:
         assert jobs[definition.stem]["needs"] == "locks"
+
+
+@pytest.mark.parametrize("name", ["lock-check.txt", "tests.txt"])
+def test_ci_requirements_are_hashed_or_pinned_by_commit(name):
+    text = (ROOT / ".github/requirements" / name).read_text()
+    entries = re.split(
+        r"\n(?=\S)",
+        "\n".join(
+            line for line in text.splitlines() if line.strip() and not line.lstrip().startswith("#")
+        ),
+    )
+    assert entries
+    for entry in entries:
+        requirement = entry.split("\\")[0].strip()
+        if "git+https://" in requirement:
+            assert re.search(r"@[0-9a-f]{40}$", requirement), requirement
+        else:
+            assert "--hash=sha256:" in entry, requirement
 
 
 def test_a_commented_out_pin_does_not_count():

@@ -23,16 +23,23 @@ jobs:
           persist-credentials: false
       - run: python3 -m pip install --user uv==0.13.6
       # The full check: re-reads the robot lock at the locked commit and parses this file.
-      # livingproof v1.4.9 and capability-verifier v1.10.0, pinned by commit.
+      # livingproof v1.4.9 and capability-verifier v1.10.0, pinned by commit in
+      # .github/requirements/lock-check.txt; every other requirement there is hashed and checked.
+      - name: Install the lock check tools
+        run: |
+          uv venv "$RUNNER_TEMP/lock-check"
+          VIRTUAL_ENV="$RUNNER_TEMP/lock-check" uv pip install --verify-hashes --no-deps \
+            -r .github/requirements/lock-check.txt
+          uv venv "$RUNNER_TEMP/tests"
+          VIRTUAL_ENV="$RUNNER_TEMP/tests" uv pip install --verify-hashes --no-deps \
+            -r .github/requirements/tests.txt
       - name: livingproof capability verify lock --check --workflow
         run: |
           for definition in verifications/*.toml; do
-            uvx --from "livingproof @ git+https://github.com/Living-Proof-Labs/livingproof@0398448326e414bfe38b95cf880b5e9d34bf7341" \
-              --with "livingproof-common @ https://github.com/Living-Proof-Labs/livingproof-common/releases/download/v1.0.0/livingproof_common-1.0.0-py3-none-any.whl" \
-              --with "capability-verifier @ git+https://github.com/Living-Proof-Labs/capability-verifier@043c221cff81444b8134caadcced6a9e12ae9552" \
-              livingproof capability verify lock --check --workflow .github/workflows/verify.yml "$definition"
+            "$RUNNER_TEMP/lock-check/bin/livingproof" capability verify lock --check \
+              --workflow .github/workflows/verify.yml "$definition"
           done
-      - run: uvx --from pytest==8.4.2 --with pyyaml==6.0.3 pytest tests/test_locks.py
+      - run: '"$RUNNER_TEMP/tests/bin/pytest" tests/test_locks.py'
   unitree-g1-stock-mujoco-hallway:
     needs: locks
     uses: Living-Proof-Labs/capability-verifier/.github/workflows/walk-hallway.yml@f8dc3d5634cf2ac2931e854b4f0b7d0ae39d7f0b

@@ -26,7 +26,7 @@ VIRTUAL_ENV=.venv uv pip install \
   "capability-verifier @ git+https://github.com/Living-Proof-Labs/capability-verifier@v1.10.0"
 ```
 
-capability-verifier v1.10.0 is the first release that ships `livingproof capability verify`. CI installs the same versions, pinned by commit, in its `locks` job.
+capability-verifier v1.10.0 is the first release that ships `livingproof capability verify`. CI installs the same versions in its `locks` job from `.github/requirements/lock-check.txt`: the git installs pinned by commit, every other package (the `livingproof-common` wheel included) by sha256, checked with `uv pip install --verify-hashes`.
 
 Check the lock and the workflow call, then run:
 
