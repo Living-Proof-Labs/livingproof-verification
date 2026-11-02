@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Thin call: the capability verifier's reusable workflow runs every step. The values below
-# must equal verifications/unitree-g1-stock-mujoco-hallway.lock.json (the verifier commit it
+# must equal its verifications/<job id>.lock.json (the verifier commit it
 # names, the robot repository, commit and configurations); the locks job (tests/test_locks.py) and
 # `livingproof capability verify lock --check --workflow` fail when they drift.
 name: verify
@@ -46,11 +46,24 @@ jobs:
       artifact-prefix: unitree-g1-stock-mujoco-hallway-
       check: false  # the robot repository's own CI tests the robot
       comment: false
+  unitree-go1-playground-mujoco-hallway:
+    needs: locks
+    uses: Living-Proof-Labs/capability-verifier/.github/workflows/walk-hallway.yml@f8dc3d5634cf2ac2931e854b4f0b7d0ae39d7f0b
+    permissions:
+      contents: read
+      pull-requests: write
+    with:
+      repository: Living-Proof-Labs/livingproof-unitree-go1
+      ref: f00751ab8b910903a1f816747af8ccbf37abfcf8
+      configurations: '["playground"]'
+      artifact-prefix: unitree-go1-playground-mujoco-hallway-
+      check: false  # the robot repository's own CI tests the robot
+      comment: false
   # Publishing (push to main only): lay this run's reports out into the Pages site, keeping
   # every earlier run from the previous Pages artifact. Layout and index only (tools/site.py):
   # the verifier graded and the reporter rendered; nothing is committed.
   site:
-    needs: [unitree-g1-stock-mujoco-hallway]
+    needs: [unitree-g1-stock-mujoco-hallway, unitree-go1-playground-mujoco-hallway]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
