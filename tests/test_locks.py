@@ -8,6 +8,7 @@ check (robot lock re-read at the locked commit) is
 import hashlib
 import json
 from pathlib import Path
+import re
 import tomllib
 
 import pytest
@@ -125,15 +126,55 @@ def test_the_pin_matches_the_owner_case_insensitively():
 
 def test_verification_waits_for_the_lock_guard():
     jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
-    assert "pytest tests/test_locks.py" in jobs["locks"]["steps"][-1]["run"]
+    assert '/tests/bin/pytest" tests/test_locks.py' in jobs["locks"]["steps"][-1]["run"]
     check = [st.get("run", "") for st in jobs["locks"]["steps"]]
     assert any(
-        "capability-verifier@043c221cff81444b8134caadcced6a9e12ae9552" in r
-        and "verify lock --check --workflow .github/workflows/verify.yml" in r
-        for r in check
+        "verify lock --check" in r and "--workflow .github/workflows/verify.yml" in r for r in check
+    )
+    installs = [line.strip() for r in check for line in r.splitlines() if "uv pip install" in line]
+    git = "uv pip install --no-deps --no-build-isolation \\"
+    assert installs and all(
+        "uv pip install --require-hashes --no-deps" in line or line.endswith(git)
+        for line in installs
+    )
+    assert sum(line.endswith(git) for line in installs) == 1
+    assert any("-r .github/requirements/build.txt" in r for r in check)
+    assert any("--require-hashes --no-deps -r .github/requirements/uv.txt" in r for r in check)
+    assert any("a wrong livingproof-common hash installed" in r for r in check)
+    tools = (ROOT / ".github/requirements/lock-check-git.txt").read_text()
+    assert (
+        "capability-verifier @ git+https://github.com/Living-Proof-Labs/capability-verifier@043c221cff81444b8134caadcced6a9e12ae9552"
+        in tools
     )
     for definition in DEFINITIONS:
         assert jobs[definition.stem]["needs"] == "locks"
+
+
+def _entries(name):
+    text = (ROOT / ".github/requirements" / name).read_text()
+    return re.split(
+        r"\n(?=\S)",
+        "\n".join(
+            line for line in text.splitlines() if line.strip() and not line.lstrip().startswith("#")
+        ),
+    )
+
+
+@pytest.mark.parametrize("name", ["lock-check.txt", "tests.txt", "uv.txt", "build.txt"])
+def test_hashed_ci_requirements_are_all_hashed(name):
+    # A git requirement in the same install made uv skip a URL wheel's hash, so the hashed
+    # files hold no git requirement and are installed with --require-hashes.
+    entries = _entries(name)
+    assert entries
+    for entry in entries:
+        assert "git+" not in entry and "--hash=sha256:" in entry, entry.split("\\")[0]
+
+
+def test_git_ci_requirements_are_pinned_by_commit():
+    entries = _entries("lock-check-git.txt")
+    assert entries
+    for entry in entries:
+        assert re.fullmatch(r"\S+ @ git\+https://\S+@[0-9a-f]{40}", entry), entry
 
 
 def test_a_commented_out_pin_does_not_count():

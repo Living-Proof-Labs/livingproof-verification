@@ -1,0 +1,4 @@
+# The locks job's uv, installed by pip with --require-hashes. Regenerate with:
+#   uv pip compile --universal --generate-hashes --no-header \
+#     .github/requirements/uv.in -o .github/requirements/uv.txt
+uv==0.13.6
