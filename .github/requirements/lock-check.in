@@ -1,8 +1,11 @@
 # The locks job's tools: livingproof v1.4.9 and capability-verifier v1.10.0, pinned by commit
 # (git installs cannot carry a hash; the commit is the content pin). Every other requirement
-# is hashed in lock-check.txt. Regenerate with:
+# is hashed in lock-check.txt. uv skipped a URL wheel's hash when a git requirement shared the
+# install, so the git lines live apart in lock-check-git.txt. Regenerate with:
 #   uv pip compile --generate-hashes --python-version 3.12 --no-header \
-#     .github/requirements/lock-check.in -o .github/requirements/lock-check.txt
+#     .github/requirements/lock-check.in -o /tmp/lock-check.txt
+#   grep 'git+' /tmp/lock-check.txt > .github/requirements/lock-check-git.txt
+#   then copy /tmp/lock-check.txt to lock-check.txt without the git entries and their comments.
 livingproof @ git+https://github.com/Living-Proof-Labs/livingproof@0398448326e414bfe38b95cf880b5e9d34bf7341
 livingproof-common @ https://github.com/Living-Proof-Labs/livingproof-common/releases/download/v1.0.0/livingproof_common-1.0.0-py3-none-any.whl
 capability-verifier @ git+https://github.com/Living-Proof-Labs/capability-verifier@043c221cff81444b8134caadcced6a9e12ae9552
