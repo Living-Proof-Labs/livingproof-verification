@@ -173,8 +173,12 @@ def check_reports(directory: Path):
         listed[name.strip()] = digest
     for name in REPORT_FILES:
         path = directory / name
-        if listed.get(name) != hashlib.sha256(path.read_bytes()).hexdigest():
-            raise SiteError(f"{path}: missing or does not match SHA256SUMS")
+        if name not in listed:
+            raise SiteError(f"{directory}: SHA256SUMS has no entry for {name}")
+        if not path.is_file():
+            raise SiteError(f"{directory}: missing {name}")
+        if listed[name] != hashlib.sha256(path.read_bytes()).hexdigest():
+            raise SiteError(f"{path}: does not match SHA256SUMS")
 
 
 def outcome(report: dict) -> list[dict]:

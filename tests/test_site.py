@@ -138,6 +138,32 @@ def test_reports_are_copied_unchanged_and_checked(tmp_path):
         site_tool.build(tmp_path / "site", reports, run("1", "2026-11-02T00:00:00Z"))
 
 
+@pytest.mark.parametrize("name", ["report.json", "report.html"])
+def test_missing_report_file_is_a_site_error(tmp_path, name):
+    reports = reports_for(tmp_path, "one", 12, "FAIL")
+    (reports / "unitree-g1-stock-mujoco-hallway-capability-report-stock" / name).unlink()
+    with pytest.raises(site_tool.SiteError, match=f"missing {name}"):
+        site_tool.build(tmp_path / "site", reports, run("1", "2026-11-02T00:00:00Z"))
+
+
+@pytest.mark.parametrize("name", ["report.json", "report.md"])
+def test_missing_sha256sums_entry_is_a_site_error(tmp_path, name):
+    reports = reports_for(tmp_path, "one", 12, "FAIL")
+    sums = reports / "unitree-g1-stock-mujoco-hallway-capability-report-stock" / "SHA256SUMS"
+    sums.write_text(
+        "".join(line + "\n" for line in sums.read_text().splitlines() if not line.endswith(name))
+    )
+    with pytest.raises(site_tool.SiteError, match=f"no entry for {name}"):
+        site_tool.build(tmp_path / "site", reports, run("1", "2026-11-02T00:00:00Z"))
+
+
+def test_missing_sha256sums_is_a_site_error(tmp_path):
+    reports = reports_for(tmp_path, "one", 12, "FAIL")
+    (reports / "unitree-g1-stock-mujoco-hallway-capability-report-stock" / "SHA256SUMS").unlink()
+    with pytest.raises(site_tool.SiteError, match="missing SHA256SUMS"):
+        site_tool.build(tmp_path / "site", reports, run("1", "2026-11-02T00:00:00Z"))
+
+
 def test_missing_report_artifact_fails(tmp_path):
     (tmp_path / "empty").mkdir()
     with pytest.raises(site_tool.SiteError, match="No report artifact"):
