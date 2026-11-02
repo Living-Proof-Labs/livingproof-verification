@@ -56,6 +56,33 @@ Edit a definition, re-lock it, and review the lock diff:
 
 Then update the call in `.github/workflows/verify.yml` to the new robot commit (and the verifier commit, if the robot lock names a new one). `tests/test_locks.py` (the `locks` CI job, which every verification job waits for) and `lock --check --workflow` fail until the two agree. Both parse the workflow YAML, so a commented-out pin does not count.
 
+## Published reports
+
+On every push to `main`, after the verification jobs pass, the `site` job lays this run's
+capability-report artifacts out as a static site and the `pages` job deploys it to GitHub Pages
+(`actions/upload-pages-artifact` and `actions/deploy-pages`, pinned by commit; only `pages` has
+`pages: write` and `id-token: write`). Pull requests never publish. Layout, for each definition
+and configuration (`<robot>` from the robot repository, `<variant>` from the definition id):
+
+- `/` lists every robot and variant with the verifier's latest grade and trial counts
+- `/<robot>/<variant>/latest/` is the newest run, `/<robot>/<variant>/` its run history
+- `/<robot>/<variant>/runs/<run-id>/` keeps each run: the reporter's `report.{html,json,md,txt}`
+  and `SHA256SUMS` unchanged, `run.json`, and a page linking the CI run, this repository's commit
+  and the locked robot, specs, runner, verifier and reporter releases
+
+`tools/site.py` only lays out and indexes: the verifier grades, the reporter renders, and the
+counts are read from `report.json`. Earlier runs are restored from the previous run's Pages
+artifact (kept 90 days); if that artifact has expired the job fails rather than drop history.
+Nothing is committed. Build the site locally from downloaded report artifacts:
+
+```sh
+python3 tools/site.py restore site --repository Living-Proof-Labs/livingproof-verification --dry-run
+python3 tools/site.py build site --reports reports --run-id 1 --commit "$(git rev-parse HEAD)" \
+  --created "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --repository Living-Proof-Labs/livingproof-verification
+```
+
+Publishing needs GitHub Pages enabled for this repository with **Source: GitHub Actions**.
+
 ## Checks
 
 ```sh
