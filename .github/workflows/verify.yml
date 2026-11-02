@@ -9,6 +9,11 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      reset-history:
+        description: Publish a new site without the earlier runs (only when history is lost)
+        type: boolean
+        default: false
 permissions:
   contents: read
 jobs:
@@ -51,7 +56,9 @@ jobs:
   # the verifier graded and the reporter rendered; nothing is committed.
   site:
     needs: [unitree-g1-stock-mujoco-hallway]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: >-
+      github.ref == 'refs/heads/main' && (github.event_name == 'push' ||
+      (github.event_name == 'workflow_dispatch' && inputs.reset-history))
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     # One publish at a time, in order, so no run restores a site that misses its predecessor.
@@ -72,7 +79,14 @@ jobs:
       - name: Restore earlier runs from the previous Pages artifact
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: python3 tools/site.py restore site
+          SITE_URL: https://docs.livingprooflabs.com/livingproof-verification/
+          RESET_HISTORY: ${{ inputs.reset-history && 'true' || 'false' }}
+        run: |
+          if [ "$RESET_HISTORY" = true ]; then
+            python3 tools/site.py restore site --reset-history
+          else
+            python3 tools/site.py restore site
+          fi
       - name: Add this run and write the index pages
         env:
           COMMIT: ${{ github.sha }}
@@ -86,7 +100,9 @@ jobs:
           retention-days: 90  # the next run restores history from this artifact
   pages:
     needs: site
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: >-
+      github.ref == 'refs/heads/main' && (github.event_name == 'push' ||
+      (github.event_name == 'workflow_dispatch' && inputs.reset-history))
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     concurrency:
