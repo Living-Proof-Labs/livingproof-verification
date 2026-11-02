@@ -81,9 +81,33 @@ Nothing is committed. Build the site locally from downloaded report artifacts:
 ```sh
 python3 tools/site.py restore site --repository Living-Proof-Labs/livingproof-verification --dry-run \
   --site-url https://docs.livingprooflabs.com/livingproof-verification/
-python3 tools/site.py build site --reports reports --run-id 1 --commit "$(git rev-parse HEAD)" \
-  --created "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --repository Living-Proof-Labs/livingproof-verification
+python3 tools/site.py build site --reports reports --evidence evidence --run-id 1 \
+  --commit "$(git rev-parse HEAD)" --created "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  --repository Living-Proof-Labs/livingproof-verification
 ```
+
+### Report and evidence retention
+
+| What | Where | Kept |
+| --- | --- | --- |
+| Reports (`report.*`, `SHA256SUMS`, `run.json`) | the Pages site, every run folder | for as long as the site's run history (each publish restores the previous Pages artifact, kept 90 days) |
+| Linked evidence (MCAP, PASS/FAIL videos) | copied into `runs/<run-id>/evidence/<artifact>/` by the `site` job | with the report, same lifetime |
+| Original Actions artifacts | GitHub Actions | until their `expires_at` (30 days for these runs); downloading needs a GitHub sign-in, even on a public repository |
+
+The `site` job downloads the run's `*-links-*`, `*-mcap-*` and `*-video-*` artifacts and reads
+the run's artifact metadata (`actions: read`). `run.json` keeps, for every link in the report,
+the original artifact's id, name, URL, expiry and digest next to the site copy's files, sizes
+and sha256, so evidence identity stays tied to the assessment; the report files themselves are
+never rewritten. Each run page lists the site copies first. The Actions link is shown only
+while the artifact is unexpired, with its expiry date; at each later publish an expired one is
+re-rendered as "expired <date>, no longer available", without a link. Runs published before
+this change carry no copies: their pages say the evidence was not copied and that the links
+inside the report expire. The links inside the embedded `report.html` still point at Actions.
+
+A walk-hallway run's evidence is about 5.2 MB (MCAP 3.9 MB, two videos 0.6 MB each), so a run
+and its `latest/` copy add about 10 MB. GitHub Pages sites are limited to 1 GB, which is
+roughly 190 runs; past `MAX_RUN_EVIDENCE_BYTES` (25 MB per run) an artifact is listed as not
+preserved instead of copied.
 
 Publishing needs GitHub Pages enabled for this repository with **Source: GitHub Actions**.
 

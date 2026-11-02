@@ -384,3 +384,151 @@ def test_publishing_actions_are_pinned_and_nothing_is_committed():
         s.get("run", "") for n in ("site", "pages") for s in WORKFLOW["jobs"][n]["steps"]
     )
     assert "git " not in scripts
+
+
+ART = "https://github.com/Living-Proof-Labs/livingproof-verification/actions/runs/7/artifacts"
+PREFIX = "unitree-g1-stock-mujoco-hallway"
+
+
+def evidence_for(tmp_path: Path, video: bytes = b"pass video") -> tuple[Path, list[dict]]:
+    """Downloaded links, MCAP and one video artifact, plus the run's artifact metadata."""
+    evidence = tmp_path / "evidence"
+    links = {
+        "run": "https://github.com/x",
+        "links": [
+            {"label": "MCAP, all 20 trials", "url": f"{ART}/101", "kind": "mcap"},
+            {"label": "video", "url": f"{ART}/102", "kind": "video", "seed": 1, "status": "PASS"},
+        ],
+    }
+    (evidence / f"{PREFIX}-links-stock").mkdir(parents=True)
+    (evidence / f"{PREFIX}-links-stock" / "links.json").write_text(json.dumps(links))
+    (evidence / f"{PREFIX}-mcap-stock").mkdir()
+    (evidence / f"{PREFIX}-mcap-stock" / "trials.mcap").write_bytes(b"mcap bytes")
+    (evidence / f"{PREFIX}-video-stock-seed-1-pass").mkdir()
+    (evidence / f"{PREFIX}-video-stock-seed-1-pass" / "seed-01-pass.mp4").write_bytes(video)
+    artifacts = [
+        {
+            "id": 101,
+            "name": f"{PREFIX}-mcap-stock",
+            "expires_at": "2026-12-02T08:54:02Z",
+            "digest": "sha256:" + "1" * 64,
+            "size_in_bytes": 10,
+        },
+        {
+            "id": 102,
+            "name": f"{PREFIX}-video-stock-seed-1-pass",
+            "expires_at": "2026-12-02T08:54:03Z",
+            "digest": "sha256:" + "2" * 64,
+            "size_in_bytes": 10,
+        },
+    ]
+    return evidence, artifacts
+
+
+def test_linked_evidence_is_copied_with_its_identity(tmp_path):
+    evidence, artifacts = evidence_for(tmp_path)
+    site = tmp_path / "site"
+    site_tool.build(
+        site,
+        reports_for(tmp_path, "r1", 12, "FAIL"),
+        run("7", "2026-11-02T00:00:00Z"),
+        evidence=evidence,
+        artifacts=artifacts,
+    )
+    folder = site / "unitree-g1/stock-mujoco-hallway/runs/7"
+    record = json.loads((folder / "run.json").read_text())
+    mcap, video = record["evidence"]
+    assert mcap["preserved"] and mcap["artifact"]["id"] == "101"
+    assert mcap["artifact"]["digest"] == "sha256:" + "1" * 64
+    assert mcap["files"] == [
+        {
+            "path": f"evidence/{PREFIX}-mcap-stock/trials.mcap",
+            "sha256": hashlib.sha256(b"mcap bytes").hexdigest(),
+            "bytes": 10,
+        }
+    ]
+    assert (video["seed"], video["status"]) == (1, "PASS")
+    assert (folder / video["files"][0]["path"]).read_bytes() == b"pass video"
+    page = (folder / "index.html").read_text()
+    assert f'href="{ART}/101"' in page and "available until 2026-12-02T08:54:02Z" in page
+    assert f'href="evidence/{PREFIX}-mcap-stock/trials.mcap"' in page
+    assert (site / "unitree-g1/stock-mujoco-hallway/latest" / video["files"][0]["path"]).is_file()
+    local_links_resolve(site)
+
+
+def test_expired_actions_artifacts_are_labelled_not_linked(tmp_path):
+    """#11: after expiry no page keeps a live-looking link to the Actions artifact."""
+    evidence, artifacts = evidence_for(tmp_path)
+    site = tmp_path / "site"
+    site_tool.build(
+        site,
+        reports_for(tmp_path, "r1", 12, "FAIL"),
+        run("7", "2026-11-02T00:00:00Z"),
+        evidence=evidence,
+        artifacts=artifacts,
+    )
+    # A later publish (after both artifacts expired) re-renders the restored run.
+    site_tool.build(site, reports_for(tmp_path, "r2", 15, "FAIL"), run("8", "2026-12-03T00:00:00Z"))
+    page = (site / "unitree-g1/stock-mujoco-hallway/runs/7/index.html").read_text()
+    assert ART not in page
+    assert page.count("no longer available") == 2
+    assert "expired 2026-12-02T08:54:02Z" in page and "sha256:" + "1" * 64 in page
+    assert f'href="evidence/{PREFIX}-mcap-stock/trials.mcap"' in page  # the copy remains
+    newer = (site / "unitree-g1/stock-mujoco-hallway/runs/8/index.html").read_text()
+    assert "was not copied to this site" in newer
+    local_links_resolve(site)
+
+
+def test_evidence_not_downloaded_or_over_budget_is_listed_unpreserved(tmp_path, monkeypatch):
+    evidence, artifacts = evidence_for(tmp_path, video=b"x" * 50)
+    monkeypatch.setattr(site_tool, "MAX_RUN_EVIDENCE_BYTES", 20)
+    del artifacts[0]  # metadata for the MCAP is missing, so it cannot be matched
+    site = tmp_path / "site"
+    site_tool.build(
+        site,
+        reports_for(tmp_path, "r1", 12, "FAIL"),
+        run("7", "2026-11-02T00:00:00Z"),
+        evidence=evidence,
+        artifacts=artifacts,
+    )
+    folder = site / "unitree-g1/stock-mujoco-hallway/runs/7"
+    mcap, video = json.loads((folder / "run.json").read_text())["evidence"]
+    assert not mcap["preserved"] and mcap["reason"].startswith("not downloaded")
+    assert not video["preserved"] and "budget" in video["reason"]
+    assert not (folder / "evidence").exists()
+    page = (folder / "index.html").read_text()
+    assert f'href="{ART}/101"' not in page and "expiry unknown, not linked" in page
+
+
+def test_publishing_downloads_the_linked_evidence():
+    steps = WORKFLOW["jobs"]["site"]["steps"]
+    patterns = [s["with"]["pattern"] for s in steps if "download-artifact" in s.get("uses", "")]
+    assert patterns == ["*-capability-report-*", "*-links-*", "*-mcap-*", "*-video-*"]
+    build_step = next(s for s in steps if "site.py build" in s.get("run", ""))
+    assert "--evidence evidence" in build_step["run"]
+    assert WORKFLOW["jobs"]["site"]["permissions"] == {"contents": "read", "actions": "read"}
+
+
+def test_fetch_artifacts_pages_through_the_run(monkeypatch):
+    calls = []
+
+    class Response(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def request(url, token):
+        calls.append((url, token))
+        page = int(url.rsplit("=", 1)[1])
+        batch = [{"id": i} for i in range(100)] if page == 1 else [{"id": 100}]
+        return Response(json.dumps({"artifacts": batch}).encode())
+
+    monkeypatch.setattr(site_tool, "_request", request)
+    found = site_tool.fetch_artifacts(REPO, "7-2", "t")
+    assert len(found) == 101
+    assert calls[0] == (
+        f"https://api.github.com/repos/{REPO}/actions/runs/7/artifacts?per_page=100&page=1",
+        "t",
+    )

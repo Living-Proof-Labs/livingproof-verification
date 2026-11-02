@@ -6,7 +6,10 @@ SHA256SUMS are checked), and the verifier's grade and trial counts are read from
 report.json, never recomputed. Per verification and configuration:
 
     <robot>/<variant>/runs/<run-id>/   report.{html,json,md,txt}, SHA256SUMS, run.json,
-                                       index.html (provenance + the report)
+                                       index.html (provenance, evidence + the report)
+    <robot>/<variant>/runs/<run-id>/evidence/<artifact>/
+                                       site copies of the run's linked evidence (MCAP,
+                                       videos), with sha256 in run.json
     <robot>/<variant>/latest/          a copy of the newest run folder
     <robot>/<variant>/index.html       run history
     index.html                         every robot/variant with grade and counts
@@ -34,6 +37,10 @@ PAGES_ARTIFACT = "github-pages"
 SEGMENT = re.compile(r"[a-z0-9][a-z0-9.-]*")
 RUN_ID = re.compile(r"[0-9]+(-[0-9]+)?")
 REPORT_FILES = ("report.html", "report.json", "report.md", "report.txt")
+# A run's linked evidence (MCAP and videos, about 5 MB for walk-hallway) is copied into
+# the site so it outlives the Actions artifacts and needs no GitHub sign-in. Pages sites
+# are limited to 1 GB; past this per-run budget an artifact is listed but not copied.
+MAX_RUN_EVIDENCE_BYTES = 25_000_000
 MARKER = "site.json"  # written by every build; its presence on the live site means history
 
 
@@ -275,7 +282,14 @@ def provenance(target: dict, run: dict) -> dict:
     }
 
 
-def add_run(site: Path, reports: Path, target: dict, run: dict) -> Path:
+def add_run(
+    site: Path,
+    reports: Path,
+    target: dict,
+    run: dict,
+    evidence: Path | None = None,
+    artifacts: list[dict] | None = None,
+) -> Path:
     source = reports / target["artifact"]
     if not source.is_dir():
         raise SiteError(f"No report artifact {target['artifact']} in {reports}")
@@ -295,8 +309,103 @@ def add_run(site: Path, reports: Path, target: dict, run: dict) -> Path:
         "outcome": outcome(json.loads((source / "report.json").read_text())),
         **provenance(target, run),
     }
+    if evidence is not None:
+        preserved = preserve_evidence(folder, target, evidence, artifacts or [])
+        if preserved is not None:
+            record["evidence"] = preserved
     (folder / "run.json").write_text(json.dumps(record, indent=2) + "\n")
     return folder
+
+
+def fetch_artifacts(
+    repository: str, run_id: str, token: str | None, api: str = "https://api.github.com"
+) -> list[dict]:
+    """Metadata (id, name, expires_at, digest, size) of every artifact of a workflow run."""
+    found, page = [], 1
+    while True:
+        with _request(
+            f"{api}/repos/{repository}/actions/runs/{run_id.split('-')[0]}/artifacts"
+            f"?per_page=100&page={page}",
+            token,
+        ) as response:
+            batch = json.load(response)["artifacts"]
+        found += batch
+        if len(batch) < 100:
+            return found
+        page += 1
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as f:
+        for block in iter(lambda: f.read(1 << 20), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def preserve_evidence(
+    folder: Path, target: dict, evidence: Path, artifacts: list[dict]
+) -> list[dict] | None:
+    """Copy the evidence the report links to into ``folder/evidence``; describe every link.
+
+    The links come from the run's ``<id>-links-<configuration>`` artifact (what the report
+    rendered). Each record keeps the original Actions artifact (id, name, URL, expiry, its
+    digest) next to the site copy's files and sha256, so identity stays tied to the
+    assessment. An artifact not downloaded, or past the per-run budget, is listed with
+    ``preserved: false`` and a reason. None when the run has no links artifact.
+    """
+    links_dir = evidence / f"{target['id']}-links-{target['configuration']}"
+    sources = sorted(links_dir.glob("*.json")) if links_dir.is_dir() else []
+    if not sources:
+        return None
+    links = json.loads(sources[0].read_text())["links"]
+    by_id = {str(a["id"]): a for a in artifacts}
+    budget = MAX_RUN_EVIDENCE_BYTES
+    records = []
+    for link in links:
+        artifact_id = link["url"].rstrip("/").rsplit("/", 1)[1]
+        meta = by_id.get(artifact_id, {})
+        name = meta.get("name")
+        record = {k: link[k] for k in ("label", "kind", "seed", "status") if k in link} | {
+            "artifact": {
+                "id": artifact_id,
+                "name": name,
+                "url": link["url"],
+                "expires_at": meta.get("expires_at"),
+                "digest": meta.get("digest"),
+                "size": meta.get("size_in_bytes"),
+            },
+            "preserved": False,
+            "files": [],
+        }
+        source = evidence / name if name and SEGMENT.fullmatch(name) else None
+        files = (
+            sorted(p for p in source.rglob("*") if p.is_file() and not p.is_symlink())
+            if source and source.is_dir()
+            else []
+        )
+        size = sum(p.stat().st_size for p in files)
+        if not files:
+            record["reason"] = "not downloaded when this run was published"
+        elif size > budget:
+            record["reason"] = f"over the site's per-run evidence budget ({size} bytes)"
+        else:
+            budget -= size
+            for p in files:
+                relative = PurePosixPath("evidence", name, *p.relative_to(source).parts)
+                destination = folder.joinpath(*relative.parts)
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(p, destination)
+                record["files"].append(
+                    {
+                        "path": str(relative),
+                        "sha256": _sha256(destination),
+                        "bytes": p.stat().st_size,
+                    }
+                )
+            record["preserved"] = True
+        records.append(record)
+    return records
 
 
 def runs(site: Path) -> dict:
@@ -315,7 +424,8 @@ STYLE = """body{font-family:system-ui,sans-serif;margin:2rem auto;max-width:72re
 color:#1b1f24}table{border-collapse:collapse}td,th{border:1px solid #d0d7de;padding:.35rem .6rem;
 text-align:left}.PASS{color:#1a7f37;font-weight:600}.FAIL{color:#cf222e;font-weight:600}
 dl{display:grid;grid-template-columns:max-content 1fr;gap:.2rem 1rem}dt{font-weight:600}
-iframe{width:100%;height:80vh;border:1px solid #d0d7de}code{font-size:.9em}"""
+iframe{width:100%;height:80vh;border:1px solid #d0d7de}code{font-size:.9em}
+.expired{color:#6e7781}.note{background:#fff8c5;padding:.5rem .8rem;border:1px solid #d4a72c}"""
 
 
 def page(title: str, body: str, up: str = "") -> str:
@@ -341,7 +451,63 @@ def outcome_cells(record: dict) -> str:
     )
 
 
-def run_page(record: dict, label: str, up: str) -> str:
+ACTIONS_NOTE = (
+    "Evidence links inside the rendered report point to GitHub Actions artifacts. Those need "
+    "a GitHub sign-in to download and are deleted when the artifact expires"
+)
+
+
+def evidence_section(record: dict, now: str) -> str:
+    """Site copies first; the original Actions artifact is a link only before it expires."""
+    items = record.get("evidence")
+    if items is None:
+        return (
+            "<h2>Evidence</h2>"
+            f'<p class="note">{ACTIONS_NOTE}. Evidence for this run was not copied to this '
+            "site, so once its artifacts expire it is unavailable here; the report's "
+            "assessments and SHA256SUMS above are unchanged.</p>"
+        )
+    rows = []
+    for e in items:
+        what = html.escape(e["label"])
+        if "seed" in e:
+            what = f"seed {e['seed']} ({html.escape(str(e.get('status', '')))}): {what}"
+        art = e["artifact"]
+        name = f"Actions artifact {html.escape(art['id'])}"
+        if art.get("name"):
+            name += f" <code>{html.escape(art['name'])}</code>"
+        if art.get("digest"):
+            name += f" · <code>{html.escape(art['digest'])}</code>"
+        expires = art.get("expires_at")
+        if expires and expires <= now:
+            original = f'<span class="expired">{name}: expired {html.escape(expires)}, no longer available</span>'
+        elif expires and art["url"].startswith("https://github.com/"):
+            original = (
+                a(art["url"], f"Actions artifact {art['id']}")
+                + f" (GitHub sign-in required; available until {html.escape(expires)})"
+                + name.removeprefix(f"Actions artifact {html.escape(art['id'])}")
+            )
+        else:
+            original = f'<span class="expired">{name}: expiry unknown, not linked</span>'
+        if e["preserved"]:
+            copies = "<br>".join(
+                a(f["path"], f["path"].rsplit("/", 1)[1])
+                + f" · {f['bytes']} bytes · sha256 <code>{html.escape(f['sha256'])}</code>"
+                for f in e["files"]
+            )
+        else:
+            copies = (
+                f'<span class="expired">not preserved: {html.escape(e.get("reason", ""))}</span>'
+            )
+        rows.append(f"<tr><td>{what}</td><td>{copies}</td><td>{original}</td></tr>")
+    return (
+        "<h2>Evidence</h2><table><tr><th>Evidence</th><th>Copy on this site</th>"
+        f"<th>Original</th></tr>{''.join(rows)}</table>"
+        f'<p class="note">{ACTIONS_NOTE}; use the copies on this site.</p>'
+    )
+
+
+def run_page(record: dict, label: str, up: str, now: str = "") -> str:
     """`up` is the relative path from the page's folder to <robot>/<variant>/."""
     p = record
     rows = [
@@ -377,13 +543,14 @@ def run_page(record: dict, label: str, up: str) -> str:
     body = (
         f"<dl>{details}</dl><p>Rendered by the reporter: {files}. "
         f'<a href="{up}index.html">Run history</a>.</p>'
-        f'<iframe src="report.html" title="Capability report"></iframe>'
+        + evidence_section(p, now)
+        + '<iframe src="report.html" title="Capability report"></iframe>'
     )
     title = f"{p['robot']['repository'].rsplit('/', 1)[1]} · {p['variant']} · {label}"
     return page(title, body, up=f"{up}../../index.html")
 
 
-def render(site: Path):
+def render(site: Path, now: str = ""):
     history = runs(site)
     rows = []
     for (robot, variant), records in sorted(history.items()):
@@ -395,10 +562,10 @@ def render(site: Path):
         shutil.copytree(base / "runs" / newest["folder"], latest)
         for record in records:
             (base / "runs" / record["folder"] / "index.html").write_text(
-                run_page(record, f"run {record['run']['id']}", up="../../")
+                run_page(record, f"run {record['run']['id']}", up="../../", now=now)
             )
         (latest / "index.html").write_text(
-            run_page(newest, f"latest (run {newest['run']['id']})", up="../")
+            run_page(newest, f"latest (run {newest['run']['id']})", up="../", now=now)
         )
         items = "".join(
             f"<tr><td>{a('runs/' + r['folder'] + '/', r['run']['id'])}</td>"
@@ -435,9 +602,16 @@ def render(site: Path):
     (site / "index.html").write_text(page("Living Proof verification reports", body))
 
 
-def build(site: Path, reports: Path, run: dict, verifications: Path = ROOT / "verifications"):
-    added = [add_run(site, reports, t, run) for t in targets(verifications)]
-    render(site)
+def build(
+    site: Path,
+    reports: Path,
+    run: dict,
+    verifications: Path = ROOT / "verifications",
+    evidence: Path | None = None,
+    artifacts: list[dict] | None = None,
+):
+    added = [add_run(site, reports, t, run, evidence, artifacts) for t in targets(verifications)]
+    render(site, now=run["created"])
     (site / MARKER).write_text(
         json.dumps(
             {"runs": sum(len(r) for r in runs(site).values()), "updated": run["created"]},
@@ -471,6 +645,11 @@ def main(argv=None):
     b.add_argument("--run-id", required=True)
     b.add_argument("--commit", required=True)
     b.add_argument("--created", required=True, help="UTC ISO 8601 time of the run")
+    b.add_argument(
+        "--evidence",
+        type=Path,
+        help="downloaded links, MCAP and video artifacts to copy into the site",
+    )
     b.add_argument("--repository", default=os.environ.get("GITHUB_REPOSITORY"))
     b.add_argument("--server", default=os.environ.get("GITHUB_SERVER_URL", "https://github.com"))
     args = parser.parse_args(argv)
@@ -486,6 +665,11 @@ def main(argv=None):
             reset_history=args.reset_history,
         )
     else:
+        artifacts = (
+            fetch_artifacts(args.repository, args.run_id, os.environ.get("GITHUB_TOKEN"))
+            if args.evidence
+            else None
+        )
         added = build(
             args.site,
             args.reports,
@@ -496,6 +680,8 @@ def main(argv=None):
                 "repository": args.repository,
                 "server": args.server,
             },
+            evidence=args.evidence,
+            artifacts=artifacts,
         )
         for folder in added:
             print(f"Added {folder.relative_to(args.site)}")
