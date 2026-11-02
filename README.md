@@ -16,7 +16,7 @@ The first definition is `unitree-g1-stock-mujoco-hallway`: Unitree G1 with its s
 
 ## Run a verification locally
 
-You need git, [uv](https://docs.astral.sh/uv/), Docker (for the locked reporter image), and OSMesa (`libosmesa6` on Debian or Ubuntu). Install `livingproof` with the capability verifier plugin in one environment:
+You need git, jq, [uv](https://docs.astral.sh/uv/), Docker (for the locked reporter image), and OSMesa (`libosmesa6` on Debian or Ubuntu). Install `livingproof` with the capability verifier plugin in one environment:
 
 ```sh
 uv venv .venv
@@ -54,13 +54,13 @@ Edit a definition, re-lock it, and review the lock diff:
 .venv/bin/livingproof capability verify lock verifications/unitree-g1-stock-mujoco-hallway.toml
 ```
 
-Then update the call in `.github/workflows/verify.yml` to the new robot commit (and the verifier commit, if the robot lock names a new one). `tests/test_locks.py` and `lock --check --workflow` fail until the two agree.
+Then update the call in `.github/workflows/verify.yml` to the new robot commit (and the verifier commit, if the robot lock names a new one). `tests/test_locks.py` (the `locks` CI job, which every verification job waits for) and `lock --check --workflow` fail until the two agree. Both parse the workflow YAML, so a commented-out pin does not count.
 
 ## Checks
 
 ```sh
 uvx ruff@0.14.2 check . && uvx ruff@0.14.2 format --check .
-uvx --with pytest==8.4.2 pytest
+uvx --from pytest==8.4.2 --with pyyaml==6.0.3 pytest
 actionlint
 ```
 
