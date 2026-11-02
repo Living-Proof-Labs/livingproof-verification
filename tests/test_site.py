@@ -115,11 +115,56 @@ def test_second_run_updates_latest_and_keeps_the_first(tmp_path):
     local_links_resolve(site)
 
 
+def test_index_and_history_link_runs_to_ci(tmp_path):
+    site = tmp_path / "site"
+    site_tool.build(
+        site, reports_for(tmp_path, "one", 12, "FAIL"), run("100", "2026-11-02T00:00:00Z")
+    )
+    site_tool.build(
+        site, reports_for(tmp_path, "two", 19, "PASS"), run("200-2", "2026-11-03T00:00:00Z")
+    )
+    actions = f"https://github.com/{REPO}/actions/runs/"
+    index = (site / "index.html").read_text()
+    assert f'<a href="{actions}200">CI run 200-2</a>' in index
+    assert f"{actions}100" not in index
+    history = (site / "unitree-g1/stock-mujoco-hallway/index.html").read_text()
+    for run_id, ci in (("100", "100"), ("200-2", "200")):
+        assert f'<a href="runs/{run_id}/">{run_id}</a>' in history
+        assert f'<a href="{actions}{ci}">CI run {run_id}</a>' in history
+    local_links_resolve(site)
+
+
 def test_reports_are_copied_unchanged_and_checked(tmp_path):
     reports = reports_for(tmp_path, "one", 12, "FAIL")
     artifact = reports / "unitree-g1-stock-mujoco-hallway-capability-report-stock"
     (artifact / "report.html").write_text("tampered")
     with pytest.raises(site_tool.SiteError, match="SHA256SUMS"):
+        site_tool.build(tmp_path / "site", reports, run("1", "2026-11-02T00:00:00Z"))
+
+
+@pytest.mark.parametrize("name", ["report.json", "report.html"])
+def test_missing_report_file_is_a_site_error(tmp_path, name):
+    reports = reports_for(tmp_path, "one", 12, "FAIL")
+    (reports / "unitree-g1-stock-mujoco-hallway-capability-report-stock" / name).unlink()
+    with pytest.raises(site_tool.SiteError, match=f"missing {name}"):
+        site_tool.build(tmp_path / "site", reports, run("1", "2026-11-02T00:00:00Z"))
+
+
+@pytest.mark.parametrize("name", ["report.json", "report.md"])
+def test_missing_sha256sums_entry_is_a_site_error(tmp_path, name):
+    reports = reports_for(tmp_path, "one", 12, "FAIL")
+    sums = reports / "unitree-g1-stock-mujoco-hallway-capability-report-stock" / "SHA256SUMS"
+    sums.write_text(
+        "".join(line + "\n" for line in sums.read_text().splitlines() if not line.endswith(name))
+    )
+    with pytest.raises(site_tool.SiteError, match=f"no entry for {name}"):
+        site_tool.build(tmp_path / "site", reports, run("1", "2026-11-02T00:00:00Z"))
+
+
+def test_missing_sha256sums_is_a_site_error(tmp_path):
+    reports = reports_for(tmp_path, "one", 12, "FAIL")
+    (reports / "unitree-g1-stock-mujoco-hallway-capability-report-stock" / "SHA256SUMS").unlink()
+    with pytest.raises(site_tool.SiteError, match="missing SHA256SUMS"):
         site_tool.build(tmp_path / "site", reports, run("1", "2026-11-02T00:00:00Z"))
 
 
@@ -197,6 +242,105 @@ def test_restore_then_build_keeps_history(tmp_path, monkeypatch):
     assert json.loads((base / "latest/run.json").read_text())["run"]["id"] == "200"
 
 
+SITE_URL = "https://docs.example/livingproof-verification/"
+
+
+def no_artifacts(monkeypatch, statuses):
+    """Artifact listing is empty; the live site answers `statuses` per file name."""
+    monkeypatch.setattr(site_tool, "_request", lambda url, token: io.BytesIO(b'{"artifacts": []}'))
+    probed = []
+
+    def status(url):
+        probed.append(url)
+        answer = statuses[url.rsplit("/", 1)[1]]
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+    monkeypatch.setattr(site_tool, "_fetch_status", status)
+    return probed
+
+
+@pytest.mark.parametrize(
+    "statuses",
+    [{"site.json": 200, "index.html": 404}, {"site.json": 404, "index.html": 200}],
+)
+def test_restore_refuses_a_fresh_site_when_history_is_live(tmp_path, monkeypatch, statuses):
+    no_artifacts(monkeypatch, statuses)
+    with pytest.raises(site_tool.SiteError, match="reset-history"):
+        site_tool.restore(tmp_path / "s", REPO, "main", 1, "t", site_url=SITE_URL)
+    assert (
+        site_tool.restore(
+            tmp_path / "s", REPO, "main", 1, "t", site_url=SITE_URL, reset_history=True
+        )
+        is None
+    )
+
+
+@pytest.mark.parametrize(
+    "statuses",
+    [{"site.json": 500, "index.html": 404}, {"site.json": OSError("down"), "index.html": 404}],
+)
+def test_restore_fails_when_the_live_site_cannot_be_checked(tmp_path, monkeypatch, statuses):
+    no_artifacts(monkeypatch, statuses)
+    with pytest.raises(site_tool.SiteError, match="Cannot check"):
+        site_tool.restore(tmp_path / "s", REPO, "main", 1, "t", site_url=SITE_URL)
+
+
+def test_restore_starts_fresh_only_when_nothing_is_published(tmp_path, monkeypatch):
+    probed = no_artifacts(monkeypatch, {"site.json": 404, "index.html": 404})
+    assert site_tool.restore(tmp_path / "s", REPO, "main", 1, "t", site_url=SITE_URL) is None
+    assert probed == [SITE_URL + "site.json", SITE_URL + "index.html"]
+    with pytest.raises(site_tool.SiteError, match="--site-url"):
+        site_tool.restore(tmp_path / "s", REPO, "main", 1, "t")
+
+
+def test_build_writes_the_history_marker(tmp_path):
+    site = tmp_path / "site"
+    site_tool.build(
+        site, reports_for(tmp_path, "one", 12, "FAIL"), run("1", "2026-11-02T00:00:00Z")
+    )
+    site_tool.build(
+        site, reports_for(tmp_path, "two", 19, "PASS"), run("2", "2026-11-03T00:00:00Z")
+    )
+    # One record per locked target per CI run.
+    assert json.loads((site / "site.json").read_text()) == {
+        "runs": 2 * len(site_tool.targets()),
+        "updated": "2026-11-03T00:00:00Z",
+    }
+
+
+def test_workflow_checks_the_live_site_and_resets_only_on_request():
+    on = WORKFLOW[True] if True in WORKFLOW else WORKFLOW["on"]
+    reset = on["workflow_dispatch"]["inputs"]["reset-history"]
+    assert reset["type"] == "boolean" and reset["default"] is False
+    step = next(s for s in WORKFLOW["jobs"]["site"]["steps"] if "restore" in s.get("run", ""))
+    assert step["env"]["SITE_URL"] == "https://docs.livingprooflabs.com/livingproof-verification/"
+    assert "${{" not in step["run"]
+    assert "--reset-history" in step["run"]
+
+
+def test_reset_history_recovers_from_an_expired_artifact(tmp_path, monkeypatch):
+    listing = {"artifacts": [artifact(7, "main", 100, "2026-08-01T00:00:00Z", expired=True)]}
+    requested = []
+
+    def fake(url, token):
+        requested.append(url)
+        return io.BytesIO(json.dumps(listing).encode())
+
+    monkeypatch.setattr(site_tool, "_request", fake)
+    with pytest.raises(site_tool.SiteError, match="expired"):
+        site_tool.restore(tmp_path / "s", REPO, "main", 200, "t", site_url=SITE_URL)
+    requested.clear()
+    assert (
+        site_tool.restore(
+            tmp_path / "s", REPO, "main", 200, "t", site_url=SITE_URL, reset_history=True
+        )
+        is None
+    )
+    assert requested == [] and not any((tmp_path / "s").iterdir())
+
+
 def test_restore_rejects_unsafe_archive_paths(tmp_path):
     tar_buffer = io.BytesIO()
     with tarfile.open(fileobj=tar_buffer, mode="w") as tar:
@@ -216,7 +360,8 @@ def test_publishing_runs_only_on_push_to_main_with_scoped_permissions():
     assert set(jobs["site"]["needs"]) == verifications
     for name in ("site", "pages"):
         assert jobs[name]["if"] == (
-            "github.event_name == 'push' && github.ref == 'refs/heads/main'"
+            "github.ref == 'refs/heads/main' && (github.event_name == 'push' || "
+            "(github.event_name == 'workflow_dispatch' && inputs.reset-history))"
         )
     assert jobs["pages"]["needs"] == "site"
     assert jobs["pages"]["permissions"] == {"pages": "write", "id-token": "write"}

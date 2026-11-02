@@ -1,0 +1,10 @@
+# Build backends for the two git installs in lock-check-git.txt, installed hashed into the
+# lock-check venv first; the git installs then build with --no-build-isolation, so nothing
+# is fetched unhashed at build time. livingproof builds with hatchling + hatch-vcs (and the
+# hashed livingproof-common wheel from lock-check.txt); capability-verifier v1.10.0 declares no
+# build-system, so it builds with setuptools. Regenerate with:
+#   uv pip compile --generate-hashes --python-version 3.12 --no-header \
+#     .github/requirements/build.in -o .github/requirements/build.txt
+hatchling==1.27.0
+hatch-vcs==0.5.0
+setuptools==80.9.0
