@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Thin call: the capability verifier's reusable workflow runs every step. The values below
-# must equal verifications/unitree-g1-stock-mujoco-hallway.lock.json (the verifier commit it
+# must equal its verifications/<job id>.lock.json (the verifier commit it
 # names, the robot repository, commit and configurations); the locks job (tests/test_locks.py) and
 # `livingproof capability verify lock --check --workflow` fail when they drift.
 name: verify
@@ -32,7 +32,7 @@ jobs:
       # Every package but the two git installs is hashed in .github/requirements/lock-check.txt
       # and installed with --require-hashes on its own: uv skipped the hash check on a URL wheel
       # when a git requirement shared the install. livingproof v1.4.9 and capability-verifier
-      # v1.10.0 are pinned by commit in lock-check-git.txt and installed after, with --no-deps
+      # v1.10.4 are pinned by commit in lock-check-git.txt and installed after, with --no-deps
       # and --no-build-isolation: their build backends come hashed from build.txt.
       - name: A wrong hash must refuse the install
         run: |
@@ -74,11 +74,24 @@ jobs:
       artifact-prefix: unitree-g1-stock-mujoco-hallway-
       check: false  # the robot repository's own CI tests the robot
       comment: false
+  booster-t1-stock-mujoco-hallway:
+    needs: locks
+    uses: Living-Proof-Labs/capability-verifier/.github/workflows/walk-hallway.yml@f8dc3d5634cf2ac2931e854b4f0b7d0ae39d7f0b
+    permissions:
+      contents: read
+      pull-requests: write
+    with:
+      repository: Living-Proof-Labs/livingproof-booster-t1
+      ref: 30fdfca75e5e2c20503bba23cb9a72e84a8a7d71
+      configurations: '["stock"]'
+      artifact-prefix: booster-t1-stock-mujoco-hallway-
+      check: false  # the robot repository's own CI tests the robot
+      comment: false
   # Publishing (push to main only): lay this run's reports out into the Pages site, keeping
   # every earlier run from the previous Pages artifact. Layout and index only (tools/site.py):
   # the verifier graded and the reporter rendered; nothing is committed.
   site:
-    needs: [unitree-g1-stock-mujoco-hallway]
+    needs: [unitree-g1-stock-mujoco-hallway, booster-t1-stock-mujoco-hallway]
     if: >-
       github.ref == 'refs/heads/main' && (github.event_name == 'push' ||
       (github.event_name == 'workflow_dispatch' && inputs.reset-history))
