@@ -698,3 +698,38 @@ def test_a_report_without_artifact_links_is_published_unchanged(tmp_path):
     assert (folder / "report.html").read_text() == "report.html 12"
     assert not (folder / "report.html.orig").exists()
     assert "report.html.orig" not in (folder / "index.html").read_text()
+
+
+def test_the_all_trials_mcap_link_opens_a_listing_of_every_trial(tmp_path):
+    """'MCAP, all 20 trials' must not open only seed 1: it links a page listing all 20."""
+    evidence, artifacts = evidence_for(tmp_path)
+    mcap = evidence / f"{PREFIX}-mcap-stock"
+    (mcap / "trials.mcap").unlink()
+    for seed in range(1, 21):
+        (mcap / "mcap").mkdir(exist_ok=True)
+        (mcap / "mcap" / f"seed-{seed:02d}.mcap").write_bytes(f"seed {seed}".encode())
+    (mcap / "media.json").write_text("{}")
+    site = tmp_path / "site"
+    site_tool.build(
+        site,
+        reports_with_links(tmp_path, "r1"),
+        run("7", "2026-11-02T00:00:00Z"),
+        evidence=evidence,
+        artifacts=artifacts,
+    )
+    for folder in (
+        site / "unitree-g1/stock-mujoco-hallway/runs/7",
+        site / "unitree-g1/stock-mujoco-hallway/latest",
+    ):
+        report = (folder / "report.html").read_text()
+        listing = f"evidence/{PREFIX}-mcap-stock.html"
+        assert f"<a href='{listing}'>MCAP, all 20 trials</a> (21 files)" in report
+        assert "seed-01.mcap'>MCAP" not in report
+        page = (folder / listing).read_text()
+        for seed in range(1, 21):
+            assert f'href="{PREFIX}-mcap-stock/mcap/seed-{seed:02d}.mcap"' in page, seed
+        assert f'href="{PREFIX}-mcap-stock/media.json"' in page
+        assert f'href="{listing}">all 21 files</a>' in (folder / "index.html").read_text()
+        # The single-file video keeps its direct link.
+        assert f"<a href='evidence/{PREFIX}-video-stock-seed-1-pass/seed-01-pass.mp4'>" in report
+    local_links_resolve(site)
