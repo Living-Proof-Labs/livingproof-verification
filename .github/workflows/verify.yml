@@ -32,7 +32,7 @@ jobs:
       # Every package but the two git installs is hashed in .github/requirements/lock-check.txt
       # and installed with --require-hashes on its own: uv skipped the hash check on a URL wheel
       # when a git requirement shared the install. livingproof v1.4.9 and capability-verifier
-      # v1.10.0 are pinned by commit in lock-check-git.txt and installed after, with --no-deps
+      # v1.10.4 are pinned by commit in lock-check-git.txt and installed after, with --no-deps
       # and --no-build-isolation: their build backends come hashed from build.txt.
       - name: A wrong hash must refuse the install
         run: |
