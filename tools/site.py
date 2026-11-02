@@ -347,6 +347,7 @@ def render(site: Path):
         )
         items = "".join(
             f"<tr><td>{a('runs/' + r['folder'] + '/', r['run']['id'])}</td>"
+            f"<td>{a(r['run']['url'], 'CI run ' + r['run']['id'])}</td>"
             f"<td>{html.escape(r['run']['created'])}</td><td>{outcome_cells(r)}</td>"
             f"<td>{a(r['commit']['url'], r['commit']['sha'][:12])}</td></tr>"
             for r in records
@@ -354,14 +355,15 @@ def render(site: Path):
         (base / "index.html").write_text(
             page(
                 f"{robot} · {variant} · run history",
-                f"<p>{a('latest/', 'Latest report')}</p><table><tr><th>Run</th><th>Created</th>"
+                f"<p>{a('latest/', 'Latest report')}</p><table><tr><th>Run</th><th>CI</th><th>Created</th>"
                 f"<th>Outcome</th><th>Commit</th></tr>{items}</table>",
                 up="../../index.html",
             )
         )
         rows.append(
             f"<tr><td>{html.escape(robot)}</td><td>{html.escape(variant)}</td>"
-            f"<td>{outcome_cells(newest)}</td>"
+            f"<td>{outcome_cells(newest)}<br>"
+            f"{a(newest['run']['url'], 'CI run ' + newest['run']['id'])}</td>"
             f"<td>{a(f'{robot}/{variant}/latest/', 'latest')} · "
             f"{a(f'{robot}/{variant}/', f'history ({len(records)} run{"s" * (len(records) != 1)})')}</td></tr>"
         )
