@@ -57,10 +57,10 @@ def run(run_id: str, created: str) -> dict:
 
 
 def reports_for(tmp_path: Path, name: str, passed: int, grade: str) -> Path:
+    """One run's report artifacts: every locked definition and configuration."""
     reports = tmp_path / name
-    write_reports(
-        reports / "unitree-g1-stock-mujoco-hallway-capability-report-stock", passed, grade
-    )
+    for target in site_tool.targets():
+        write_reports(reports / target["artifact"], passed, grade)
     return reports
 
 
@@ -78,10 +78,14 @@ def local_links_resolve(site: Path):
 
 
 def test_targets_follow_the_locks_and_the_workflow_artifact_names():
-    (target,) = site_tool.targets()
-    assert (target["robot"], target["variant"]) == ("unitree-g1", "stock-mujoco-hallway")
-    job = WORKFLOW["jobs"][target["id"]]
-    assert target["artifact"] == job["with"]["artifact-prefix"] + "capability-report-stock"
+    targets = site_tool.targets()
+    assert ("unitree-g1", "stock-mujoco-hallway") in {(t["robot"], t["variant"]) for t in targets}
+    assert len({(t["robot"], t["variant"]) for t in targets}) == len(targets)
+    for target in targets:
+        job = WORKFLOW["jobs"][target["id"]]
+        assert target["artifact"] == (
+            job["with"]["artifact-prefix"] + "capability-report-" + target["configuration"]
+        )
 
 
 def test_second_run_updates_latest_and_keeps_the_first(tmp_path):
