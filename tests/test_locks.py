@@ -132,12 +132,13 @@ def test_verification_waits_for_the_lock_guard():
         "verify lock --check" in r and "--workflow .github/workflows/verify.yml" in r for r in check
     )
     installs = [line.strip() for r in check for line in r.splitlines() if "uv pip install" in line]
-    git = "uv pip install --no-deps \\"
+    git = "uv pip install --no-deps --no-build-isolation \\"
     assert installs and all(
         "uv pip install --require-hashes --no-deps" in line or line.endswith(git)
         for line in installs
     )
     assert sum(line.endswith(git) for line in installs) == 1
+    assert any("-r .github/requirements/build.txt" in r for r in check)
     assert any("--require-hashes --no-deps -r .github/requirements/uv.txt" in r for r in check)
     assert any("a wrong livingproof-common hash installed" in r for r in check)
     tools = (ROOT / ".github/requirements/lock-check-git.txt").read_text()
@@ -159,7 +160,7 @@ def _entries(name):
     )
 
 
-@pytest.mark.parametrize("name", ["lock-check.txt", "tests.txt", "uv.txt"])
+@pytest.mark.parametrize("name", ["lock-check.txt", "tests.txt", "uv.txt", "build.txt"])
 def test_hashed_ci_requirements_are_all_hashed(name):
     # A git requirement in the same install made uv skip a URL wheel's hash, so the hashed
     # files hold no git requirement and are installed with --require-hashes.
