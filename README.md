@@ -23,10 +23,10 @@ uv venv .venv
 VIRTUAL_ENV=.venv uv pip install \
   "livingproof-common @ https://github.com/Living-Proof-Labs/livingproof-common/releases/download/v1.0.0/livingproof_common-1.0.0-py3-none-any.whl" \
   "livingproof @ git+https://github.com/Living-Proof-Labs/livingproof@v1.4.9" \
-  "capability-verifier @ git+https://github.com/Living-Proof-Labs/capability-verifier@VERIFIER_RELEASE"
+  "capability-verifier @ git+https://github.com/Living-Proof-Labs/capability-verifier@v1.10.0"
 ```
 
-`VERIFIER_RELEASE` is the first capability-verifier release that ships `livingproof capability verify`.
+capability-verifier v1.10.0 is the first release that ships `livingproof capability verify`. CI installs the same versions, pinned by commit, in its `locks` job.
 
 Check the lock and the workflow call, then run:
 

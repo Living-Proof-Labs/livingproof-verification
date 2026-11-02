@@ -126,6 +126,12 @@ def test_the_pin_matches_the_owner_case_insensitively():
 def test_verification_waits_for_the_lock_guard():
     jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
     assert "pytest tests/test_locks.py" in jobs["locks"]["steps"][-1]["run"]
+    check = [st.get("run", "") for st in jobs["locks"]["steps"]]
+    assert any(
+        "capability-verifier@043c221cff81444b8134caadcced6a9e12ae9552" in r
+        and "verify lock --check --workflow .github/workflows/verify.yml" in r
+        for r in check
+    )
     for definition in DEFINITIONS:
         assert jobs[definition.stem]["needs"] == "locks"
 
