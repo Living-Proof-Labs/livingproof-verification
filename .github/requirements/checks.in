@@ -1,0 +1,4 @@
+# The PR checks job's lint and format tools (ruff). Regenerate with:
+#   uv pip compile --generate-hashes --python-version 3.12 --no-header \
+#     .github/requirements/checks.in -o .github/requirements/checks.txt
+ruff==0.14.2
