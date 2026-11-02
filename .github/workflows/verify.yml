@@ -1,0 +1,38 @@
+# SPDX-License-Identifier: Apache-2.0
+# Thin call: the capability verifier's reusable workflow runs every step. The values below
+# must equal verifications/unitree-g1-stock-mujoco-hallway.lock.json (the verifier commit it
+# names, the robot repository, commit and configurations); the locks job (tests/test_locks.py) and
+# `livingproof capability verify lock --check --workflow` fail when they drift.
+name: verify
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  # Review guard: no verification runs (or publishes evidence) for pins that drift from the
+  # reviewed locks. Offline; tests/test_locks.py parses this file as YAML.
+  locks:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - run: python3 -m pip install --user uv==0.13.6
+      - run: uvx --from pytest==8.4.2 --with pyyaml==6.0.3 pytest tests/test_locks.py
+  unitree-g1-stock-mujoco-hallway:
+    needs: locks
+    uses: Living-Proof-Labs/capability-verifier/.github/workflows/walk-hallway.yml@f8dc3d5634cf2ac2931e854b4f0b7d0ae39d7f0b
+    permissions:
+      contents: read
+      pull-requests: write
+    with:
+      repository: Living-Proof-Labs/livingproof-unitree-g1
+      ref: f3447e14ab7f70828d0cf769c7b6f7e512f89150
+      configurations: '["stock"]'
+      artifact-prefix: unitree-g1-stock-mujoco-hallway-
+      check: false  # the robot repository's own CI tests the robot
+      comment: false

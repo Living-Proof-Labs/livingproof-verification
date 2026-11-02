@@ -1,0 +1,95 @@
+# SPDX-License-Identifier: Apache-2.0
+"""Offline review guards, run in CI by the `locks` job before any verification: every
+definition has a current lock, and the thin workflow call passes exactly the locked values.
+The workflow is parsed as YAML, so a commented-out or misplaced pin never counts. The full
+check (robot lock re-read at the locked commit) is
+`livingproof capability verify lock --check --workflow .github/workflows/verify.yml`."""
+
+import hashlib
+import json
+from pathlib import Path
+import tomllib
+
+import pytest
+import yaml
+
+ROOT = Path(__file__).parents[1]
+DEFINITIONS = sorted((ROOT / "verifications").glob("*.toml"))
+WORKFLOW = ROOT / ".github/workflows/verify.yml"
+PROCEDURE = ".github/workflows/walk-hallway.yml"
+
+
+def lock_of(definition: Path) -> dict:
+    return json.loads(definition.with_name(definition.stem + ".lock.json").read_text())
+
+
+def call_problems(lock: dict, job) -> list[str]:
+    """Why the parsed workflow ``job`` is not exactly the locked call (empty when it is)."""
+    if not isinstance(job, dict):
+        return ["no such job"]
+    v = lock["releases"]["verifier"]
+    w = job.get("with") if isinstance(job.get("with"), dict) else {}
+    confs = w.get("configurations")
+    want = {
+        "uses": (job.get("uses"), f"{v['repository']}/{PROCEDURE}@{v['commit']}"),
+        "with.repository": (w.get("repository"), lock["robot"]["repository"]),
+        "with.ref": (w.get("ref"), lock["robot"]["commit"]),
+        "with.configurations": (
+            json.loads(confs) if isinstance(confs, str) else confs,
+            lock["robot"]["configurations"],
+        ),
+    }
+    return [f"{k} is {got!r}, locked {exp!r}" for k, (got, exp) in want.items() if got != exp]
+
+
+def test_there_is_at_least_one_definition():
+    assert DEFINITIONS
+
+
+@pytest.mark.parametrize("definition", DEFINITIONS, ids=lambda p: p.stem)
+def test_lock_is_current_for_its_definition(definition):
+    lock = lock_of(definition)
+    d = tomllib.loads(definition.read_text())
+    assert lock["definition"]["sha256"] == hashlib.sha256(definition.read_bytes()).hexdigest()
+    assert lock["robot"]["repository"] == d["robot"]["repository"]
+    assert lock["robot"]["configurations"] == d["robot"]["configurations"]
+    assert len(lock["robot"]["commit"]) == 40
+
+
+@pytest.mark.parametrize("definition", DEFINITIONS, ids=lambda p: p.stem)
+def test_workflow_calls_the_locked_verifier_robot_and_configurations(definition):
+    jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
+    assert call_problems(lock_of(definition), jobs.get(definition.stem)) == []
+
+
+def test_every_verification_job_has_a_definition():
+    jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
+    calls = {n for n, j in jobs.items() if PROCEDURE in str(j.get("uses", ""))}
+    assert calls == {p.stem for p in DEFINITIONS}
+
+
+def test_verification_waits_for_the_lock_guard():
+    jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
+    assert "pytest tests/test_locks.py" in jobs["locks"]["steps"][-1]["run"]
+    for definition in DEFINITIONS:
+        assert jobs[definition.stem]["needs"] == "locks"
+
+
+def test_a_commented_out_pin_does_not_count():
+    # Regression: the pinned lines as comments next to drifted values used to pass.
+    definition = DEFINITIONS[0]
+    lock = lock_of(definition)
+    v = lock["releases"]["verifier"]
+    text = (
+        "jobs:\n"
+        f"  {definition.stem}:\n"
+        f"    uses: {v['repository']}/{PROCEDURE}@main\n"
+        f"    # uses: {v['repository']}/{PROCEDURE}@{v['commit']}\n"
+        "    with:\n"
+        f"      repository: {lock['robot']['repository']}\n"
+        "      ref: main\n"
+        f"      # ref: {lock['robot']['commit']}\n"
+        f"      configurations: '{json.dumps(lock['robot']['configurations'])}'\n"
+    )
+    problems = call_problems(lock, yaml.safe_load(text)["jobs"][definition.stem])
+    assert [p.split(" ")[0] for p in problems] == ["uses", "with.ref"]

@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: Apache-2.0
+# Unitree G1 with its stock controller walks the hallway in MuJoCo.
+# The robot repository supplies the configuration, world, simulator runner, specs and trial
+# plan through its own verification.lock.json; this file only selects what to verify.
+# Lock it with `livingproof capability verify lock <this file>` and review the lock diff.
+format = "livingproof-verification-definition/0.1.0"
+id = "unitree-g1-stock-mujoco-hallway"
+procedure = "walk-hallway"
+
+[robot]
+repository = "Living-Proof-Labs/livingproof-unitree-g1"
+ref = "main"
+configurations = ["stock"]

@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: Apache-2.0
+# Tooling configuration only: this repository has no package. The tools run through
+# `livingproof` (see README).
+[tool.ruff]
+line-length = 100
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
