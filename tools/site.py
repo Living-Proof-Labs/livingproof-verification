@@ -533,7 +533,10 @@ def evidence_section(record: dict, now: str) -> str:
         else:
             original = f'<span class="expired">{name}: expiry unknown, not linked</span>'
         if e["preserved"]:
-            copies = "<br>".join(
+            listing = listing_path(e)
+            copies = (
+                a(listing, f"all {len(e['files'])} files") + "<br>" if listing else ""
+            ) + "<br>".join(
                 a(f["path"], f["path"].rsplit("/", 1)[1])
                 + f" · {f['bytes']} bytes · sha256 <code>{html.escape(f['sha256'])}</code>"
                 for f in e["files"]
@@ -548,6 +551,35 @@ def evidence_section(record: dict, now: str) -> str:
         f"<th>Original</th></tr>{''.join(rows)}</table>"
         f'<p class="note">{ACTIONS_NOTE}; use the copies on this site.</p>'
     )
+
+
+def listing_path(e: dict) -> str | None:
+    """Where a preserved artifact with several files is listed: ``evidence/<name>.html``."""
+    name = e["artifact"].get("name")
+    if not (e.get("preserved") and len(e.get("files") or []) > 1 and name):
+        return None
+    return f"evidence/{name}.html"
+
+
+def write_listing(folder: Path, e: dict) -> None:
+    """A page linking every file of one preserved artifact (e.g. all 20 trial MCAPs)."""
+    path = listing_path(e)
+    if path is None:
+        return
+    prefix = path.removesuffix(".html").removeprefix("evidence/") + "/"
+    rows = "".join(
+        "<tr><td>"
+        + a(f["path"].removeprefix("evidence/"), f["path"].removeprefix(f"evidence/{prefix}"))
+        + f"</td><td>{f['bytes']}</td><td><code>{html.escape(f['sha256'])}</code></td></tr>"
+        for f in e["files"]
+    )
+    body = (
+        f"<p>All {len(e['files'])} files of Actions artifact "
+        f"<code>{html.escape(e['artifact']['name'])}</code>, copied to this site. "
+        f"{a('../index.html', 'Back to the run')} · {a('../report.html', 'report')}</p>"
+        f"<table><tr><th>File</th><th>Bytes</th><th>sha256</th></tr>{rows}</table>"
+    )
+    (folder / path).write_text(page(e.get("label") or e["artifact"]["name"], body))
 
 
 def original_reference(artifact: dict, now: str) -> str:
@@ -586,7 +618,12 @@ def publish_report_html(folder: Path, record: dict, now: str) -> None:
         url, artifact_id, label = match.group(2), match.group(3), match.group(4)
         e = by_id.get(artifact_id)
         artifact = e["artifact"] if e else {"id": artifact_id, "url": url}
-        if e and e["preserved"] and e["files"]:
+        if e and listing_path(e):
+            # One link that opens every file: the label promises all of them.
+            primary = (
+                f"<a href='{html.escape(listing_path(e))}'>{label}</a> ({len(e['files'])} files)"
+            )
+        elif e and e["preserved"] and e["files"]:
             first, *rest = e["files"]
             primary = f"<a href='{html.escape(first['path'])}'>{label}</a>" + "".join(
                 f" · <a href='{html.escape(f['path'])}'>{html.escape(f['path'].rsplit('/', 1)[1])}</a>"
@@ -658,6 +695,8 @@ def render(site: Path, now: str = ""):
             shutil.rmtree(latest)
         for record in records:
             folder = base / "runs" / record["folder"]
+            for e in record.get("evidence") or []:
+                write_listing(folder, e)
             publish_report_html(folder, record, now)
             record["original_html"] = (folder / ORIGINAL_HTML).is_file()
         newest = records[0]

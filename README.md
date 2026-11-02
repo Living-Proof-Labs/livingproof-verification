@@ -106,7 +106,9 @@ inside the report expire.
 
 The published `report.html` is the one exception: its evidence links are rewritten at every
 publish to point at the site copies, each followed by the original Actions artifact as a
-secondary reference with its expiry (unlinked once expired, or when no copy exists). The
+secondary reference with its expiry (unlinked once expired, or when no copy exists). An artifact
+with several files (the MCAP artifact holds every trial) links to a listing page,
+`evidence/<artifact>.html`, with each file's size and sha256, rather than to its first file. The
 reporter's own `report.html` is kept beside it as `report.html.orig`, which is the file
 `SHA256SUMS` verifies (`sed 's/  report.html$/  report.html.orig/' SHA256SUMS | sha256sum -c`).
 `report.json` and `report.md` keep the Actions URLs, as the lossless record.
