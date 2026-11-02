@@ -38,7 +38,9 @@ jobs:
         run: |
           sed 's/--hash=sha256:8b7795748b54/--hash=sha256:0000000000ab/' \
             .github/requirements/lock-check.txt > "$RUNNER_TEMP/bad-hash.txt"
-          ! cmp -s .github/requirements/lock-check.txt "$RUNNER_TEMP/bad-hash.txt"
+          if cmp -s .github/requirements/lock-check.txt "$RUNNER_TEMP/bad-hash.txt"; then
+            echo "::error::the sed did not change a hash; update the pattern"; exit 1
+          fi
           uv venv "$RUNNER_TEMP/bad-hash"
           if VIRTUAL_ENV="$RUNNER_TEMP/bad-hash" UV_CACHE_DIR="$RUNNER_TEMP/bad-hash-cache" \
             uv pip install --require-hashes --no-deps -r "$RUNNER_TEMP/bad-hash.txt"; then
