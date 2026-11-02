@@ -73,10 +73,14 @@ and configuration (`<robot>` from the robot repository, `<variant>` from the def
 `tools/site.py` only lays out and indexes: the verifier grades, the reporter renders, and the
 counts are read from `report.json`. Earlier runs are restored from the previous run's Pages
 artifact (kept 90 days); if that artifact has expired the job fails rather than drop history.
+If GitHub no longer lists any earlier artifact but the live site still answers (`site.json`,
+written by every build, or `index.html`), the job also fails. Only a manual run of `verify` on
+`main` with the `reset-history` input publishes a new site without the earlier runs.
 Nothing is committed. Build the site locally from downloaded report artifacts:
 
 ```sh
-python3 tools/site.py restore site --repository Living-Proof-Labs/livingproof-verification --dry-run
+python3 tools/site.py restore site --repository Living-Proof-Labs/livingproof-verification --dry-run \
+  --site-url https://docs.livingprooflabs.com/livingproof-verification/
 python3 tools/site.py build site --reports reports --run-id 1 --commit "$(git rev-parse HEAD)" \
   --created "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --repository Living-Proof-Labs/livingproof-verification
 ```

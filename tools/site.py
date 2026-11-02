@@ -25,6 +25,7 @@ from pathlib import Path, PurePosixPath
 import re
 import shutil
 import tarfile
+import urllib.error
 import urllib.request
 import zipfile
 
@@ -33,6 +34,7 @@ PAGES_ARTIFACT = "github-pages"
 SEGMENT = re.compile(r"[a-z0-9][a-z0-9.-]*")
 RUN_ID = re.compile(r"[0-9]+(-[0-9]+)?")
 REPORT_FILES = ("report.html", "report.json", "report.md", "report.txt")
+MARKER = "site.json"  # written by every build; its presence on the live site means history
 
 
 class SiteError(Exception):
@@ -121,6 +123,33 @@ def extract_pages(archive: bytes, destination: Path) -> int:
     return count
 
 
+def _fetch_status(url: str) -> int:
+    try:
+        with urllib.request.urlopen(urllib.request.Request(url), timeout=30) as response:
+            return response.status
+    except urllib.error.HTTPError as error:
+        return error.code
+
+
+def live_history(site_url: str) -> str | None:
+    """The live page that shows published history (site.json, else index.html), or None.
+
+    Only a 404 for both counts as "nothing published"; any other answer is an error, so a
+    flaky host never lets a run start a fresh site over existing history.
+    """
+    base = site_url.rstrip("/") + "/"
+    for name in (MARKER, "index.html"):
+        try:
+            status = _fetch_status(base + name)
+        except OSError as error:
+            raise SiteError(f"Cannot check {base}{name} for published history: {error}")
+        if status == 200:
+            return base + name
+        if status != 404:
+            raise SiteError(f"Cannot check {base}{name} for published history: HTTP {status}")
+    return None
+
+
 def restore(
     destination: Path,
     repository: str,
@@ -129,8 +158,15 @@ def restore(
     token: str | None,
     api: str = "https://api.github.com",
     dry_run: bool = False,
+    site_url: str | None = None,
+    reset_history: bool = False,
 ):
     destination.mkdir(parents=True, exist_ok=True)
+    if reset_history:
+        # Read first: reset is the way out when the last artifact expired, so nothing below
+        # (the listing, the expiry check, the live-site check) may refuse it.
+        print(f"reset-history set: starting a new site; {PAGES_ARTIFACT} history is dropped.")
+        return None
     artifacts, page = [], 1
     while True:
         with _request(
@@ -145,7 +181,22 @@ def restore(
         page += 1
     artifact = latest_pages_artifact(artifacts, branch, current_run)
     if artifact is None:
-        print(f"No earlier {PAGES_ARTIFACT} artifact on {branch}: starting a new site.")
+        if not site_url:
+            raise SiteError(
+                f"No earlier {PAGES_ARTIFACT} artifact on {branch} and no --site-url to check "
+                "for published history; pass --site-url, or --reset-history to start anew."
+            )
+        published = live_history(site_url)
+        if published:
+            raise SiteError(
+                f"No earlier {PAGES_ARTIFACT} artifact on {branch}, but {published} is live: "
+                "the artifact probably expired. Refusing to publish a site without its run "
+                "history; run the workflow with reset-history to start anew."
+            )
+        print(
+            f"No earlier {PAGES_ARTIFACT} artifact on {branch} and nothing published: "
+            "starting a new site."
+        )
         return None
     run = artifact["workflow_run"]["id"]
     print(
@@ -173,8 +224,12 @@ def check_reports(directory: Path):
         listed[name.strip()] = digest
     for name in REPORT_FILES:
         path = directory / name
-        if listed.get(name) != hashlib.sha256(path.read_bytes()).hexdigest():
-            raise SiteError(f"{path}: missing or does not match SHA256SUMS")
+        if name not in listed:
+            raise SiteError(f"{directory}: SHA256SUMS has no entry for {name}")
+        if not path.is_file():
+            raise SiteError(f"{directory}: missing {name}")
+        if listed[name] != hashlib.sha256(path.read_bytes()).hexdigest():
+            raise SiteError(f"{path}: does not match SHA256SUMS")
 
 
 def outcome(report: dict) -> list[dict]:
@@ -383,6 +438,13 @@ def render(site: Path):
 def build(site: Path, reports: Path, run: dict, verifications: Path = ROOT / "verifications"):
     added = [add_run(site, reports, t, run) for t in targets(verifications)]
     render(site)
+    (site / MARKER).write_text(
+        json.dumps(
+            {"runs": sum(len(r) for r in runs(site).values()), "updated": run["created"]},
+            indent=2,
+        )
+        + "\n"
+    )
     return added
 
 
@@ -395,6 +457,14 @@ def main(argv=None):
     r.add_argument("--branch", default="main")
     r.add_argument("--current-run", type=int, default=os.environ.get("GITHUB_RUN_ID"))
     r.add_argument("--dry-run", action="store_true", help="find the artifact, download nothing")
+    r.add_argument(
+        "--site-url",
+        default=os.environ.get("SITE_URL"),
+        help="the published site; with no artifact, history found here stops the restore",
+    )
+    r.add_argument(
+        "--reset-history", action="store_true", help="start a new site, dropping run history"
+    )
     b = sub.add_parser("build", help="add this run's reports to SITE and write the pages")
     b.add_argument("site", type=Path)
     b.add_argument("--reports", type=Path, required=True)
@@ -412,6 +482,8 @@ def main(argv=None):
             args.current_run,
             os.environ.get("GITHUB_TOKEN"),
             dry_run=args.dry_run,
+            site_url=args.site_url,
+            reset_history=args.reset_history,
         )
     else:
         added = build(
