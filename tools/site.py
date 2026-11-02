@@ -6,7 +6,10 @@ SHA256SUMS are checked), and the verifier's grade and trial counts are read from
 report.json, never recomputed. Per verification and configuration:
 
     <robot>/<variant>/runs/<run-id>/   report.{html,json,md,txt}, SHA256SUMS, run.json,
-                                       index.html (provenance, evidence + the report)
+                                       index.html (provenance, evidence + the report);
+                                       report.html.orig, the reporter's report.html, when
+                                       report.html's evidence links were pointed at the
+                                       site copies (SHA256SUMS lists the reporter's bytes)
     <robot>/<variant>/runs/<run-id>/evidence/<artifact>/
                                        site copies of the run's linked evidence (MCAP,
                                        videos), with sha256 in run.json
@@ -41,6 +44,13 @@ REPORT_FILES = ("report.html", "report.json", "report.md", "report.txt")
 # the site so it outlives the Actions artifacts and needs no GitHub sign-in. Pages sites
 # are limited to 1 GB; past this per-run budget an artifact is listed but not copied.
 MAX_RUN_EVIDENCE_BYTES = 25_000_000
+ORIGINAL_HTML = "report.html.orig"  # served as a download, not as a page
+# The reporter's evidence links: Actions artifact pages (GitHub sign-in, then expiry).
+ARTIFACT_LINK = re.compile(
+    r"<a href=(['\"])(https://github\.com/[^'\"<>]+/actions/runs/[0-9]+/artifacts/([0-9]+))\1>"
+    r"(.*?)</a>",
+    re.S,
+)
 MARKER = "site.json"  # written by every build; its presence on the live site means history
 
 
@@ -483,8 +493,9 @@ def outcome_cells(record: dict) -> str:
 
 
 ACTIONS_NOTE = (
-    "Evidence links inside the rendered report point to GitHub Actions artifacts. Those need "
-    "a GitHub sign-in to download and are deleted when the artifact expires"
+    "The original GitHub Actions artifacts need a GitHub sign-in to download and are deleted "
+    "when they expire, so the report on this site links its evidence to the copies here and "
+    "names each Actions artifact only as a secondary reference with its expiry"
 )
 
 
@@ -494,8 +505,9 @@ def evidence_section(record: dict, now: str) -> str:
     if items is None:
         return (
             "<h2>Evidence</h2>"
-            f'<p class="note">{ACTIONS_NOTE}. Evidence for this run was not copied to this '
-            "site, so once its artifacts expire it is unavailable here; the report's "
+            '<p class="note">Evidence for this run was not copied to this site. The report '
+            "names its GitHub Actions artifacts only as secondary references: they need a "
+            "GitHub sign-in and, once expired, are unavailable here; the report's "
             "assessments and SHA256SUMS above are unchanged.</p>"
         )
     rows = []
@@ -538,6 +550,56 @@ def evidence_section(record: dict, now: str) -> str:
     )
 
 
+def original_reference(artifact: dict, now: str) -> str:
+    """The Actions artifact as a secondary reference: linked, with its expiry, only while live."""
+    name = f"Actions artifact {html.escape(artifact['id'])}"
+    expires = artifact.get("expires_at")
+    if expires and expires <= now:
+        return f"original {name} expired {html.escape(expires)}"
+    if expires and artifact.get("url", "").startswith("https://github.com/"):
+        return (
+            f"original: {a(artifact['url'], name)}, GitHub sign-in required, "
+            f"expires {html.escape(expires)}"
+        )
+    return f"original {name}: expiry unknown, not linked"
+
+
+def publish_report_html(folder: Path, record: dict, now: str) -> None:
+    """Point report.html's evidence links at this site's copies.
+
+    The reporter links evidence to Actions artifacts, which need a GitHub sign-in and
+    expire. The published report.html links the site copy first and keeps the Actions
+    artifact as a secondary reference labelled with its expiry. The reporter's bytes stay
+    as report.html.orig (what SHA256SUMS lists); report.json, .md, .txt and SHA256SUMS are
+    never changed. Rebuilt from the original on every render, so expiry labels stay current.
+    """
+    published, original = folder / "report.html", folder / ORIGINAL_HTML
+    source = original if original.is_file() else published
+    text = source.read_text()
+    if not ARTIFACT_LINK.search(text):
+        return
+    if not original.is_file():
+        shutil.copyfile(published, original)
+    by_id = {e["artifact"]["id"]: e for e in record.get("evidence") or []}
+
+    def replace(match: re.Match) -> str:
+        url, artifact_id, label = match.group(2), match.group(3), match.group(4)
+        e = by_id.get(artifact_id)
+        artifact = e["artifact"] if e else {"id": artifact_id, "url": url}
+        if e and e["preserved"] and e["files"]:
+            first, *rest = e["files"]
+            primary = f"<a href='{html.escape(first['path'])}'>{label}</a>" + "".join(
+                f" · <a href='{html.escape(f['path'])}'>{html.escape(f['path'].rsplit('/', 1)[1])}</a>"
+                for f in rest
+            )
+        else:
+            reason = e.get("reason", "") if e else "no copy recorded for this run"
+            primary = f"{label} (not on this site: {html.escape(reason)})"
+        return f"{primary} <small>({original_reference(artifact, now)})</small>"
+
+    published.write_text(ARTIFACT_LINK.sub(replace, text))
+
+
 def run_page(record: dict, label: str, up: str, now: str = "") -> str:
     """`up` is the relative path from the page's folder to <robot>/<variant>/."""
     p = record
@@ -571,6 +633,11 @@ def run_page(record: dict, label: str, up: str, now: str = "") -> str:
         )
     details = "".join(f"<dt>{html.escape(k)}</dt><dd>{v}</dd>" for k, v in rows)
     files = " · ".join(a(n, n) for n in (*REPORT_FILES, "SHA256SUMS", "run.json"))
+    if p.get("original_html"):
+        files += (
+            ". report.html links evidence to the copies on this site; the reporter's "
+            f"report.html, as SHA256SUMS lists it, is {a(ORIGINAL_HTML, ORIGINAL_HTML)}"
+        )
     body = (
         f"<dl>{details}</dl><p>Rendered by the reporter: {files}. "
         f'<a href="{up}index.html">Run history</a>.</p>'
@@ -589,6 +656,10 @@ def render(site: Path, now: str = ""):
         latest = base / "latest"
         if latest.exists():
             shutil.rmtree(latest)
+        for record in records:
+            folder = base / "runs" / record["folder"]
+            publish_report_html(folder, record, now)
+            record["original_html"] = (folder / ORIGINAL_HTML).is_file()
         newest = records[0]
         shutil.copytree(base / "runs" / newest["folder"], latest)
         for record in records:
