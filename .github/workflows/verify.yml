@@ -26,18 +26,41 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
-      - run: python3 -m pip install --user uv==0.13.6
+      # uv itself, by sha256 (.github/requirements/uv.txt).
+      - run: python3 -m pip install --user --require-hashes --no-deps -r .github/requirements/uv.txt
       # The full check: re-reads the robot lock at the locked commit and parses this file.
-      # livingproof v1.4.9 and capability-verifier v1.10.0, pinned by commit.
+      # Every package but the two git installs is hashed in .github/requirements/lock-check.txt
+      # and installed with --require-hashes on its own: uv skipped the hash check on a URL wheel
+      # when a git requirement shared the install. livingproof v1.4.9 and capability-verifier
+      # v1.10.0 are pinned by commit in lock-check-git.txt and installed after, with --no-deps
+      # and --no-build-isolation: their build backends come hashed from build.txt.
+      - name: A wrong hash must refuse the install
+        run: |
+          sed 's/--hash=sha256:8b7795748b54/--hash=sha256:0000000000ab/' \
+            .github/requirements/lock-check.txt > "$RUNNER_TEMP/bad-hash.txt"
+          ! cmp -s .github/requirements/lock-check.txt "$RUNNER_TEMP/bad-hash.txt"
+          uv venv "$RUNNER_TEMP/bad-hash"
+          if VIRTUAL_ENV="$RUNNER_TEMP/bad-hash" UV_CACHE_DIR="$RUNNER_TEMP/bad-hash-cache" \
+            uv pip install --require-hashes --no-deps -r "$RUNNER_TEMP/bad-hash.txt"; then
+            echo "::error::a wrong livingproof-common hash installed"; exit 1
+          fi
+      - name: Install the lock check tools
+        run: |
+          uv venv "$RUNNER_TEMP/lock-check"
+          VIRTUAL_ENV="$RUNNER_TEMP/lock-check" uv pip install --require-hashes --no-deps \
+            -r .github/requirements/lock-check.txt -r .github/requirements/build.txt
+          VIRTUAL_ENV="$RUNNER_TEMP/lock-check" uv pip install --no-deps --no-build-isolation \
+            -r .github/requirements/lock-check-git.txt
+          uv venv "$RUNNER_TEMP/tests"
+          VIRTUAL_ENV="$RUNNER_TEMP/tests" uv pip install --require-hashes --no-deps \
+            -r .github/requirements/tests.txt
       - name: livingproof capability verify lock --check --workflow
         run: |
           for definition in verifications/*.toml; do
-            uvx --from "livingproof @ git+https://github.com/Living-Proof-Labs/livingproof@0398448326e414bfe38b95cf880b5e9d34bf7341" \
-              --with "livingproof-common @ https://github.com/Living-Proof-Labs/livingproof-common/releases/download/v1.0.0/livingproof_common-1.0.0-py3-none-any.whl" \
-              --with "capability-verifier @ git+https://github.com/Living-Proof-Labs/capability-verifier@043c221cff81444b8134caadcced6a9e12ae9552" \
-              livingproof capability verify lock --check --workflow .github/workflows/verify.yml "$definition"
+            "$RUNNER_TEMP/lock-check/bin/livingproof" capability verify lock --check \
+              --workflow .github/workflows/verify.yml "$definition"
           done
-      - run: uvx --from pytest==8.4.2 --with pyyaml==6.0.3 pytest tests/test_locks.py
+      - run: '"$RUNNER_TEMP/tests/bin/pytest" tests/test_locks.py'
   unitree-g1-stock-mujoco-hallway:
     needs: locks
     uses: Living-Proof-Labs/capability-verifier/.github/workflows/walk-hallway.yml@f8dc3d5634cf2ac2931e854b4f0b7d0ae39d7f0b
