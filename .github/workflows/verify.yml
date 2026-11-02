@@ -46,3 +46,58 @@ jobs:
       artifact-prefix: unitree-g1-stock-mujoco-hallway-
       check: false  # the robot repository's own CI tests the robot
       comment: false
+  # Publishing (push to main only): lay this run's reports out into the Pages site, keeping
+  # every earlier run from the previous Pages artifact. Layout and index only (tools/site.py):
+  # the verifier graded and the reporter rendered; nothing is committed.
+  site:
+    needs: [unitree-g1-stock-mujoco-hallway]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    # One publish at a time, in order, so no run restores a site that misses its predecessor.
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      actions: read  # list and download the previous Pages artifact
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: '*-capability-report-*'
+          path: reports
+      - name: Restore earlier runs from the previous Pages artifact
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 tools/site.py restore site
+      - name: Add this run and write the index pages
+        env:
+          COMMIT: ${{ github.sha }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          python3 tools/site.py build site --reports reports --run-id "$RUN_ID" --commit "$COMMIT" \
+            --created "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9  # v5.0.0
+        with:
+          path: site
+          retention-days: 90  # the next run restores history from this artifact
+  pages:
+    needs: site
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    concurrency:
+      group: pages-deploy
+      cancel-in-progress: false
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346  # v5.0.1
