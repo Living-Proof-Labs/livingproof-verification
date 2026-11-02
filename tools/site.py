@@ -239,8 +239,39 @@ def check_reports(directory: Path):
             raise SiteError(f"{path}: does not match SHA256SUMS")
 
 
-def outcome(report: dict) -> list[dict]:
+REPORT_VERSIONS = {"1.0.0"}  # report.json shapes this site knows how to read
+SUMMARY_FIELDS = ("capability", "system", "grade", "k", "n", "required_passes")
+
+
+def read_report(path: Path) -> object:
+    """report.json parsed, or a SiteError naming it when it is not valid JSON."""
+    try:
+        return json.loads(path.read_text())
+    except json.JSONDecodeError as error:
+        raise SiteError(f"{path}: not valid JSON ({error.msg} at line {error.lineno})") from None
+
+
+def outcome(report: dict, where: str = "report.json") -> list[dict]:
     """The verifier's grade and counts as the reporter recorded them (no regrading)."""
+    if not isinstance(report, dict):
+        raise SiteError(f"{where}: expected a JSON object, found {type(report).__name__}")
+    version = report.get("report_version")
+    if not isinstance(version, str) or version not in REPORT_VERSIONS:
+        raise SiteError(
+            f"{where}: report_version {version!r} is not one this site reads "
+            f"({', '.join(sorted(REPORT_VERSIONS))}); update tools/site.py for the new shape"
+        )
+    summaries = report.get("summaries")
+    if not isinstance(summaries, list) or not summaries:
+        raise SiteError(f"{where}: report_version {version} without a non-empty summaries list")
+    for index, s in enumerate(summaries):
+        if not isinstance(s, dict):
+            raise SiteError(f"{where}: summaries[{index}] is {type(s).__name__}, not an object")
+        missing = [f for f in SUMMARY_FIELDS if f not in s]
+        if not isinstance(s.get("system"), dict) or "id" not in s["system"]:
+            missing.append("system.id")
+        if missing:
+            raise SiteError(f"{where}: summaries[{index}] lacks {', '.join(missing)}")
     return [
         {
             "capability": s["capability"],
@@ -250,7 +281,7 @@ def outcome(report: dict) -> list[dict]:
             "trials": s["n"],
             "required": s["required_passes"],
         }
-        for s in report["summaries"]
+        for s in summaries
     ]
 
 
@@ -306,7 +337,7 @@ def add_run(
         "robot": target["robot"],
         "variant": target["variant"],
         "verification": target["id"],
-        "outcome": outcome(json.loads((source / "report.json").read_text())),
+        "outcome": outcome(read_report(source / "report.json"), str(source / "report.json")),
         **provenance(target, run),
     }
     if evidence is not None:
