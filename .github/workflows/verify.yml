@@ -74,6 +74,19 @@ jobs:
       artifact-prefix: unitree-g1-stock-mujoco-hallway-
       check: false  # the robot repository's own CI tests the robot
       comment: false
+  booster-t1-stock-mujoco-hallway:
+    needs: locks
+    uses: Living-Proof-Labs/capability-verifier/.github/workflows/walk-hallway.yml@f8dc3d5634cf2ac2931e854b4f0b7d0ae39d7f0b
+    permissions:
+      contents: read
+      pull-requests: write
+    with:
+      repository: Living-Proof-Labs/livingproof-booster-t1
+      ref: 30fdfca75e5e2c20503bba23cb9a72e84a8a7d71
+      configurations: '["stock"]'
+      artifact-prefix: booster-t1-stock-mujoco-hallway-
+      check: false  # the robot repository's own CI tests the robot
+      comment: false
   unitree-go1-playground-mujoco-hallway:
     needs: locks
     uses: Living-Proof-Labs/capability-verifier/.github/workflows/walk-hallway.yml@f8dc3d5634cf2ac2931e854b4f0b7d0ae39d7f0b
@@ -91,7 +104,7 @@ jobs:
   # every earlier run from the previous Pages artifact. Layout and index only (tools/site.py):
   # the verifier graded and the reporter rendered; nothing is committed.
   site:
-    needs: [unitree-g1-stock-mujoco-hallway, unitree-go1-playground-mujoco-hallway]
+    needs: [unitree-g1-stock-mujoco-hallway, booster-t1-stock-mujoco-hallway, unitree-go1-playground-mujoco-hallway]
     if: >-
       github.ref == 'refs/heads/main' && (github.event_name == 'push' ||
       (github.event_name == 'workflow_dispatch' && inputs.reset-history))
@@ -112,6 +125,20 @@ jobs:
         with:
           pattern: '*-capability-report-*'
           path: reports
+      # The evidence the reports link to, copied into the site (tools/site.py): Actions
+      # artifacts expire and need a GitHub sign-in; the site copy does not.
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: '*-links-*'
+          path: evidence
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: '*-mcap-*'
+          path: evidence
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: '*-video-*'
+          path: evidence
       - name: Restore earlier runs from the previous Pages artifact
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -127,9 +154,10 @@ jobs:
         env:
           COMMIT: ${{ github.sha }}
           RUN_ID: ${{ github.run_id }}
+          GITHUB_TOKEN: ${{ github.token }}  # read this run's artifact ids, expiry and digests
         run: |
-          python3 tools/site.py build site --reports reports --run-id "$RUN_ID" --commit "$COMMIT" \
-            --created "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          python3 tools/site.py build site --reports reports --evidence evidence \
+            --run-id "$RUN_ID" --commit "$COMMIT" --created "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9  # v5.0.0
         with:
           path: site
