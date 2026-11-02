@@ -97,12 +97,19 @@ python3 tools/site.py build site --reports reports --evidence evidence --run-id 
 The `site` job downloads the run's `*-links-*`, `*-mcap-*` and `*-video-*` artifacts and reads
 the run's artifact metadata (`actions: read`). `run.json` keeps, for every link in the report,
 the original artifact's id, name, URL, expiry and digest next to the site copy's files, sizes
-and sha256, so evidence identity stays tied to the assessment; the report files themselves are
-never rewritten. Each run page lists the site copies first. The Actions link is shown only
+and sha256, so evidence identity stays tied to the assessment. `report.json`, `report.md`,
+`report.txt` and `SHA256SUMS` are published exactly as the reporter wrote them. Each run page lists the site copies first. The Actions link is shown only
 while the artifact is unexpired, with its expiry date; at each later publish an expired one is
 re-rendered as "expired <date>, no longer available", without a link. Runs published before
 this change carry no copies: their pages say the evidence was not copied and that the links
-inside the report expire. The links inside the embedded `report.html` still point at Actions.
+inside the report expire.
+
+The published `report.html` is the one exception: its evidence links are rewritten at every
+publish to point at the site copies, each followed by the original Actions artifact as a
+secondary reference with its expiry (unlinked once expired, or when no copy exists). The
+reporter's own `report.html` is kept beside it as `report.html.orig`, which is the file
+`SHA256SUMS` verifies (`sed 's/  report.html$/  report.html.orig/' SHA256SUMS | sha256sum -c`).
+`report.json` and `report.md` keep the Actions URLs, as the lossless record.
 
 A walk-hallway run's evidence is about 5.2 MB (MCAP 3.9 MB, two videos 0.6 MB each), so a run
 and its `latest/` copy add about 10 MB. GitHub Pages sites are limited to 1 GB, which is

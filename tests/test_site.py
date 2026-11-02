@@ -21,7 +21,7 @@ WORKFLOW = yaml.safe_load((ROOT / ".github/workflows/verify.yml").read_text())
 REPO = "Living-Proof-Labs/livingproof-verification"
 
 
-def write_reports(directory: Path, passed: int, grade: str):
+def write_reports(directory: Path, passed: int, grade: str, html: str | None = None):
     directory.mkdir(parents=True)
     report = {
         "report_version": "1.0.0",
@@ -39,6 +39,8 @@ def write_reports(directory: Path, passed: int, grade: str):
     (directory / "report.json").write_text(json.dumps(report))
     for name in ("report.html", "report.md", "report.txt"):
         (directory / name).write_text(f"{name} {passed}")
+    if html is not None:
+        (directory / "report.html").write_text(html)
     (directory / "SHA256SUMS").write_text(
         "".join(
             f"{hashlib.sha256((directory / n).read_bytes()).hexdigest()}  {n}\n"
@@ -67,9 +69,7 @@ def reports_for(tmp_path: Path, name: str, passed: int, grade: str) -> Path:
 
 def local_links_resolve(site: Path):
     for page in site.rglob("*.html"):
-        if page.name == "report.html":
-            continue
-        for href in re.findall(r'(?:href|src)="([^"]+)"', page.read_text()):
+        for href in re.findall(r"""(?:href|src)=["']([^"']+)["']""", page.read_text()):
             if href.startswith("https://"):
                 continue
             target = (page.parent / href).resolve()
@@ -583,3 +583,118 @@ def test_fetch_artifacts_pages_through_the_run(monkeypatch):
         f"https://api.github.com/repos/{REPO}/actions/runs/7/artifacts?per_page=100&page=1",
         "t",
     )
+
+
+# The reporter's HTML: evidence anchors to Actions artifacts, and the lossless JSON in <pre>.
+REPORTER_HTML = (
+    "<html><body><ul>"
+    f"<li><a href='{ART}/101'>MCAP, all 20 trials</a></li>"
+    f"<li><a href='{ART}/102'>seed 1 (PASS): video</a></li>"
+    f'<li><a href="{ART}/103">seed 4 (FAIL): video</a></li>'
+    f"</ul><details><pre>{{&quot;url&quot;: &quot;{ART}/101&quot;}}</pre></details></body></html>"
+)
+
+
+def reports_with_links(tmp_path: Path, name: str) -> Path:
+    reports = tmp_path / name
+    for target in site_tool.targets():
+        write_reports(reports / target["artifact"], 12, "FAIL", html=REPORTER_HTML)
+    return reports
+
+
+def artifact_anchors(text: str) -> list[tuple[str, str, str]]:
+    """(href, anchor text, what follows) for every link to an Actions artifact."""
+    return [
+        (m.group(1), m.group(2), text[m.end() : m.end() + 120])
+        for m in re.finditer(
+            r"""<a href=["'](https://github\.com/[^"']+/actions/runs/[0-9]+/artifacts/[0-9]+)["']>"""
+            r"(.*?)</a>",
+            text,
+        )
+    ]
+
+
+def publish_with_links(tmp_path: Path) -> Path:
+    evidence, artifacts = evidence_for(tmp_path)
+    site = tmp_path / "site"
+    site_tool.build(
+        site,
+        reports_with_links(tmp_path, "r1"),
+        run("7", "2026-11-02T00:00:00Z"),
+        evidence=evidence,
+        artifacts=artifacts,
+    )
+    return site
+
+
+def test_published_report_links_evidence_to_the_site_copies(tmp_path):
+    site = publish_with_links(tmp_path)
+    source = tmp_path / "r1" / f"{PREFIX}-capability-report-stock"
+    base = site / "unitree-g1/stock-mujoco-hallway"
+    for folder in (base / "runs/7", base / "latest"):
+        html = (folder / "report.html").read_text()
+        assert f"<a href='evidence/{PREFIX}-mcap-stock/trials.mcap'>MCAP, all 20 trials</a>" in html
+        assert (
+            f"<a href='evidence/{PREFIX}-video-stock-seed-1-pass/seed-01-pass.mp4'>"
+            "seed 1 (PASS): video</a>" in html
+        )
+        assert f'original: <a href="{ART}/101">Actions artifact 101</a>' in html
+        assert "GitHub sign-in required, expires 2026-12-02T08:54:02Z" in html
+        # No copy was recorded for 103: the label stays, unlinked, and says why.
+        assert "seed 4 (FAIL): video (not on this site: no copy recorded for this run)" in html
+        assert "original Actions artifact 103: expiry unknown, not linked" in html
+        assert f'href="{ART}/103"' not in html
+        # The lossless JSON inside <pre> is text, not a link, and is left as the reporter wrote it.
+        assert f"&quot;{ART}/101&quot;" in html
+        # Stored reporter outputs are unchanged; the reporter's report.html is kept, verifiable.
+        assert (folder / "report.html.orig").read_text() == REPORTER_HTML
+        for name in ("report.json", "report.md", "report.txt", "SHA256SUMS"):
+            assert (folder / name).read_bytes() == (source / name).read_bytes(), name
+        sums = dict(
+            reversed(line.split("  ")) for line in (folder / "SHA256SUMS").read_text().splitlines()
+        )
+        orig = hashlib.sha256((folder / "report.html.orig").read_bytes()).hexdigest()
+        assert sums["report.html"] == orig
+        assert 'href="report.html.orig"' in (folder / "index.html").read_text()
+    local_links_resolve(site)
+
+
+def test_no_published_page_links_an_actions_artifact_as_the_primary_evidence(tmp_path):
+    """Every Actions artifact link on the site is a labelled secondary reference with expiry."""
+    site = publish_with_links(tmp_path)
+    pages = list(site.rglob("*.html"))
+    assert any(p.name == "report.html" for p in pages)
+    seen = 0
+    for page in pages:
+        for href, text, after in artifact_anchors(page.read_text()):
+            seen += 1
+            assert text == f"Actions artifact {href.rsplit('/', 1)[1]}", (page, text)
+            assert re.match(r"[^<]*(expires|available until) 2026-12-02", after), (
+                page,
+                after,
+            )
+    assert seen  # the live artifacts are still referenced, secondarily
+
+
+def test_published_report_drops_the_actions_link_once_expired(tmp_path):
+    site = publish_with_links(tmp_path)
+    site_tool.build(site, reports_for(tmp_path, "r2", 15, "FAIL"), run("8", "2026-12-03T00:00:00Z"))
+    html = (site / "unitree-g1/stock-mujoco-hallway/runs/7/report.html").read_text()
+    assert not artifact_anchors(html)
+    assert "original Actions artifact 101 expired 2026-12-02T08:54:02Z" in html
+    assert f"<a href='evidence/{PREFIX}-mcap-stock/trials.mcap'>" in html
+    assert (site / "unitree-g1/stock-mujoco-hallway/runs/7/report.html.orig").read_text() == (
+        REPORTER_HTML
+    )
+    for page in site.rglob("*.html"):
+        assert not artifact_anchors(page.read_text()), page
+    local_links_resolve(site)
+
+
+def test_a_report_without_artifact_links_is_published_unchanged(tmp_path):
+    site = tmp_path / "site"
+    site_tool.build(site, reports_for(tmp_path, "r1", 12, "FAIL"), run("7", "2026-11-02T00:00:00Z"))
+    folder = site / "unitree-g1/stock-mujoco-hallway/runs/7"
+    assert (folder / "report.html").read_text() == "report.html 12"
+    assert not (folder / "report.html.orig").exists()
+    assert "report.html.orig" not in (folder / "index.html").read_text()
