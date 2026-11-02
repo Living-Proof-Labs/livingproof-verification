@@ -147,6 +147,9 @@ def test_reports_are_copied_unchanged_and_checked(tmp_path):
         (lambda r: r.pop("summaries"), "summaries list"),
         (lambda r: r["summaries"][0].pop("k"), r"summaries\[0\] lacks k"),
         (lambda r: r["summaries"][0].update(system="g1"), "lacks system.id"),
+        (lambda r: r.update(report_version=["1.0.0"]), r"report_version \['1.0.0'\]"),
+        (lambda r: r.update(report_version={"v": "1.0.0"}), r"report_version \{'v': '1.0.0'\}"),
+        (lambda r: r["summaries"].__setitem__(0, "g1"), r"summaries\[0\] is str, not an object"),
     ],
 )
 def test_unknown_report_shape_fails_clearly(tmp_path, change, message):
@@ -155,6 +158,27 @@ def test_unknown_report_shape_fails_clearly(tmp_path, change, message):
     report = json.loads((folder / "report.json").read_text())
     change(report)
     (folder / "report.json").write_text(json.dumps(report))
+    (folder / "SHA256SUMS").write_text(
+        "".join(
+            f"{hashlib.sha256((folder / n).read_bytes()).hexdigest()}  {n}\n"
+            for n in site_tool.REPORT_FILES
+        )
+    )
+    with pytest.raises(site_tool.SiteError, match=message):
+        site_tool.build(tmp_path / "site", reports, run("1", "2026-11-02T00:00:00Z"))
+
+
+@pytest.mark.parametrize(
+    ("text", "message"),
+    [
+        ("[]", "expected a JSON object, found list"),
+        ("{not json", "not valid JSON"),
+    ],
+)
+def test_report_json_that_is_not_an_object_fails_clearly(tmp_path, text, message):
+    reports = reports_for(tmp_path, "one", 12, "FAIL")
+    folder = reports / "unitree-g1-stock-mujoco-hallway-capability-report-stock"
+    (folder / "report.json").write_text(text)
     (folder / "SHA256SUMS").write_text(
         "".join(
             f"{hashlib.sha256((folder / n).read_bytes()).hexdigest()}  {n}\n"
