@@ -23,6 +23,36 @@ def lock_of(definition: Path) -> dict:
     return json.loads(definition.with_name(definition.stem + ".lock.json").read_text())
 
 
+def calls_verifier(uses) -> bool:
+    """Any call of walk-hallway.yml: any owner (case-insensitive), a fork or a local copy."""
+    return isinstance(uses, str) and uses.split("@", 1)[0].strip().lower().endswith(
+        "/" + PROCEDURE.lower()
+    )
+
+
+def same_call(uses, pinned: str) -> bool:
+    """Owner and repo compare case-insensitively, the commit exactly."""
+    if not isinstance(uses, str):
+        return False
+    target, _, ref = uses.partition("@")
+    want, _, commit = pinned.partition("@")
+    return target.lower() == want.lower() and ref == commit
+
+
+def workflow_problems(text: str) -> list[str]:
+    """Every job calling walk-hallway.yml must be a definition's job with its exact locked call."""
+    jobs = yaml.safe_load(text)["jobs"]
+    locks = {p.stem: lock_of(p) for p in DEFINITIONS}
+    problems = [
+        f"{n}: no definition"
+        for n, j in jobs.items()
+        if n not in locks and calls_verifier(j.get("uses"))
+    ]
+    for name, lock in locks.items():
+        problems += [f"{name}: {p}" for p in call_problems(lock, jobs.get(name))]
+    return problems
+
+
 def call_problems(lock: dict, job) -> list[str]:
     """Why the parsed workflow ``job`` is not exactly the locked call (empty when it is)."""
     if not isinstance(job, dict):
@@ -30,8 +60,10 @@ def call_problems(lock: dict, job) -> list[str]:
     v = lock["releases"]["verifier"]
     w = job.get("with") if isinstance(job.get("with"), dict) else {}
     confs = w.get("configurations")
+    pinned = f"{v['repository']}/{PROCEDURE}@{v['commit']}"
+    uses = job.get("uses")
     want = {
-        "uses": (job.get("uses"), f"{v['repository']}/{PROCEDURE}@{v['commit']}"),
+        "uses": (pinned if same_call(uses, pinned) else uses, pinned),
         "with.repository": (w.get("repository"), lock["robot"]["repository"]),
         "with.ref": (w.get("ref"), lock["robot"]["commit"]),
         "with.configurations": (
@@ -62,10 +94,33 @@ def test_workflow_calls_the_locked_verifier_robot_and_configurations(definition)
     assert call_problems(lock_of(definition), jobs.get(definition.stem)) == []
 
 
-def test_every_verification_job_has_a_definition():
-    jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
-    calls = {n for n, j in jobs.items() if PROCEDURE in str(j.get("uses", ""))}
-    assert calls == {p.stem for p in DEFINITIONS}
+def test_every_verifier_call_is_a_locked_definition_job():
+    assert workflow_problems(WORKFLOW.read_text()) == []
+
+
+@pytest.mark.parametrize(
+    "uses",
+    [
+        "living-proof-labs/capability-verifier/.github/workflows/walk-hallway.yml@main",
+        "someone-else/capability-verifier/.github/workflows/walk-hallway.yml@main",
+        "./.github/workflows/walk-hallway.yml",
+    ],
+    ids=["lowercase-owner", "fork", "local"],
+)
+def test_a_second_call_to_any_walk_hallway_is_refused(uses):
+    extra = (
+        f"  extra:\n    uses: {uses}\n    with: {{repository: x/y, ref: main, "
+        "configurations: '[\"stock\"]'}\n"
+    )
+    assert workflow_problems(WORKFLOW.read_text() + extra) == ["extra: no definition"]
+
+
+def test_the_pin_matches_the_owner_case_insensitively():
+    lock = lock_of(DEFINITIONS[0])
+    v = lock["releases"]["verifier"]
+    pinned = f"{v['repository']}/{PROCEDURE}@{v['commit']}"
+    assert same_call(pinned.lower(), pinned)
+    assert not same_call(pinned.split("@")[0] + "@main", pinned)
 
 
 def test_verification_waits_for_the_lock_guard():
