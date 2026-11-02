@@ -112,6 +112,25 @@ def test_second_run_updates_latest_and_keeps_the_first(tmp_path):
     local_links_resolve(site)
 
 
+def test_index_and_history_link_runs_to_ci(tmp_path):
+    site = tmp_path / "site"
+    site_tool.build(
+        site, reports_for(tmp_path, "one", 12, "FAIL"), run("100", "2026-11-02T00:00:00Z")
+    )
+    site_tool.build(
+        site, reports_for(tmp_path, "two", 19, "PASS"), run("200-2", "2026-11-03T00:00:00Z")
+    )
+    actions = f"https://github.com/{REPO}/actions/runs/"
+    index = (site / "index.html").read_text()
+    assert f'<a href="{actions}200">CI run 200-2</a>' in index
+    assert f"{actions}100" not in index
+    history = (site / "unitree-g1/stock-mujoco-hallway/index.html").read_text()
+    for run_id, ci in (("100", "100"), ("200-2", "200")):
+        assert f'<a href="runs/{run_id}/">{run_id}</a>' in history
+        assert f'<a href="{actions}{ci}">CI run {run_id}</a>' in history
+    local_links_resolve(site)
+
+
 def test_reports_are_copied_unchanged_and_checked(tmp_path):
     reports = reports_for(tmp_path, "one", 12, "FAIL")
     artifact = reports / "unitree-g1-stock-mujoco-hallway-capability-report-stock"
