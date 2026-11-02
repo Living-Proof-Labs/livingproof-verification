@@ -162,6 +162,11 @@ def restore(
     reset_history: bool = False,
 ):
     destination.mkdir(parents=True, exist_ok=True)
+    if reset_history:
+        # Read first: reset is the way out when the last artifact expired, so nothing below
+        # (the listing, the expiry check, the live-site check) may refuse it.
+        print(f"reset-history set: starting a new site; {PAGES_ARTIFACT} history is dropped.")
+        return None
     artifacts, page = [], 1
     while True:
         with _request(
@@ -175,9 +180,6 @@ def restore(
             break
         page += 1
     artifact = latest_pages_artifact(artifacts, branch, current_run)
-    if reset_history:
-        print(f"reset-history set: starting a new site; {PAGES_ARTIFACT} history is dropped.")
-        return None
     if artifact is None:
         if not site_url:
             raise SiteError(

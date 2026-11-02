@@ -270,6 +270,27 @@ def test_workflow_checks_the_live_site_and_resets_only_on_request():
     assert "--reset-history" in step["run"]
 
 
+def test_reset_history_recovers_from_an_expired_artifact(tmp_path, monkeypatch):
+    listing = {"artifacts": [artifact(7, "main", 100, "2026-08-01T00:00:00Z", expired=True)]}
+    requested = []
+
+    def fake(url, token):
+        requested.append(url)
+        return io.BytesIO(json.dumps(listing).encode())
+
+    monkeypatch.setattr(site_tool, "_request", fake)
+    with pytest.raises(site_tool.SiteError, match="expired"):
+        site_tool.restore(tmp_path / "s", REPO, "main", 200, "t", site_url=SITE_URL)
+    requested.clear()
+    assert (
+        site_tool.restore(
+            tmp_path / "s", REPO, "main", 200, "t", site_url=SITE_URL, reset_history=True
+        )
+        is None
+    )
+    assert requested == [] and not any((tmp_path / "s").iterdir())
+
+
 def test_restore_rejects_unsafe_archive_paths(tmp_path):
     tar_buffer = io.BytesIO()
     with tarfile.open(fileobj=tar_buffer, mode="w") as tar:
