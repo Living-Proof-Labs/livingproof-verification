@@ -119,6 +119,11 @@ uvx --from pytest==8.4.2 --with pyyaml==6.0.3 pytest
 actionlint
 ```
 
+Pull requests run the same checks in `.github/workflows/checks.yml` (tools installed by sha256
+from `.github/requirements/`), plus a site build from fixture reports
+(`tools/site_fixture.py`) whose links must resolve. That job has `contents: read` only and
+deploys nothing.
+
 ## License
 
 [Apache License 2.0](LICENSE)
