@@ -95,7 +95,7 @@ jobs:
       pull-requests: write
     with:
       repository: Living-Proof-Labs/livingproof-unitree-go1
-      ref: f00751ab8b910903a1f816747af8ccbf37abfcf8
+      ref: 12ea6e8c391db77e9e66dedcc66fe8bd6b55a9bd
       configurations: '["playground"]'
       artifact-prefix: unitree-go1-playground-mujoco-hallway-
       check: false  # the robot repository's own CI tests the robot

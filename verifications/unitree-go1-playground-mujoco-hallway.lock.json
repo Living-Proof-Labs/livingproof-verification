@@ -8,13 +8,13 @@
   "robot": {
     "repository": "Living-Proof-Labs/livingproof-unitree-go1",
     "ref": "main",
-    "commit": "f00751ab8b910903a1f816747af8ccbf37abfcf8",
+    "commit": "12ea6e8c391db77e9e66dedcc66fe8bd6b55a9bd",
     "configurations": [
       "playground"
     ],
     "lock": {
       "path": "verification.lock.json",
-      "sha256": "56682daa34fb5e3d0e758a65dd0ded35c2eff46226351fde39dc91463cee0a89"
+      "sha256": "0c02da24ddbc8748f122922f1753198e8e45cdb8a1b2eb7104176b1d2aff698d"
     }
   },
   "releases": {
@@ -25,8 +25,8 @@
     },
     "runner": {
       "repository": "Living-Proof-Labs/livingproof-sim-mujoco",
-      "tag": "v1.8.0",
-      "commit": "8a7666f3768969c42da8cfe467547ef71aae82d1"
+      "tag": "v1.8.1",
+      "commit": "8bcf1e9a6f66ede27ef9591da95c05c1a3ceda9c"
     },
     "verifier": {
       "repository": "Living-Proof-Labs/capability-verifier",
