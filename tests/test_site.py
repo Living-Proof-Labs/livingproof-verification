@@ -110,17 +110,19 @@ def test_second_run_updates_latest_and_keeps_the_first(tmp_path):
     )
     releases = lock["releases"]
     for link in (
-        "actions/runs/200",
         f"{REPO}/commit/{'a' * 40}",
         f"capability-verifier/releases/tag/{releases['verifier']['tag']}",
         f"livingproof-capability-report/releases/tag/{releases['reporter']['tag']}",
         f"livingproof-unitree-g1/tree/{lock['robot']['commit']}",
     ):
         assert link in latest
+    assert "CI run 200 · 2026-11-03T06:00:00Z · maintainers only" in latest
+    assert "/actions/" not in latest
     local_links_resolve(site)
 
 
-def test_index_and_history_link_runs_to_ci(tmp_path):
+def test_index_and_history_show_ci_runs_as_text(tmp_path):
+    """lpv #23: Actions pages 404 for logged-out evaluators, so the run id is text."""
     site = tmp_path / "site"
     site_tool.build(
         site, reports_for(tmp_path, "one", 12, "FAIL"), run("100", "2026-11-02T00:00:00Z")
@@ -130,12 +132,12 @@ def test_index_and_history_link_runs_to_ci(tmp_path):
     )
     actions = f"https://github.com/{REPO}/actions/runs/"
     index = (site / "index.html").read_text()
-    assert f'<a href="{actions}200">CI run 200-2</a>' in index
-    assert f"{actions}100" not in index
+    assert "CI run 200-2</td>" in index and actions not in index
+    assert "CI run 100" not in index
     history = (site / "unitree-g1/stock-mujoco-hallway/index.html").read_text()
     for run_id, ci in (("100", "100"), ("200-2", "200")):
         assert f'<a href="runs/{run_id}/">{run_id}</a>' in history
-        assert f'<a href="{actions}{ci}">CI run {run_id}</a>' in history
+        assert f"<td>CI run {run_id}</td>" in history and actions not in history
     local_links_resolve(site)
 
 
@@ -505,7 +507,8 @@ def test_linked_evidence_is_copied_with_its_identity(tmp_path):
     assert (video["seed"], video["status"]) == (1, "PASS")
     assert (folder / video["files"][0]["path"]).read_bytes() == b"pass video"
     page = (folder / "index.html").read_text()
-    assert f'href="{ART}/101"' in page and "available until 2026-12-02T08:54:02Z" in page
+    assert f'href="{ART}/101"' not in page
+    assert "maintainers only, GitHub sign-in required; available until 2026-12-02T08:54:02Z" in page
     assert f'href="evidence/{PREFIX}-mcap-stock/trials.mcap"' in page
     assert (site / "unitree-g1/stock-mujoco-hallway/latest" / video["files"][0]["path"]).is_file()
     local_links_resolve(site)
@@ -552,7 +555,7 @@ def test_evidence_not_downloaded_or_over_budget_is_listed_unpreserved(tmp_path, 
     assert not video["preserved"] and "budget" in video["reason"]
     assert not (folder / "evidence").exists()
     page = (folder / "index.html").read_text()
-    assert f'href="{ART}/101"' not in page and "expiry unknown, not linked" in page
+    assert f'href="{ART}/101"' not in page and "Actions artifact 101: expiry unknown</span>" in page
 
 
 def test_publishing_downloads_the_linked_evidence():
@@ -642,11 +645,14 @@ def test_published_report_links_evidence_to_the_site_copies(tmp_path):
             f"<a href='evidence/{PREFIX}-video-stock-seed-1-pass/seed-01-pass.mp4'>"
             "seed 1 (PASS): video</a>" in html
         )
-        assert f'original: <a href="{ART}/101">Actions artifact 101</a>' in html
-        assert "GitHub sign-in required, expires 2026-12-02T08:54:02Z" in html
+        assert (
+            "original Actions artifact 101, maintainers only (GitHub sign-in), "
+            "expires 2026-12-02T08:54:02Z" in html
+        )
+        assert f'href="{ART}/101"' not in html
         # No copy was recorded for 103: the label stays, unlinked, and says why.
         assert "seed 4 (FAIL): video (not on this site: no copy recorded for this run)" in html
-        assert "original Actions artifact 103: expiry unknown, not linked" in html
+        assert "original Actions artifact 103: expiry unknown" in html
         assert f'href="{ART}/103"' not in html
         # The lossless JSON inside <pre> is text, not a link, and is left as the reporter wrote it.
         assert f"&quot;{ART}/101&quot;" in html
@@ -663,21 +669,33 @@ def test_published_report_links_evidence_to_the_site_copies(tmp_path):
     local_links_resolve(site)
 
 
-def test_no_published_page_links_an_actions_artifact_as_the_primary_evidence(tmp_path):
-    """Every Actions artifact link on the site is a labelled secondary reference with expiry."""
+def test_no_published_page_links_to_github_actions(tmp_path):
+    """lpv #23: zero /actions/ hrefs; live artifacts stay referenced as text with expiry."""
     site = publish_with_links(tmp_path)
     pages = list(site.rglob("*.html"))
     assert any(p.name == "report.html" for p in pages)
-    seen = 0
+    assert site_tool.actions_links(site) == []
     for page in pages:
-        for href, text, after in artifact_anchors(page.read_text()):
-            seen += 1
-            assert text == f"Actions artifact {href.rsplit('/', 1)[1]}", (page, text)
-            assert re.match(r"[^<]*(expires|available until) 2026-12-02", after), (
-                page,
-                after,
-            )
-    assert seen  # the live artifacts are still referenced, secondarily
+        assert not artifact_anchors(page.read_text()), page
+    text = "".join(p.read_text() for p in pages)
+    assert "Actions artifact 101, maintainers only (GitHub sign-in), expires 2026-12-02" in text
+    assert "maintainers only, GitHub sign-in required; available until 2026-12-02" in text
+
+
+def test_the_build_refuses_a_site_that_links_to_github_actions(tmp_path, monkeypatch):
+    """The site-build check: a page that still links to Actions fails the build."""
+    monkeypatch.setattr(site_tool, "ci_run", lambda r: f'<a href="{r["url"]}">CI run</a>')
+    site = tmp_path / "site"
+    with pytest.raises(site_tool.SiteError, match=r"link to GitHub Actions \(#23\): .*index\.html"):
+        site_tool.build(
+            site, reports_for(tmp_path, "r1", 12, "FAIL"), run("7", "2026-11-02T00:00:00Z")
+        )
+    pages = tmp_path / "pages"
+    pages.mkdir()
+    (pages / "page.html").write_text("<p>Actions artifact 101 (/actions/ as text is fine)</p>")
+    assert site_tool.actions_links(pages) == []
+    (pages / "page.html").write_text(f"<a href='{ART}/101'>x</a>")
+    assert site_tool.actions_links(pages) == ["page.html"]
 
 
 def test_published_report_drops_the_actions_link_once_expired(tmp_path):
