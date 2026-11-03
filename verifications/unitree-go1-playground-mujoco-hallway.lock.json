@@ -8,7 +8,7 @@
   "robot": {
     "repository": "Living-Proof-Labs/livingproof-unitree-go1",
     "ref": "main",
-    "commit": "6832f75bef1514fdecea2ba284cadd6d3712efc8",
+    "commit": "a9173236c8b06a0609a9a2fda373d9f6f84b0f00",
     "configurations": [
       "playground"
     ],

@@ -8,7 +8,7 @@
   "robot": {
     "repository": "Living-Proof-Labs/livingproof-booster-t1",
     "ref": "main",
-    "commit": "3f9521f1cbf57e1717311a02124cc2ad6bf1d1e5",
+    "commit": "e45c01794a873a138879921995852c69989e8dde",
     "configurations": [
       "stock"
     ],
