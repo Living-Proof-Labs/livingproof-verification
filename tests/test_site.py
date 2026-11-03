@@ -729,6 +729,9 @@ def test_the_all_trials_mcap_link_opens_a_listing_of_every_trial(tmp_path):
         for seed in range(1, 21):
             assert f'href="{PREFIX}-mcap-stock/mcap/seed-{seed:02d}.mcap"' in page, seed
         assert f'href="{PREFIX}-mcap-stock/media.json"' in page
+        # Back to the reports index at the site root, from runs/7/ and latest/ alike.
+        up = "../" * len(folder.relative_to(site).parts)
+        assert f'<a href="../{up}index.html">← All verification reports</a>' in page
         assert f'href="{listing}">all 21 files</a>' in (folder / "index.html").read_text()
         # The single-file video keeps its direct link.
         assert f"<a href='evidence/{PREFIX}-video-stock-seed-1-pass/seed-01-pass.mp4'>" in report
