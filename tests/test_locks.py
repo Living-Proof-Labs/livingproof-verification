@@ -143,7 +143,7 @@ def test_verification_waits_for_the_lock_guard():
     assert any("a wrong livingproof-common hash installed" in r for r in check)
     tools = (ROOT / ".github/requirements/lock-check-git.txt").read_text()
     assert (
-        "capability-verifier @ git+https://github.com/Living-Proof-Labs/capability-verifier@2a173d21cd5170e5194a94589502755141529efa"
+        "capability-verifier @ git+https://github.com/Living-Proof-Labs/capability-verifier@42748bc4e3757194333be4ea42e383834720dc19"
         in tools
     )
     for definition in DEFINITIONS:

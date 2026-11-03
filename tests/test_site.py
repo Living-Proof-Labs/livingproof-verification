@@ -105,12 +105,16 @@ def test_second_run_updates_latest_and_keeps_the_first(tmp_path):
     history = (base / "index.html").read_text()
     assert history.index("runs/200/") < history.index("runs/100/")
     latest = (base / "latest/index.html").read_text()
+    lock = json.loads(
+        (ROOT / "verifications/unitree-g1-stock-mujoco-hallway.lock.json").read_text()
+    )
+    releases = lock["releases"]
     for link in (
         "actions/runs/200",
         f"{REPO}/commit/{'a' * 40}",
-        "capability-verifier/releases/tag/v1.9.0",
-        "livingproof-capability-report/releases/tag/v2.0.0",
-        "livingproof-unitree-g1/tree/f3447e14ab7f70828d0cf769c7b6f7e512f89150",
+        f"capability-verifier/releases/tag/{releases['verifier']['tag']}",
+        f"livingproof-capability-report/releases/tag/{releases['reporter']['tag']}",
+        f"livingproof-unitree-g1/tree/{lock['robot']['commit']}",
     ):
         assert link in latest
     local_links_resolve(site)
