@@ -23,10 +23,10 @@ uv venv .venv
 VIRTUAL_ENV=.venv uv pip install \
   "livingproof-common @ https://github.com/Living-Proof-Labs/livingproof-common/releases/download/v1.0.0/livingproof_common-1.0.0-py3-none-any.whl" \
   "livingproof @ git+https://github.com/Living-Proof-Labs/livingproof@v1.4.9" \
-  "capability-verifier @ git+https://github.com/Living-Proof-Labs/capability-verifier@v1.10.6"
+  "capability-verifier @ git+https://github.com/Living-Proof-Labs/capability-verifier@v1.11.0"
 ```
 
-capability-verifier v1.10.0 was the first release to ship `livingproof capability verify`; this repository uses v1.10.6. CI installs the same versions in its `locks` job from `.github/requirements/`: the two git installs pinned by commit in `lock-check-git.txt`; every other package (the `livingproof-common` wheel and uv itself included) by sha256, installed with `--require-hashes` apart from the git installs, since uv skipped a URL wheel's hash when a git requirement shared the install. The git installs build with `--no-build-isolation` from hashed build backends in `build.txt` (hatchling, hatch-vcs, setuptools), so nothing is fetched unhashed at build time. The job first proves a wrong hash refuses the install.
+capability-verifier v1.10.0 was the first release to ship `livingproof capability verify`; this repository uses v1.11.0. CI installs the same versions in its `locks` job from `.github/requirements/`: the two git installs pinned by commit in `lock-check-git.txt`; every other package (the `livingproof-common` wheel and uv itself included) by sha256, installed with `--require-hashes` apart from the git installs, since uv skipped a URL wheel's hash when a git requirement shared the install. The git installs build with `--no-build-isolation` from hashed build backends in `build.txt` (hatchling, hatch-vcs, setuptools), so nothing is fetched unhashed at build time. The job first proves a wrong hash refuses the install.
 
 Check the lock and the workflow call, then run:
 

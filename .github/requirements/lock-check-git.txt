@@ -1,2 +1,2 @@
-capability-verifier @ git+https://github.com/Living-Proof-Labs/capability-verifier@42748bc4e3757194333be4ea42e383834720dc19
+capability-verifier @ git+https://github.com/Living-Proof-Labs/capability-verifier@58388d3c5f970e11deae940c26d8558abb36314e
 livingproof @ git+https://github.com/Living-Proof-Labs/livingproof@0398448326e414bfe38b95cf880b5e9d34bf7341
