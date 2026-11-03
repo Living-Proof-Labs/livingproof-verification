@@ -51,6 +51,11 @@ ARTIFACT_LINK = re.compile(
     r"(.*?)</a>",
     re.S,
 )
+# Any other reporter anchor to Actions (v3.0.3's Evidence "CI run" link), shown as text (#23).
+ACTIONS_ANCHOR = re.compile(
+    r"<a\s[^>]*?href=(['\"])([^'\"<>]*/actions/[^'\"<>]*)\1[^>]*>(.*?)</a>", re.S | re.I
+)
+ACTIONS_RUN = re.compile(r"/actions/runs/([0-9]+)(?:/attempts/[0-9]+)?/?$")
 MARKER = "site.json"  # written by every build; its presence on the live site means history
 
 
@@ -483,6 +488,23 @@ def a(url: str, text: str) -> str:
     return f'<a href="{html.escape(url)}">{html.escape(text)}</a>'
 
 
+def ci_run(run: dict) -> str:
+    """The CI run as provenance text; Actions pages need a GitHub sign-in (#23)."""
+    return f"CI run {html.escape(run['id'])}"
+
+
+ACTIONS_HREF = re.compile(r"""(?:href|src)\s*=\s*["']?[^"'\s>]*/actions/""", re.I)
+
+
+def actions_links(site: Path) -> list[str]:
+    """Pages in SITE that still link to GitHub Actions (sign-in required, then expiry)."""
+    return sorted(
+        str(page.relative_to(site))
+        for page in site.rglob("*.html")
+        if ACTIONS_HREF.search(page.read_text(errors="replace"))
+    )
+
+
 def outcome_cells(record: dict) -> str:
     return "<br>".join(
         f'<span class="{html.escape(o["grade"])}">{html.escape(o["grade"])}</span> '
@@ -524,14 +546,13 @@ def evidence_section(record: dict, now: str) -> str:
         expires = art.get("expires_at")
         if expires and expires <= now:
             original = f'<span class="expired">{name}: expired {html.escape(expires)}, no longer available</span>'
-        elif expires and art["url"].startswith("https://github.com/"):
+        elif expires:
             original = (
-                a(art["url"], f"Actions artifact {art['id']}")
-                + f" (GitHub sign-in required; available until {html.escape(expires)})"
-                + name.removeprefix(f"Actions artifact {html.escape(art['id'])}")
+                f"{name} (maintainers only, GitHub sign-in required; "
+                f"available until {html.escape(expires)})"
             )
         else:
-            original = f'<span class="expired">{name}: expiry unknown, not linked</span>'
+            original = f'<span class="expired">{name}: expiry unknown</span>'
         if e["preserved"]:
             listing = listing_path(e)
             copies = (
@@ -585,17 +606,18 @@ def write_listing(folder: Path, e: dict, up: str) -> None:
 
 
 def original_reference(artifact: dict, now: str) -> str:
-    """The Actions artifact as a secondary reference: linked, with its expiry, only while live."""
+    """The Actions artifact as a secondary reference, as text: never a link (#23).
+
+    Logged-out evaluators get 404 from Actions pages, so the id and expiry are kept for
+    maintainers but nothing on the site points there.
+    """
     name = f"Actions artifact {html.escape(artifact['id'])}"
     expires = artifact.get("expires_at")
     if expires and expires <= now:
         return f"original {name} expired {html.escape(expires)}"
-    if expires and artifact.get("url", "").startswith("https://github.com/"):
-        return (
-            f"original: {a(artifact['url'], name)}, GitHub sign-in required, "
-            f"expires {html.escape(expires)}"
-        )
-    return f"original {name}: expiry unknown, not linked"
+    if expires:
+        return f"original {name}, maintainers only (GitHub sign-in), expires {html.escape(expires)}"
+    return f"original {name}: expiry unknown"
 
 
 def publish_report_html(folder: Path, record: dict, now: str) -> None:
@@ -605,12 +627,13 @@ def publish_report_html(folder: Path, record: dict, now: str) -> None:
     expire. The published report.html links the site copy first and keeps the Actions
     artifact as a secondary reference labelled with its expiry. The reporter's bytes stay
     as report.html.orig (what SHA256SUMS lists); report.json, .md, .txt and SHA256SUMS are
-    never changed. Rebuilt from the original on every render, so expiry labels stay current.
+    never changed. Any other reporter anchor to Actions (the Evidence "CI run" link) becomes
+    text. Rebuilt from the original on every render, so expiry labels stay current.
     """
     published, original = folder / "report.html", folder / ORIGINAL_HTML
     source = original if original.is_file() else published
     text = source.read_text()
-    if not ARTIFACT_LINK.search(text):
+    if not (ARTIFACT_LINK.search(text) or ACTIONS_ANCHOR.search(text)):
         return
     if not original.is_file():
         shutil.copyfile(published, original)
@@ -636,7 +659,12 @@ def publish_report_html(folder: Path, record: dict, now: str) -> None:
             primary = f"{label} (not on this site: {html.escape(reason)})"
         return f"{primary} <small>({original_reference(artifact, now)})</small>"
 
-    published.write_text(ARTIFACT_LINK.sub(replace, text))
+    def as_text(match: re.Match) -> str:
+        run = ACTIONS_RUN.search(match.group(2))
+        what = f" {run.group(1)}" if run else ""
+        return f"{match.group(3)}{what} <small>(maintainers only, GitHub sign-in required)</small>"
+
+    published.write_text(ACTIONS_ANCHOR.sub(as_text, ARTIFACT_LINK.sub(replace, text)))
 
 
 def run_page(record: dict, label: str, up: str, now: str = "") -> str:
@@ -644,7 +672,10 @@ def run_page(record: dict, label: str, up: str, now: str = "") -> str:
     p = record
     rows = [
         ("Outcome", outcome_cells(p)),
-        ("CI run", a(p["run"]["url"], f"run {p['run']['id']}") + f" · {p['run']['created']}"),
+        (
+            "CI run",
+            ci_run(p["run"]) + f" · {html.escape(p['run']['created'])} · maintainers only",
+        ),
         (
             "livingproof-verification",
             a(p["commit"]["url"], p["commit"]["sha"][:12])
@@ -714,7 +745,7 @@ def render(site: Path, now: str = ""):
         )
         items = "".join(
             f"<tr><td>{a('runs/' + r['folder'] + '/', r['run']['id'])}</td>"
-            f"<td>{a(r['run']['url'], 'CI run ' + r['run']['id'])}</td>"
+            f"<td>{ci_run(r['run'])}</td>"
             f"<td>{html.escape(r['run']['created'])}</td><td>{outcome_cells(r)}</td>"
             f"<td>{a(r['commit']['url'], r['commit']['sha'][:12])}</td></tr>"
             for r in records
@@ -730,7 +761,7 @@ def render(site: Path, now: str = ""):
         rows.append(
             f"<tr><td>{html.escape(robot)}</td><td>{html.escape(variant)}</td>"
             f"<td>{outcome_cells(newest)}<br>"
-            f"{a(newest['run']['url'], 'CI run ' + newest['run']['id'])}</td>"
+            f"{ci_run(newest['run'])}</td>"
             f"<td>{a(f'{robot}/{variant}/latest/', 'latest')} · "
             f"{a(f'{robot}/{variant}/', f'history ({len(records)} run{"s" * (len(records) != 1)})')}</td></tr>"
         )
@@ -757,6 +788,8 @@ def build(
 ):
     added = [add_run(site, reports, t, run, evidence, artifacts) for t in targets(verifications)]
     render(site, now=run["created"])
+    if linked := actions_links(site):
+        raise SiteError(f"pages still link to GitHub Actions (#23): {', '.join(linked)}")
     (site / MARKER).write_text(
         json.dumps(
             {"runs": sum(len(r) for r in runs(site).values()), "updated": run["created"]},

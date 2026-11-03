@@ -67,7 +67,7 @@ and configuration (`<robot>` from the robot repository, `<variant>` from the def
 - `/` lists every robot and variant with the verifier's latest grade and trial counts
 - `/<robot>/<variant>/latest/` is the newest run, `/<robot>/<variant>/` its run history
 - `/<robot>/<variant>/runs/<run-id>/` keeps each run: the reporter's `report.{html,json,md,txt}`
-  and `SHA256SUMS` unchanged, `run.json`, and a page linking the CI run, this repository's commit
+  and `SHA256SUMS` unchanged, `run.json`, and a page naming the CI run (as text), linking this repository's commit
   and the locked robot, specs, runner, verifier and reporter releases
 
 `tools/site.py` only lays out and indexes: the verifier grades, the reporter renders, and the
@@ -98,15 +98,17 @@ The `site` job downloads the run's `*-links-*`, `*-mcap-*` and `*-video-*` artif
 the run's artifact metadata (`actions: read`). `run.json` keeps, for every link in the report,
 the original artifact's id, name, URL, expiry and digest next to the site copy's files, sizes
 and sha256, so evidence identity stays tied to the assessment. `report.json`, `report.md`,
-`report.txt` and `SHA256SUMS` are published exactly as the reporter wrote them. Each run page lists the site copies first. The Actions link is shown only
-while the artifact is unexpired, with its expiry date; at each later publish an expired one is
-re-rendered as "expired <date>, no longer available", without a link. Runs published before
+`report.txt` and `SHA256SUMS` are published exactly as the reporter wrote them. Each run page lists the site copies first. The Actions artifact is named
+as text, never linked (lpv #23: Actions pages 404 for logged-out readers), marked maintainers only
+with its expiry date; at each later publish an expired one is re-rendered as "expired <date>, no
+longer available". CI runs are likewise shown as text, and `site.py build` fails if any built
+page still has an `href` or `src` containing `/actions/`. Runs published before
 this change carry no copies: their pages say the evidence was not copied and that the links
 inside the report expire.
 
 The published `report.html` is the one exception: its evidence links are rewritten at every
 publish to point at the site copies, each followed by the original Actions artifact as a
-secondary reference with its expiry (unlinked once expired, or when no copy exists). An artifact
+secondary text reference with its expiry (never a link). An artifact
 with several files (the MCAP artifact holds every trial) links to a listing page,
 `evidence/<artifact>.html`, with each file's size and sha256, rather than to its first file. The
 reporter's own `report.html` is kept beside it as `report.html.orig`, which is the file
