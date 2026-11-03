@@ -758,3 +758,36 @@ def test_the_all_trials_mcap_link_opens_a_listing_of_every_trial(tmp_path):
         # The single-file video keeps its direct link.
         assert f"<a href='evidence/{PREFIX}-video-stock-seed-1-pass/seed-01-pass.mp4'>" in report
     local_links_resolve(site)
+
+
+REAL_V303_HTML = Path(__file__).parent / "fixtures" / "reporter-v3.0.3-go1-report.html"
+
+
+def test_a_real_reporter_v3_0_3_report_publishes_with_no_actions_links(tmp_path, monkeypatch):
+    """PR #27 review: the reporter's Evidence "CI run" anchor must become text too."""
+    real = REAL_V303_HTML.read_text()
+    assert hashlib.sha256(real.encode()).hexdigest() == (
+        "cd6149a0b882d5c6b0749c880b3745750a365b2aa86aaaae9c33df1b8982d88f"
+    )
+    assert real.count("/actions/runs/41703287431'>CI run</a>") == 1
+    reports = tmp_path / "r"
+    for target in site_tool.targets():
+        write_reports(reports / target["artifact"], 15, "FAIL", html=real)
+    site = tmp_path / "site"
+    site_tool.build(site, reports, run("41703287431", "2026-11-03T19:40:00Z"))
+    assert site_tool.actions_links(site) == []
+    published = list(site.rglob("report.html"))
+    assert len(published) == 2 * len(site_tool.targets())
+    for page in published:
+        html = page.read_text()
+        assert "/actions/" not in html
+        assert (
+            "<li>CI run 41703287431 <small>(maintainers only, GitHub sign-in required)</small></li>"
+            in html
+        )
+        assert "original Actions artifact 13265357254: expiry unknown" in html
+        assert (page.parent / "report.html.orig").read_text() == real
+    # The guard stays strict: without the rewrite, the same real report fails the build.
+    monkeypatch.setattr(site_tool, "ACTIONS_ANCHOR", re.compile(r"(?!x)x(.)(.)(.)"))
+    with pytest.raises(site_tool.SiteError, match=r"report\.html"):
+        site_tool.build(tmp_path / "site2", reports, run("41703287431", "2026-11-03T19:40:00Z"))

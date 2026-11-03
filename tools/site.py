@@ -51,6 +51,11 @@ ARTIFACT_LINK = re.compile(
     r"(.*?)</a>",
     re.S,
 )
+# Any other reporter anchor to Actions (v3.0.3's Evidence "CI run" link), shown as text (#23).
+ACTIONS_ANCHOR = re.compile(
+    r"<a\s[^>]*?href=(['\"])([^'\"<>]*/actions/[^'\"<>]*)\1[^>]*>(.*?)</a>", re.S | re.I
+)
+ACTIONS_RUN = re.compile(r"/actions/runs/([0-9]+)(?:/attempts/[0-9]+)?/?$")
 MARKER = "site.json"  # written by every build; its presence on the live site means history
 
 
@@ -622,12 +627,13 @@ def publish_report_html(folder: Path, record: dict, now: str) -> None:
     expire. The published report.html links the site copy first and keeps the Actions
     artifact as a secondary reference labelled with its expiry. The reporter's bytes stay
     as report.html.orig (what SHA256SUMS lists); report.json, .md, .txt and SHA256SUMS are
-    never changed. Rebuilt from the original on every render, so expiry labels stay current.
+    never changed. Any other reporter anchor to Actions (the Evidence "CI run" link) becomes
+    text. Rebuilt from the original on every render, so expiry labels stay current.
     """
     published, original = folder / "report.html", folder / ORIGINAL_HTML
     source = original if original.is_file() else published
     text = source.read_text()
-    if not ARTIFACT_LINK.search(text):
+    if not (ARTIFACT_LINK.search(text) or ACTIONS_ANCHOR.search(text)):
         return
     if not original.is_file():
         shutil.copyfile(published, original)
@@ -653,7 +659,12 @@ def publish_report_html(folder: Path, record: dict, now: str) -> None:
             primary = f"{label} (not on this site: {html.escape(reason)})"
         return f"{primary} <small>({original_reference(artifact, now)})</small>"
 
-    published.write_text(ARTIFACT_LINK.sub(replace, text))
+    def as_text(match: re.Match) -> str:
+        run = ACTIONS_RUN.search(match.group(2))
+        what = f" {run.group(1)}" if run else ""
+        return f"{match.group(3)}{what} <small>(maintainers only, GitHub sign-in required)</small>"
+
+    published.write_text(ACTIONS_ANCHOR.sub(as_text, ARTIFACT_LINK.sub(replace, text)))
 
 
 def run_page(record: dict, label: str, up: str, now: str = "") -> str:
