@@ -8,13 +8,13 @@
   "robot": {
     "repository": "Living-Proof-Labs/livingproof-booster-t1",
     "ref": "main",
-    "commit": "630c04bfad9dd19defa3f3c9bfa56d7e331f0743",
+    "commit": "3f9521f1cbf57e1717311a02124cc2ad6bf1d1e5",
     "configurations": [
       "stock"
     ],
     "lock": {
       "path": "verification.lock.json",
-      "sha256": "dc45e8a059fd627393393b3ca42b7af450b6bd5e5fa76ac54f9f58d9e1a61744"
+      "sha256": "8bd73785d215c75451397c9a9154851c63f0fe438d65fc6f82cfa52b432a5d95"
     }
   },
   "releases": {
@@ -25,20 +25,20 @@
     },
     "runner": {
       "repository": "Living-Proof-Labs/livingproof-sim-mujoco",
-      "tag": "v1.8.2",
-      "commit": "6f740fde219fbc4da011178af9146a55735a9bed"
+      "tag": "v1.8.3",
+      "commit": "2db491ed0ddee66eafcf69e4cefe5c7605c82f91"
     },
     "verifier": {
       "repository": "Living-Proof-Labs/capability-verifier",
-      "tag": "v1.10.6",
-      "commit": "42748bc4e3757194333be4ea42e383834720dc19"
+      "tag": "v1.11.0",
+      "commit": "58388d3c5f970e11deae940c26d8558abb36314e"
     },
     "reporter": {
       "repository": "Living-Proof-Labs/livingproof-capability-report",
-      "tag": "v3.0.3",
-      "commit": "4b235e70c940104bbd7e3faacefe6c6a35ccb972",
+      "tag": "v3.0.4",
+      "commit": "f084f252de3e5af91a8099eacfd805dec291e9ec",
       "image": "ghcr.io/living-proof-labs/livingproof-capability-report",
-      "digest": "sha256:816674ac5ee1efb863ab9f780ac8fd24f2839d89f0a8df38f103c953e153e2fb"
+      "digest": "sha256:de95a479ce719ae223aa8938882dbf305852b6ad36d6ff9146231e4321586715"
     }
   }
 }
