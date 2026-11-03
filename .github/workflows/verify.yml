@@ -32,7 +32,7 @@ jobs:
       # Every package but the two git installs is hashed in .github/requirements/lock-check.txt
       # and installed with --require-hashes on its own: uv skipped the hash check on a URL wheel
       # when a git requirement shared the install. livingproof v1.4.9 and capability-verifier
-      # v1.10.4 are pinned by commit in lock-check-git.txt and installed after, with --no-deps
+      # v1.10.6 are pinned by commit in lock-check-git.txt and installed after, with --no-deps
       # and --no-build-isolation: their build backends come hashed from build.txt.
       - name: A wrong hash must refuse the install
         run: |
@@ -65,39 +65,39 @@ jobs:
       - run: '"$RUNNER_TEMP/tests/bin/pytest" tests/test_locks.py'
   unitree-g1-stock-mujoco-hallway:
     needs: locks
-    uses: Living-Proof-Labs/capability-verifier/.github/workflows/walk-hallway.yml@f8dc3d5634cf2ac2931e854b4f0b7d0ae39d7f0b
+    uses: Living-Proof-Labs/capability-verifier/.github/workflows/walk-hallway.yml@42748bc4e3757194333be4ea42e383834720dc19
     permissions:
       contents: read
       pull-requests: write
     with:
       repository: Living-Proof-Labs/livingproof-unitree-g1
-      ref: f3447e14ab7f70828d0cf769c7b6f7e512f89150
+      ref: 6577be5880dcff9acb421ea6acc63373a85867bc
       configurations: '["stock"]'
       artifact-prefix: unitree-g1-stock-mujoco-hallway-
       check: false  # the robot repository's own CI tests the robot
       comment: false
   booster-t1-stock-mujoco-hallway:
     needs: locks
-    uses: Living-Proof-Labs/capability-verifier/.github/workflows/walk-hallway.yml@f8dc3d5634cf2ac2931e854b4f0b7d0ae39d7f0b
+    uses: Living-Proof-Labs/capability-verifier/.github/workflows/walk-hallway.yml@42748bc4e3757194333be4ea42e383834720dc19
     permissions:
       contents: read
       pull-requests: write
     with:
       repository: Living-Proof-Labs/livingproof-booster-t1
-      ref: 30fdfca75e5e2c20503bba23cb9a72e84a8a7d71
+      ref: 630c04bfad9dd19defa3f3c9bfa56d7e331f0743
       configurations: '["stock"]'
       artifact-prefix: booster-t1-stock-mujoco-hallway-
       check: false  # the robot repository's own CI tests the robot
       comment: false
   unitree-go1-playground-mujoco-hallway:
     needs: locks
-    uses: Living-Proof-Labs/capability-verifier/.github/workflows/walk-hallway.yml@f8dc3d5634cf2ac2931e854b4f0b7d0ae39d7f0b
+    uses: Living-Proof-Labs/capability-verifier/.github/workflows/walk-hallway.yml@42748bc4e3757194333be4ea42e383834720dc19
     permissions:
       contents: read
       pull-requests: write
     with:
       repository: Living-Proof-Labs/livingproof-unitree-go1
-      ref: 12ea6e8c391db77e9e66dedcc66fe8bd6b55a9bd
+      ref: 0ed201aab2ded53b120b93a0646c1385beff8fc7
       configurations: '["playground"]'
       artifact-prefix: unitree-go1-playground-mujoco-hallway-
       check: false  # the robot repository's own CI tests the robot
