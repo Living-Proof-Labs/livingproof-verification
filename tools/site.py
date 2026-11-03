@@ -561,8 +561,9 @@ def listing_path(e: dict) -> str | None:
     return f"evidence/{name}.html"
 
 
-def write_listing(folder: Path, e: dict) -> None:
-    """A page linking every file of one preserved artifact (e.g. all 20 trial MCAPs)."""
+def write_listing(folder: Path, e: dict, up: str) -> None:
+    """A page linking every file of one preserved artifact (e.g. all 20 trial MCAPs).
+    ``up`` leads from ``folder`` to the site root, so the page links back to the reports index."""
     path = listing_path(e)
     if path is None:
         return
@@ -579,7 +580,8 @@ def write_listing(folder: Path, e: dict) -> None:
         f"{a('../index.html', 'Back to the run')} · {a('../report.html', 'report')}</p>"
         f"<table><tr><th>File</th><th>Bytes</th><th>sha256</th></tr>{rows}</table>"
     )
-    (folder / path).write_text(page(e.get("label") or e["artifact"]["name"], body))
+    title = e.get("label") or e["artifact"]["name"]
+    (folder / path).write_text(page(title, body, up=f"../{up}index.html"))
 
 
 def original_reference(artifact: dict, now: str) -> str:
@@ -696,11 +698,13 @@ def render(site: Path, now: str = ""):
         for record in records:
             folder = base / "runs" / record["folder"]
             for e in record.get("evidence") or []:
-                write_listing(folder, e)
+                write_listing(folder, e, up="../../../../")
             publish_report_html(folder, record, now)
             record["original_html"] = (folder / ORIGINAL_HTML).is_file()
         newest = records[0]
         shutil.copytree(base / "runs" / newest["folder"], latest)
+        for e in newest.get("evidence") or []:
+            write_listing(latest, e, up="../../../")
         for record in records:
             (base / "runs" / record["folder"] / "index.html").write_text(
                 run_page(record, f"run {record['run']['id']}", up="../../", now=now)
