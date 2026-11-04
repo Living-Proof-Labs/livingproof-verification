@@ -16,6 +16,16 @@ The first definition is `unitree-g1-stock-mujoco-hallway`: Unitree G1 with its s
 
 ## Run a verification locally
 
+The recommended path is the devcontainer (`.devcontainer/devcontainer.json`): the capability verifier's hallway image, pinned by digest, the same image CI's evidence, verify and media jobs use. It has Python 3.12, uv, git, jq, OSMesa, `livingproof` and the verifier, with the locked dependencies pre-synced. Without an editor, run the image directly from a clone of this repository (a clone, not a git worktree: the container must see `.git`):
+
+```sh
+docker run --rm -u $(id -u):$(id -g) -v $PWD:/work \
+  ghcr.io/living-proof-labs/capability-verifier-hallway:1.14.0@sha256:bd537e8f3688dae58be52223b5a3feb36186554d6321c0eacc7b793cc575ac05 \
+  capability verify run --reporter source verifications/unitree-g1-stock-mujoco-hallway.toml
+```
+
+Manual setup needs Python 3.12 or newer and the tools below.
+
 You need git, jq, [uv](https://docs.astral.sh/uv/), Docker (for the locked reporter image), and OSMesa (`libosmesa6` on Debian or Ubuntu). Install `livingproof` with the capability verifier plugin in one environment:
 
 ```sh

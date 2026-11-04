@@ -65,13 +65,13 @@ jobs:
       - run: '"$RUNNER_TEMP/tests/bin/pytest" tests/test_locks.py'
   unitree-g1-stock-mujoco-hallway:
     needs: locks
-    uses: Living-Proof-Labs/capability-verifier/.github/workflows/walk-hallway.yml@58388d3c5f970e11deae940c26d8558abb36314e
+    uses: Living-Proof-Labs/capability-verifier/.github/workflows/walk-hallway.yml@be50e20ffed0beb18a6c6435e11333912ec48be3
     permissions:
       contents: read
       pull-requests: write
     with:
       repository: Living-Proof-Labs/livingproof-unitree-g1
-      ref: 4de6de66fbfdfdcd438f2f5bf77431125dcbce54
+      ref: 7cb7b576239c7db6f71db3b239d48912eda243db
       configurations: '["stock"]'
       artifact-prefix: unitree-g1-stock-mujoco-hallway-
       check: false  # the robot repository's own CI tests the robot

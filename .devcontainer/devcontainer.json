@@ -1,0 +1,10 @@
+{
+  "name": "livingproof-verification (capability-verifier hallway image)",
+  "image": "ghcr.io/living-proof-labs/capability-verifier-hallway:1.14.0@sha256:bd537e8f3688dae58be52223b5a3feb36186554d6321c0eacc7b793cc575ac05",
+  "remoteUser": "lpl",
+  "updateRemoteUserUID": true,
+  "overrideCommand": true,
+  "workspaceFolder": "/work",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/work,type=bind",
+  "customizations": {"vscode": {"extensions": ["ms-python.python"]}}
+}
