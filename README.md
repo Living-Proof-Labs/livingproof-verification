@@ -24,7 +24,7 @@ docker run --rm -u $(id -u):$(id -g) -v $PWD:/work \
   capability verify run --reporter source verifications/unitree-g1-stock-mujoco-hallway.toml
 ```
 
-Manual setup needs Python 3.12 or newer and the tools below.
+Manual setup needs Python 3.12 (the verifier requires >=3.12,<3.13) and the tools below.
 
 You need git, jq, [uv](https://docs.astral.sh/uv/), Docker (for the locked reporter image), and OSMesa (`libosmesa6` on Debian or Ubuntu). Install `livingproof` with the capability verifier plugin in one environment:
 
