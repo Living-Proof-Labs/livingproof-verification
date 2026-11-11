@@ -2,38 +2,38 @@
   "format": "livingproof-verification-lock/0.1.0",
   "definition": {
     "path": "unitree-go1-playground-mujoco-hallway.toml",
-    "sha256": "f5a006ef6160d1b0c59eb3b95b904b92c92d21aa6d33d161ac48f442784d5c09"
+    "sha256": "6bbec4fae2ee726acefb690b8a39f0baaaa4e0d6cfd3d04a741cdc27bd18ce66"
   },
   "procedure": "walk-hallway",
   "robot": {
     "repository": "Living-Proof-Labs/livingproof-unitree-go1",
-    "ref": "main",
-    "commit": "9f6b3f0dcb34bc6e87836380b046a5c5836ffcfd",
+    "ref": "742355fa312f2dc96c0d23a9625367d7ece6ff02",
+    "commit": "742355fa312f2dc96c0d23a9625367d7ece6ff02",
     "configurations": [
       "playground"
     ],
     "lock": {
       "path": "verification.lock.json",
-      "sha256": "11c37fdc53c99f317c774423fc34577128c8f31190681fcb886d89f278e4b0b1"
+      "sha256": "a316a3cfe1cc2b13ccb55393b4ff5edb3fe4dc95a204d711d2e2d550c557683a"
     }
   },
   "releases": {
     "specs": {
       "repository": "Living-Proof-Labs/robot-capability-specs",
-      "tag": "v1.6.1",
-      "commit": "0bdf1db3f975b044692c0b8f1ec37737ad8b889f"
+      "tag": "v2.0.2",
+      "commit": "16524cbfeef18ff0454ebf125668b010d38a3993"
     },
     "runner": {
       "repository": "Living-Proof-Labs/livingproof-sim-mujoco",
-      "tag": "v1.8.3",
-      "commit": "2db491ed0ddee66eafcf69e4cefe5c7605c82f91"
+      "tag": "v2.0.1",
+      "commit": "5f6b9d10962eb6108dc55b079806b7a3cf794de7"
     },
     "verifier": {
       "repository": "Living-Proof-Labs/capability-verifier",
-      "tag": "v1.15.2",
-      "commit": "3dd9cc7498fa7653d3cbead36e4775bec43a84c3",
+      "tag": "v1.16.1",
+      "commit": "67bb6bbc330645f9fee66b9ab16f6c055cd313f8",
       "image": "ghcr.io/living-proof-labs/capability-verifier-hallway",
-      "digest": "sha256:ec76c95718593e446625bdbd257939a82623ec0941c3935bb0459bd2b859103e"
+      "digest": "sha256:b57bf7dde92d930926b1f75b23bddf6fbc310e5913a5f0db9aa501bccaf62e4d"
     },
     "reporter": {
       "repository": "Living-Proof-Labs/livingproof-capability-report",
