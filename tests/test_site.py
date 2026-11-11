@@ -41,6 +41,10 @@ def write_reports(directory: Path, passed: int, grade: str, html: str | None = N
         (directory / name).write_text(f"{name} {passed}")
     if html is not None:
         (directory / "report.html").write_text(html)
+    restamp(directory)
+
+
+def restamp(directory: Path) -> None:
     (directory / "SHA256SUMS").write_text(
         "".join(
             f"{hashlib.sha256((directory / n).read_bytes()).hexdigest()}  {n}\n"
@@ -505,12 +509,85 @@ def test_linked_evidence_is_copied_with_its_identity(tmp_path):
         }
     ]
     assert (video["seed"], video["status"]) == (1, "PASS")
+    assert "index" not in video and "trial" not in video
     assert (folder / video["files"][0]["path"]).read_bytes() == b"pass video"
     page = (folder / "index.html").read_text()
+    assert "seed 1 (PASS): video" in page
+    assert "trial 1 (PASS)" not in page
     assert f'href="{ART}/101"' not in page
     assert "maintainers only, GitHub sign-in required; available until 2026-12-02T08:54:02Z" in page
     assert f'href="evidence/{PREFIX}-mcap-stock/trials.mcap"' in page
     assert (site / "unitree-g1/stock-mujoco-hallway/latest" / video["files"][0]["path"]).is_file()
+    local_links_resolve(site)
+
+
+def mark_trial_model(reports: Path, result: dict) -> None:
+    """Record one evidence 2.0.0 result on every report. The result id keeps its seed suffix."""
+    for target in site_tool.targets():
+        folder = reports / target["artifact"]
+        report = json.loads((folder / "report.json").read_text())
+        report["source_bundle"] = {"results": [result]}
+        (folder / "report.json").write_text(json.dumps(report))
+        restamp(folder)
+
+
+@pytest.mark.parametrize(
+    ("report", "trial"),
+    [
+        ({"original_result": {"seed": 1, "status": "PASS"}}, False),
+        ({"plan": {"trials": 20, "seeds": [1, 2]}}, False),
+        ({"original_result": {"index": 1, "seed": 1, "status": "PASS"}}, True),
+        ({"provenance": {"plan": {"trials": {"count": 3}}}}, True),
+    ],
+)
+def test_trial_model_is_an_index_or_a_trials_object(report, trial):
+    assert site_tool.trial_model(report) is trial
+
+
+def test_a_2_0_0_trial_model_report_is_labelled_trial(tmp_path):
+    """Evidence 2.0.0 shows trial N. The stored seed key and the result id stay."""
+    evidence, artifacts = evidence_for(tmp_path)
+    reports = reports_with_links(tmp_path, "r1")
+    mark_trial_model(
+        reports,
+        {
+            "id": "stock-seed-01",
+            "original_result": {"status": "PASS", "index": 1, "seed": 1},
+            "provenance": {"plan": {"trials": {"count": 3}, "command_speed": 0.5}},
+        },
+    )
+    site = tmp_path / "site"
+    site_tool.build(
+        site,
+        reports,
+        run("7", "2026-11-02T00:00:00Z"),
+        evidence=evidence,
+        artifacts=artifacts,
+    )
+    folder = site / "unitree-g1/stock-mujoco-hallway/runs/7"
+    record = json.loads((folder / "run.json").read_text())
+    video = next(e for e in record["evidence"] if e.get("kind") == "video")
+    assert (video["seed"], video["status"]) == (1, "PASS")
+    assert "index" not in video and "trial" not in video
+    stored = json.loads((folder / "report.json").read_text())
+    assert stored["source_bundle"]["results"][0]["id"] == "stock-seed-01"
+    page = (folder / "index.html").read_text()
+    latest = (site / "unitree-g1/stock-mujoco-hallway/latest/index.html").read_text()
+    assert "trial 1 (PASS): video" in page and "trial 1 (PASS): video" in latest
+    assert "seed 1 (PASS)" not in page and "seed 1 (PASS)" not in latest
+    for html_path in (
+        folder / "report.html",
+        site / "unitree-g1/stock-mujoco-hallway/latest/report.html",
+    ):
+        html = html_path.read_text()
+        assert (
+            f"<a href='evidence/{PREFIX}-video-stock-seed-1-pass/seed-01-pass.mp4'>"
+            "trial 1 (PASS): video</a>" in html
+        )
+        assert "trial 4 (FAIL): video (not on this site: no copy recorded for this run)" in html
+        assert "seed 1 (PASS)" not in html and "seed 4 (FAIL)" not in html
+        assert f"evidence/{PREFIX}-video-stock-seed-1-pass/seed-01-pass.mp4" in html
+    assert (folder / "report.html.orig").read_text() == REPORTER_HTML
     local_links_resolve(site)
 
 

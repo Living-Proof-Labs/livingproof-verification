@@ -56,6 +56,8 @@ ACTIONS_ANCHOR = re.compile(
     r"<a\s[^>]*?href=(['\"])([^'\"<>]*/actions/[^'\"<>]*)\1[^>]*>(.*?)</a>", re.S | re.I
 )
 ACTIONS_RUN = re.compile(r"/actions/runs/([0-9]+)(?:/attempts/[0-9]+)?/?$")
+# The reporter still writes "seed N". Evidence 2.0.0 stores a trial index in that field.
+SEED_LABEL = re.compile(r"^seed (?=\d)")
 MARKER = "site.json"  # written by every build; its presence on the live site means history
 
 
@@ -521,7 +523,33 @@ ACTIONS_NOTE = (
 )
 
 
-def evidence_section(record: dict, now: str) -> str:
+def trial_model(node: object) -> bool:
+    """Evidence 2.0.0: ``original_result.index`` is present, or ``plan.trials`` is an object.
+
+    Evidence 1.0.0 keeps an integer ``plan.trials`` and ``original_result.seed``. The stored
+    ``seed`` key and result ids stay as the reporter wrote them; only the visible label changes.
+    """
+    if isinstance(node, dict):
+        original = node.get("original_result")
+        if isinstance(original, dict) and "index" in original:
+            return True
+        plan = node.get("plan")
+        if isinstance(plan, dict) and isinstance(plan.get("trials"), dict):
+            return True
+        return any(trial_model(value) for value in node.values())
+    if isinstance(node, list):
+        return any(trial_model(value) for value in node)
+    return False
+
+
+def display_label(label: str, trial: bool) -> str:
+    """User-visible per-trial label. 2.0.0 says trial; 1.0.0 stays seed."""
+    if trial:
+        return SEED_LABEL.sub("trial ", label, count=1)
+    return label
+
+
+def evidence_section(record: dict, now: str, trial: bool = False) -> str:
     """Site copies first; the original Actions artifact is a link only before it expires."""
     items = record.get("evidence")
     if items is None:
@@ -536,7 +564,10 @@ def evidence_section(record: dict, now: str) -> str:
     for e in items:
         what = html.escape(e["label"])
         if "seed" in e:
-            what = f"seed {e['seed']} ({html.escape(str(e.get('status', '')))}): {what}"
+            what = display_label(
+                f"seed {e['seed']} ({html.escape(str(e.get('status', '')))}): {what}",
+                trial,
+            )
         art = e["artifact"]
         name = f"Actions artifact {html.escape(art['id'])}"
         if art.get("name"):
@@ -620,7 +651,7 @@ def original_reference(artifact: dict, now: str) -> str:
     return f"original {name}: expiry unknown"
 
 
-def publish_report_html(folder: Path, record: dict, now: str) -> None:
+def publish_report_html(folder: Path, record: dict, now: str, trial: bool = False) -> None:
     """Point report.html's evidence links at this site's copies.
 
     The reporter links evidence to Actions artifacts, which need a GitHub sign-in and
@@ -641,6 +672,7 @@ def publish_report_html(folder: Path, record: dict, now: str) -> None:
 
     def replace(match: re.Match) -> str:
         url, artifact_id, label = match.group(2), match.group(3), match.group(4)
+        label = display_label(label, trial)
         e = by_id.get(artifact_id)
         artifact = e["artifact"] if e else {"id": artifact_id, "url": url}
         if e and listing_path(e):
@@ -667,7 +699,7 @@ def publish_report_html(folder: Path, record: dict, now: str) -> None:
     published.write_text(ACTIONS_ANCHOR.sub(as_text, ARTIFACT_LINK.sub(replace, text)))
 
 
-def run_page(record: dict, label: str, up: str, now: str = "") -> str:
+def run_page(record: dict, label: str, up: str, now: str = "", trial: bool = False) -> str:
     """`up` is the relative path from the page's folder to <robot>/<variant>/."""
     p = record
     rows = [
@@ -711,7 +743,7 @@ def run_page(record: dict, label: str, up: str, now: str = "") -> str:
     body = (
         f"<dl>{details}</dl><p>Rendered by the reporter: {files}. "
         f'<a href="{up}index.html">Run history</a>.</p>'
-        + evidence_section(p, now)
+        + evidence_section(p, now, trial=trial)
         + '<iframe src="report.html" title="Capability report"></iframe>'
     )
     title = f"{p['robot']['repository'].rsplit('/', 1)[1]} · {p['variant']} · {label}"
@@ -726,11 +758,13 @@ def render(site: Path, now: str = ""):
         latest = base / "latest"
         if latest.exists():
             shutil.rmtree(latest)
+        trials = {}
         for record in records:
             folder = base / "runs" / record["folder"]
+            trials[record["folder"]] = trial_model(read_report(folder / "report.json"))
             for e in record.get("evidence") or []:
                 write_listing(folder, e, up="../../../../")
-            publish_report_html(folder, record, now)
+            publish_report_html(folder, record, now, trial=trials[record["folder"]])
             record["original_html"] = (folder / ORIGINAL_HTML).is_file()
         newest = records[0]
         shutil.copytree(base / "runs" / newest["folder"], latest)
@@ -738,10 +772,22 @@ def render(site: Path, now: str = ""):
             write_listing(latest, e, up="../../../")
         for record in records:
             (base / "runs" / record["folder"] / "index.html").write_text(
-                run_page(record, f"run {record['run']['id']}", up="../../", now=now)
+                run_page(
+                    record,
+                    f"run {record['run']['id']}",
+                    up="../../",
+                    now=now,
+                    trial=trials[record["folder"]],
+                )
             )
         (latest / "index.html").write_text(
-            run_page(newest, f"latest (run {newest['run']['id']})", up="../", now=now)
+            run_page(
+                newest,
+                f"latest (run {newest['run']['id']})",
+                up="../",
+                now=now,
+                trial=trials[newest["folder"]],
+            )
         )
         items = "".join(
             f"<tr><td>{a('runs/' + r['folder'] + '/', r['run']['id'])}</td>"
