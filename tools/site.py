@@ -56,7 +56,9 @@ ACTIONS_ANCHOR = re.compile(
     r"<a\s[^>]*?href=(['\"])([^'\"<>]*/actions/[^'\"<>]*)\1[^>]*>(.*?)</a>", re.S | re.I
 )
 ACTIONS_RUN = re.compile(r"/actions/runs/([0-9]+)(?:/attempts/[0-9]+)?/?$")
-# The reporter still writes "seed N". Evidence 2.0.0 stores a trial index in that field.
+# Evidence 2.0.0 stores a trial index in the reporter's seed field.
+# livingproof-capability-report v3.3.0 writes "trial N". Older reporters write "seed N".
+# Rewrite only a leading "seed ", so a report that already says "trial N" is not labelled twice.
 SEED_LABEL = re.compile(r"^seed (?=\d)")
 MARKER = "site.json"  # written by every build; its presence on the live site means history
 
@@ -543,7 +545,11 @@ def trial_model(node: object) -> bool:
 
 
 def display_label(label: str, trial: bool) -> str:
-    """User-visible per-trial label. 2.0.0 says trial; 1.0.0 stays seed."""
+    """User-visible per-trial label. 2.0.0 says trial; 1.0.0 stays seed.
+
+    A leading ``seed `` from an older reporter becomes ``trial ``. A v3.3.0 report
+    that already says ``trial N`` is left as written.
+    """
     if trial:
         return SEED_LABEL.sub("trial ", label, count=1)
     return label
