@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Pages site assembly (tools/site.py) and the publishing jobs in verify.yml."""
 
+import email.message
 import hashlib
 import importlib.util
 import io
@@ -8,6 +9,8 @@ import json
 from pathlib import Path
 import re
 import tarfile
+import urllib.error
+import urllib.request
 import zipfile
 
 import pytest
@@ -291,6 +294,8 @@ def test_restore_then_build_keeps_history(tmp_path, monkeypatch):
         return io.BytesIO(archive if url.endswith("/zip") else json.dumps(listing).encode())
 
     monkeypatch.setattr(site_tool, "_request", fake)
+    # The download opens each hop itself (302, then the blob) instead of _request.
+    monkeypatch.setattr(site_tool, "_open_once", fake)
     restored = tmp_path / "restored"
     assert site_tool.restore(restored, REPO, "main", 200, "t", dry_run=True)["id"] == 7
     assert not any(restored.iterdir()) and len(requested) == 1
@@ -354,6 +359,221 @@ def test_restore_starts_fresh_only_when_nothing_is_published(tmp_path, monkeypat
     assert probed == [SITE_URL + "site.json", SITE_URL + "index.html"]
     with pytest.raises(site_tool.SiteError, match="--site-url"):
         site_tool.restore(tmp_path / "s", REPO, "main", 1, "t")
+
+
+ARCHIVE_URL = "https://api.example/7/zip"
+BLOB_URL = "https://objects.githubusercontent.example/github-pages/artifact"
+
+
+def http_error(url, code, reason, location=None):
+    headers = email.message.Message()
+    if location:
+        headers["Location"] = location
+    return urllib.error.HTTPError(url, code, reason, headers, None)
+
+
+def redirect_to_blob():
+    return http_error(ARCHIVE_URL, 302, "Found", location=BLOB_URL)
+
+
+def refuse_network(*args, **kwargs):
+    raise AssertionError(f"unexpected network call: {args!r} {kwargs!r}")
+
+
+def scripted_download(monkeypatch, outcomes):
+    """Queue of exceptions or bodies for each hop. Sleep and HTTP stay in-process."""
+    calls = []
+    queue = list(outcomes)
+
+    def open_once(url, token):
+        calls.append((url, token))
+        if not queue:
+            raise AssertionError(f"unexpected GET {url}")
+        outcome = queue.pop(0)
+        if isinstance(outcome, BaseException):
+            raise outcome
+        return io.BytesIO(outcome)
+
+    sleeps = []
+    monkeypatch.setattr(site_tool, "_open_once", open_once)
+    monkeypatch.setattr(site_tool.time, "sleep", sleeps.append)
+    monkeypatch.setattr(site_tool.random, "uniform", lambda _low, _high: 1.0)
+    monkeypatch.setattr(site_tool.urllib.request, "urlopen", refuse_network)
+    monkeypatch.setattr(site_tool.urllib.request, "build_opener", refuse_network)
+    return calls, sleeps, queue
+
+
+def list_pages(monkeypatch, artifacts):
+    def request(url, token):
+        if isinstance(artifacts, BaseException):
+            raise artifacts
+        return io.BytesIO(json.dumps({"artifacts": artifacts}).encode())
+
+    monkeypatch.setattr(site_tool, "_request", request)
+
+
+def pages_artifact_listing():
+    return [artifact(7, "main", 100, "2026-11-02T06:10:00Z")]
+
+
+def test_redirect_handler_leaves_the_blob_hop_to_the_caller():
+    """A 302 must surface here. urlopen following it would hide the blob 503."""
+    handler = site_tool._NoRedirect()
+    headers = email.message.Message()
+    headers["Location"] = BLOB_URL
+    request = urllib.request.Request(ARCHIVE_URL)
+    with pytest.raises(urllib.error.HTTPError) as caught:
+        handler.http_error_302(request, None, 302, "Found", headers)
+    error = caught.value
+    assert error.code == 302
+    assert error.url == ARCHIVE_URL
+    assert error.headers.get("Location") == BLOB_URL
+
+
+def test_restore_succeeds_after_transient_503s(tmp_path, monkeypatch, capsys):
+    """503s from the blob after the 302 are retried; so are 429 and a dropped connection."""
+    first = tmp_path / "first"
+    site_tool.build(
+        first, reports_for(tmp_path, "one", 12, "FAIL"), run("100", "2026-11-02T06:00:00Z")
+    )
+    archive = pages_zip(first)
+    failures = [
+        http_error(BLOB_URL, 503, "Egress is over the account limit"),
+        http_error(BLOB_URL, 503, "Egress is over the account limit"),
+        http_error(BLOB_URL, 429, "too many requests"),
+        urllib.error.URLError(TimeoutError("timed out")),
+    ]
+    outcomes = []
+    for failure in failures:
+        outcomes.extend((redirect_to_blob(), failure))
+    outcomes.extend((redirect_to_blob(), archive))
+    calls, sleeps, remaining = scripted_download(monkeypatch, outcomes)
+    list_pages(monkeypatch, pages_artifact_listing())
+
+    restored = tmp_path / "restored"
+    found = site_tool.restore(restored, REPO, "main", 200, "t")
+
+    assert remaining == []
+    assert found["id"] == 7
+    assert calls == [(ARCHIVE_URL, "t"), (BLOB_URL, None)] * site_tool.DOWNLOAD_ATTEMPTS
+    # Jitter is pinned to 1, so the waits are the base schedule: 10, 20, 40, 80 seconds.
+    assert sleeps == [site_tool.DOWNLOAD_BACKOFF_BASE * (2**n) for n in range(len(failures))]
+    low, high = site_tool.DOWNLOAD_JITTER
+    schedule = [
+        site_tool.DOWNLOAD_BACKOFF_BASE * (2**n) for n in range(site_tool.DOWNLOAD_ATTEMPTS - 1)
+    ]
+    assert sum(schedule) * low >= 120
+    assert sum(schedule) * high <= 180
+    log = capsys.readouterr().out
+    for attempt in range(1, len(failures) + 1):
+        assert f"attempt {attempt}/{site_tool.DOWNLOAD_ATTEMPTS} failed" in log
+        assert f"retrying in {float(sleeps[attempt - 1]):.1f}s" in log
+    assert f"attempt {len(failures) + 1}/{site_tool.DOWNLOAD_ATTEMPTS} succeeded" in log
+    assert "Egress is over the account limit" in log and BLOB_URL in log
+    assert "connection error" in log and "429" in log
+    report = restored / "unitree-g1/stock-mujoco-hallway/runs/100/report.md"
+    assert report.read_text() == "report.md 12"
+
+
+def test_restore_fails_when_download_503_persists(tmp_path, monkeypatch, capsys):
+    outcomes = []
+    for _attempt in range(site_tool.DOWNLOAD_ATTEMPTS):
+        outcomes.extend(
+            (
+                redirect_to_blob(),
+                http_error(BLOB_URL, 503, "Egress is over the account limit"),
+            )
+        )
+    calls, sleeps, remaining = scripted_download(monkeypatch, outcomes)
+    list_pages(monkeypatch, pages_artifact_listing())
+    destination = tmp_path / "s"
+
+    with pytest.raises(site_tool.SiteError, match="after 5 attempts") as caught:
+        site_tool.restore(destination, REPO, "main", 200, "t", site_url=SITE_URL)
+
+    message = str(caught.value)
+    assert "Refusing to publish" in message
+    assert "503" in message and "Egress is over the account limit" in message
+    assert BLOB_URL in message
+    assert isinstance(caught.value.__cause__, urllib.error.HTTPError)
+    assert caught.value.__cause__.code == 503
+    assert remaining == []
+    assert sleeps == [site_tool.DOWNLOAD_BACKOFF_BASE * (2**n) for n in range(4)]
+    assert calls == [(ARCHIVE_URL, "t"), (BLOB_URL, None)] * site_tool.DOWNLOAD_ATTEMPTS
+    assert not any(destination.iterdir())
+    log = capsys.readouterr().out
+    assert f"attempt {site_tool.DOWNLOAD_ATTEMPTS}/{site_tool.DOWNLOAD_ATTEMPTS} failed" in log
+    assert "succeeded" not in log
+    assert "WARNING" not in log and "starting a new site" not in log and "Restored" not in log
+
+
+@pytest.mark.parametrize(
+    ("listing", "detail"),
+    [
+        ([], "none listed"),
+        (http_error("https://api.example/artifacts", 404, "Not Found"), "HTTP 404"),
+    ],
+)
+def test_restore_warns_and_continues_when_there_is_no_previous_artifact(
+    tmp_path, monkeypatch, capsys, listing, detail
+):
+    """First publish: an empty list, or a 404 on the listing, continues with a warning."""
+    calls, _sleeps, _remaining = scripted_download(monkeypatch, [])
+    list_pages(monkeypatch, listing)
+    probed = []
+
+    def status(url):
+        probed.append(url)
+        return 404
+
+    monkeypatch.setattr(site_tool, "_fetch_status", status)
+    destination = tmp_path / "s"
+
+    assert site_tool.restore(destination, REPO, "main", 1, "t", site_url=SITE_URL) is None
+
+    assert calls == []
+    assert probed == [SITE_URL + "site.json", SITE_URL + "index.html"]
+    assert not any(destination.iterdir())
+    log = capsys.readouterr().out
+    assert "WARNING:" in log
+    assert detail in log
+    assert "without run history" in log
+    assert "starting a new site" in log
+
+
+def test_listing_404_refuses_when_the_published_site_has_history(tmp_path, monkeypatch, capsys):
+    scripted_download(monkeypatch, [])
+    list_pages(monkeypatch, http_error("https://api.example/artifacts", 404, "Not Found"))
+    monkeypatch.setattr(site_tool, "_fetch_status", lambda url: 200)
+
+    with pytest.raises(site_tool.SiteError, match="reset-history") as caught:
+        site_tool.restore(tmp_path / "s", REPO, "main", 1, "t", site_url=SITE_URL)
+
+    assert "HTTP 404" in str(caught.value)
+    assert "Refusing to publish" in str(caught.value)
+    log = capsys.readouterr().out
+    assert "WARNING" not in log and "starting a new site" not in log
+
+
+def test_restore_fails_on_a_corrupt_archive(tmp_path, monkeypatch, capsys):
+    """A partial or corrupt body (not a zip) fails. It is not retried and not published."""
+    partial = b"PK\x03\x04" + b"\x00" * 8
+    calls, sleeps, remaining = scripted_download(monkeypatch, [redirect_to_blob(), partial])
+    list_pages(monkeypatch, pages_artifact_listing())
+    destination = tmp_path / "s"
+
+    with pytest.raises(site_tool.SiteError, match="not a valid Pages archive") as caught:
+        site_tool.restore(destination, REPO, "main", 200, "t", site_url=SITE_URL)
+
+    message = str(caught.value)
+    assert "BadZipFile" in message and "Refusing to publish" in message
+    assert isinstance(caught.value.__cause__, zipfile.BadZipFile)
+    assert sleeps == [] and remaining == []
+    assert calls == [(ARCHIVE_URL, "t"), (BLOB_URL, None)]
+    assert not any(destination.iterdir())
+    log = capsys.readouterr().out
+    assert "succeeded" in log
+    assert "Restored" not in log and "starting a new site" not in log and "WARNING" not in log
 
 
 def test_build_writes_the_history_marker(tmp_path):

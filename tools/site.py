@@ -18,20 +18,26 @@ report.json, never recomputed. Per verification and configuration:
     index.html                         every robot/variant with grade and counts
 
 Earlier runs come from the previous Pages artifact (`restore`), so history survives
-without committing anything to git.
+without committing anything to git. If that artifact is listed but the download
+fails or the archive is corrupt, restore fails instead of publishing a site that
+drops those runs.
 """
 
 import argparse
 import hashlib
 import html
+import http.client
 import io
 import json
 import os
 from pathlib import Path, PurePosixPath
+import random
 import re
 import shutil
 import tarfile
+import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import zipfile
 
@@ -102,6 +108,30 @@ def targets(verifications: Path = ROOT / "verifications") -> list[dict]:
 
 # ---------------------------------------------------------------- restore
 
+# Five downloads. The waits after a failure are 10, 20, 40 and 80 seconds, each
+# multiplied by a jitter in [0.8, 1.2], so a download that keeps failing waits
+# about two to three minutes and then the publish stops.
+DOWNLOAD_ATTEMPTS = 5
+DOWNLOAD_BACKOFF_BASE = 10
+DOWNLOAD_JITTER = (0.8, 1.2)
+_REDIRECTS = frozenset({301, 302, 303, 307, 308})
+_MAX_REDIRECTS = 5
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Raise on 3xx so the download loop follows the blob hop itself.
+
+    The artifact URL returns 302 to blob storage. The 503 that failed publish
+    ("Egress is over the account limit") was that second response. Each retry
+    starts again at the artifact URL, follows the new Location, and does not
+    send the GitHub token to the blob host.
+    """
+
+    def http_error_302(self, req, fp, code, msg, headers):
+        raise urllib.error.HTTPError(req.full_url, code, msg, headers, fp)
+
+    http_error_301 = http_error_303 = http_error_307 = http_error_308 = http_error_302
+
 
 def _request(url: str, token: str | None):
     request = urllib.request.Request(url, headers={"Accept": "application/vnd.github+json"})
@@ -109,6 +139,172 @@ def _request(url: str, token: str | None):
         # Not forwarded on the redirect to the artifact storage host.
         request.add_unredirected_header("Authorization", f"Bearer {token}")
     return urllib.request.urlopen(request, timeout=120)
+
+
+def _open_once(url: str, token: str | None):
+    """One GET that does not follow redirects. The token is the caller's decision."""
+    request = urllib.request.Request(url, headers={"Accept": "application/vnd.github+json"})
+    if token:
+        request.add_unredirected_header("Authorization", f"Bearer {token}")
+    return urllib.request.build_opener(_NoRedirect).open(request, timeout=120)
+
+
+def _host(url: str) -> str:
+    return urllib.parse.urlsplit(url).netloc
+
+
+def _retryable(error: BaseException) -> bool:
+    """5xx, 429, and connection failures. A 404 is the server's answer, not a blip."""
+    if isinstance(error, urllib.error.HTTPError):
+        return error.code == 429 or 500 <= error.code < 600
+    # HTTPError is an OSError and was classified above. Everything else here is a
+    # dropped connection, a timeout, or a body cut off mid-download.
+    return isinstance(error, (OSError, http.client.HTTPException))
+
+
+def _error_text(error: BaseException) -> str:
+    if isinstance(error, urllib.error.HTTPError):
+        where = getattr(error, "url", "") or ""
+        text = f"HTTP {error.code} {error.reason}".rstrip()
+        return f"{text} from {where}" if where else text
+    if isinstance(error, urllib.error.URLError):
+        return f"connection error: {error.reason}"
+    return f"{type(error).__name__}: {error}"
+
+
+def _backoff_seconds(failed_attempt: int) -> float:
+    """Wait after failed attempt 1, 2, 3, 4: about 10s, 20s, 40s, 80s, with jitter."""
+    return DOWNLOAD_BACKOFF_BASE * (2 ** (failed_attempt - 1)) * random.uniform(*DOWNLOAD_JITTER)
+
+
+def _redirect_target(current: str, error: urllib.error.HTTPError) -> str:
+    headers = error.headers
+    location = headers.get("Location") if headers is not None else None
+    if not location:
+        raise SiteError(
+            f"Redirect ({error.code}) from {current} had no Location header. "
+            "Refusing to publish a site without its earlier runs."
+        ) from error
+    nxt = urllib.parse.urljoin(current, location.strip())
+    if urllib.parse.urlsplit(nxt).scheme not in ("http", "https"):
+        raise SiteError(f"Refusing to follow a redirect from {current} to {nxt}.") from error
+    return nxt
+
+
+def _read_following_redirects(url: str, token: str | None) -> bytes:
+    """GET `url` and every redirect. The token is sent only to `url`'s host."""
+    current = url
+    home = _host(url)
+    for _hop in range(_MAX_REDIRECTS + 1):
+        try:
+            with _open_once(current, token if _host(current) == home else None) as response:
+                return response.read()
+        except urllib.error.HTTPError as error:
+            try:
+                if error.code not in _REDIRECTS:
+                    raise
+                current = _redirect_target(current, error)
+            finally:
+                error.close()
+            continue
+    raise SiteError(
+        f"Too many redirects downloading the Pages artifact (stopped at {current}). "
+        "Refusing to publish a site without its earlier runs."
+    )
+
+
+def _download_pages_archive(url: str, token: str | None) -> bytes:
+    """Download one Pages zip, retrying each hop of the redirect chain.
+
+    Each attempt starts at the artifact URL again, so a fresh 302 is followed and
+    the blob fetch is inside the retry. A signed blob URL from the previous try
+    is not reused.
+    """
+    for attempt in range(1, DOWNLOAD_ATTEMPTS + 1):
+        try:
+            body = _read_following_redirects(url, token)
+        except SiteError:
+            raise
+        except Exception as error:
+            detail = _error_text(error)
+            if attempt < DOWNLOAD_ATTEMPTS and _retryable(error):
+                delay = _backoff_seconds(attempt)
+                print(
+                    f"Pages artifact download attempt {attempt}/{DOWNLOAD_ATTEMPTS} "
+                    f"failed: {detail}; retrying in {delay:.1f}s.",
+                    flush=True,
+                )
+                time.sleep(delay)
+                continue
+            print(
+                f"Pages artifact download attempt {attempt}/{DOWNLOAD_ATTEMPTS} failed: {detail}.",
+                flush=True,
+            )
+            noun = "attempt" if attempt == 1 else "attempts"
+            raise SiteError(
+                f"Could not download the previous {PAGES_ARTIFACT} artifact from {url} "
+                f"after {attempt} {noun} ({detail}). "
+                "Refusing to publish a site without its earlier runs."
+            ) from error
+        print(
+            f"Pages artifact download attempt {attempt}/{DOWNLOAD_ATTEMPTS} "
+            f"succeeded ({len(body)} bytes).",
+            flush=True,
+        )
+        return body
+    raise SiteError(
+        f"Could not download the previous {PAGES_ARTIFACT} artifact from {url}. "
+        "Refusing to publish a site without its earlier runs."
+    )
+
+
+def _list_pages_artifacts(repository: str, token: str | None, api: str) -> tuple[list[dict], str]:
+    """Pages artifacts, and why the list is empty when it is.
+
+    A 404 on the first page is "no artifact", the same as an empty list. Any other
+    listing failure refuses the publish: we cannot tell whether history exists.
+    """
+    artifacts: list[dict] = []
+    page = 1
+    while True:
+        url = (
+            f"{api}/repos/{repository}/actions/artifacts?name={PAGES_ARTIFACT}"
+            f"&per_page=100&page={page}"
+        )
+        try:
+            with _request(url, token) as response:
+                batch = json.load(response)["artifacts"]
+        except urllib.error.HTTPError as error:
+            if error.code == 404 and page == 1:
+                error.close()
+                return [], "artifact listing returned HTTP 404"
+            detail = _error_text(error)
+            error.close()
+            raise SiteError(
+                f"Could not list {PAGES_ARTIFACT} artifacts: {detail}. "
+                "Refusing to publish a site without its earlier runs."
+            ) from error
+        except OSError as error:
+            raise SiteError(
+                f"Could not list {PAGES_ARTIFACT} artifacts: {_error_text(error)}. "
+                "Refusing to publish a site without its earlier runs."
+            ) from error
+        artifacts.extend(batch)
+        if len(batch) < 100:
+            return artifacts, "none listed"
+        page += 1
+
+
+def _unpack_pages_archive(archive: bytes, destination: Path) -> int:
+    """Unpack a downloaded Pages zip. A partial or corrupt body fails the publish."""
+    try:
+        return extract_pages(archive, destination)
+    except (zipfile.BadZipFile, tarfile.TarError, EOFError, KeyError) as error:
+        raise SiteError(
+            f"The previous {PAGES_ARTIFACT} artifact downloaded but is not a valid "
+            f"Pages archive ({type(error).__name__}: {error}). "
+            "Refusing to publish a site without its earlier runs."
+        ) from error
 
 
 def latest_pages_artifact(artifacts: list[dict], branch: str, current_run: int | None):
@@ -193,35 +389,27 @@ def restore(
         # (the listing, the expiry check, the live-site check) may refuse it.
         print(f"reset-history set: starting a new site; {PAGES_ARTIFACT} history is dropped.")
         return None
-    artifacts, page = [], 1
-    while True:
-        with _request(
-            f"{api}/repos/{repository}/actions/artifacts?name={PAGES_ARTIFACT}"
-            f"&per_page=100&page={page}",
-            token,
-        ) as response:
-            batch = json.load(response)["artifacts"]
-        artifacts += batch
-        if len(batch) < 100:
-            break
-        page += 1
+    artifacts, why_empty = _list_pages_artifacts(repository, token, api)
     artifact = latest_pages_artifact(artifacts, branch, current_run)
     if artifact is None:
         if not site_url:
             raise SiteError(
-                f"No earlier {PAGES_ARTIFACT} artifact on {branch} and no --site-url to check "
-                "for published history; pass --site-url, or --reset-history to start anew."
+                f"No earlier {PAGES_ARTIFACT} artifact on {branch} ({why_empty}) and no "
+                "--site-url to check for published history; pass --site-url, or "
+                "--reset-history to start anew."
             )
         published = live_history(site_url)
         if published:
             raise SiteError(
-                f"No earlier {PAGES_ARTIFACT} artifact on {branch}, but {published} is live: "
-                "the artifact probably expired. Refusing to publish a site without its run "
-                "history; run the workflow with reset-history to start anew."
+                f"No earlier {PAGES_ARTIFACT} artifact on {branch} ({why_empty}), but "
+                f"{published} is live: the artifact probably expired. Refusing to publish "
+                "a site without its run history; run the workflow with reset-history to "
+                "start anew."
             )
         print(
-            f"No earlier {PAGES_ARTIFACT} artifact on {branch} and nothing published: "
-            "starting a new site."
+            f"WARNING: No earlier {PAGES_ARTIFACT} artifact on {branch} ({why_empty}) and "
+            "nothing is published: starting a new site without run history.",
+            flush=True,
         )
         return None
     run = artifact["workflow_run"]["id"]
@@ -231,8 +419,9 @@ def restore(
     )
     if dry_run:
         return artifact
-    with _request(artifact["archive_download_url"], token) as response:
-        count = extract_pages(response.read(), destination)
+    count = _unpack_pages_archive(
+        _download_pages_archive(artifact["archive_download_url"], token), destination
+    )
     print(f"Restored {count} files.")
     return artifact
 
