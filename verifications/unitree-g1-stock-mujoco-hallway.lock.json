@@ -2,19 +2,19 @@
   "format": "livingproof-verification-lock/0.1.0",
   "definition": {
     "path": "unitree-g1-stock-mujoco-hallway.toml",
-    "sha256": "c46dbe198e12c17d21bf7def64e3ed0b28c9f12cadf6d5e49f58dd20da1ddbc3"
+    "sha256": "1182c4d1bec8f49a4114c372230957040f46f2972354922b9998f0006f5a7aca"
   },
   "procedure": "walk-hallway",
   "robot": {
     "repository": "Living-Proof-Labs/livingproof-unitree-g1",
-    "ref": "23602be1eef86cbe5ac9dd03c88d1dbf078ba51a",
-    "commit": "23602be1eef86cbe5ac9dd03c88d1dbf078ba51a",
+    "ref": "2ff95abc238a34ebf39c48da1528d386c062ef5b",
+    "commit": "2ff95abc238a34ebf39c48da1528d386c062ef5b",
     "configurations": [
       "stock"
     ],
     "lock": {
       "path": "verification.lock.json",
-      "sha256": "b57b08964b402101c1647bcf82e69c19e3bddeb5fd71c63ef2810bcd4e46afca"
+      "sha256": "0430df89c76cbc9b3172da3d869614ddd5be0f1f80f1ad2c880ac958b08f24be"
     }
   },
   "releases": {
@@ -37,10 +37,10 @@
     },
     "reporter": {
       "repository": "Living-Proof-Labs/livingproof-capability-report",
-      "tag": "v3.3.0",
-      "commit": "927d14a38234a9a469423256012226add8844bc3",
+      "tag": "v3.3.1",
+      "commit": "6f7c6b1a834a3f1f78e8ea8a0aa34e89dff88b07",
       "image": "ghcr.io/living-proof-labs/livingproof-capability-report",
-      "digest": "sha256:db6086415d9672fcee078432a649e70d93c5d37b0c51ce51bcca74ff2b56c4bd"
+      "digest": "sha256:898badfd85561b7e5869f86d87a76ab04c4589db3fd83ca034f0947b8402dd6b"
     }
   }
 }
