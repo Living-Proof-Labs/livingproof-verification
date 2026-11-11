@@ -591,6 +591,56 @@ def test_a_2_0_0_trial_model_report_is_labelled_trial(tmp_path):
     local_links_resolve(site)
 
 
+def test_a_v3_3_report_that_already_says_trial_is_not_labelled_twice(tmp_path):
+    """v3.3.0 writes trial N for evidence 2.0.0. Publishing must not write trial trial N."""
+    evidence, artifacts = evidence_for(tmp_path)
+    html_in = (
+        "<html><body><ul>"
+        f"<li><a href='{ART}/101'>MCAP, all 20 trials</a></li>"
+        f"<li><a href='{ART}/102'>trial 1 (PASS): video</a></li>"
+        f'<li><a href="{ART}/103">trial 4 (FAIL): video</a></li>'
+        "</ul></body></html>"
+    )
+    reports = tmp_path / "r1"
+    for target in site_tool.targets():
+        write_reports(reports / target["artifact"], 12, "FAIL", html=html_in)
+    mark_trial_model(
+        reports,
+        {
+            "id": "stock-seed-01",
+            "original_result": {"status": "PASS", "index": 1, "seed": 1},
+            "provenance": {"plan": {"trials": {"count": 3}, "command_speed": 0.5}},
+        },
+    )
+    site = tmp_path / "site"
+    site_tool.build(
+        site,
+        reports,
+        run("7", "2026-11-02T00:00:00Z"),
+        evidence=evidence,
+        artifacts=artifacts,
+    )
+    folder = site / "unitree-g1/stock-mujoco-hallway/runs/7"
+    html = (folder / "report.html").read_text()
+    latest = (site / "unitree-g1/stock-mujoco-hallway/latest/report.html").read_text()
+    for published in (html, latest):
+        assert "trial trial" not in published
+        assert "seed 1 (PASS)" not in published and "seed 4 (FAIL)" not in published
+        assert (
+            f"<a href='evidence/{PREFIX}-video-stock-seed-1-pass/seed-01-pass.mp4'>"
+            "trial 1 (PASS): video</a>" in published
+        )
+        assert published.count("trial 1 (PASS): video") == 1
+        assert (
+            "trial 4 (FAIL): video (not on this site: no copy recorded for this run)" in published
+        )
+    assert (folder / "report.html.orig").read_text() == html_in
+    page = (folder / "index.html").read_text()
+    assert "trial trial" not in page
+    assert "trial 1 (PASS): video" in page and "seed 1 (PASS)" not in page
+    local_links_resolve(site)
+
+
 def test_expired_actions_artifacts_are_labelled_not_linked(tmp_path):
     """#11: after expiry no page keeps a live-looking link to the Actions artifact."""
     evidence, artifacts = evidence_for(tmp_path)
