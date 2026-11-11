@@ -3,11 +3,13 @@
 # The robot repository supplies the configuration, world, simulator runner, specs and trial
 # plan through its own verification.lock.json; this file only selects what to verify.
 # Lock it with `livingproof capability verify lock <this file>` and review the lock diff.
+# ref is the trial-model prep commit (cursor/g1-trial-model-261f). After that branch
+# merges, set ref to the merge commit and re-run the lock command above.
 format = "livingproof-verification-definition/0.1.0"
 id = "unitree-g1-stock-mujoco-hallway"
 procedure = "walk-hallway"
 
 [robot]
 repository = "Living-Proof-Labs/livingproof-unitree-g1"
-ref = "main"
+ref = "ecd0fd6d790328e11bf5107d93585097008c9d97"
 configurations = ["stock"]

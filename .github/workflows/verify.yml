@@ -65,39 +65,52 @@ jobs:
       - run: '"$RUNNER_TEMP/tests/bin/pytest" tests/test_locks.py'
   unitree-g1-stock-mujoco-hallway:
     needs: locks
-    uses: Living-Proof-Labs/capability-verifier/.github/workflows/walk-hallway.yml@3dd9cc7498fa7653d3cbead36e4775bec43a84c3
+    uses: Living-Proof-Labs/capability-verifier/.github/workflows/walk-hallway.yml@7943e0ea07c9f2221d4cd843366dec5572c6bf6f
     permissions:
       contents: read
       pull-requests: write
     with:
       repository: Living-Proof-Labs/livingproof-unitree-g1
-      ref: bf1a034ace1c3c0ca30fd4442b530e6a6f87cc9f
+      ref: ecd0fd6d790328e11bf5107d93585097008c9d97
       configurations: '["stock"]'
       artifact-prefix: unitree-g1-stock-mujoco-hallway-
       check: false  # the robot repository's own CI tests the robot
       comment: false
+  unitree-g1-playground-mujoco-hallway:
+    needs: locks
+    uses: Living-Proof-Labs/capability-verifier/.github/workflows/walk-hallway.yml@7943e0ea07c9f2221d4cd843366dec5572c6bf6f
+    permissions:
+      contents: read
+      pull-requests: write
+    with:
+      repository: Living-Proof-Labs/livingproof-unitree-g1
+      ref: ecd0fd6d790328e11bf5107d93585097008c9d97
+      configurations: '["playground"]'
+      artifact-prefix: unitree-g1-playground-mujoco-hallway-
+      check: false  # the robot repository's own CI tests the robot
+      comment: false
   booster-t1-stock-mujoco-hallway:
     needs: locks
-    uses: Living-Proof-Labs/capability-verifier/.github/workflows/walk-hallway.yml@3dd9cc7498fa7653d3cbead36e4775bec43a84c3
+    uses: Living-Proof-Labs/capability-verifier/.github/workflows/walk-hallway.yml@7943e0ea07c9f2221d4cd843366dec5572c6bf6f
     permissions:
       contents: read
       pull-requests: write
     with:
       repository: Living-Proof-Labs/livingproof-booster-t1
-      ref: 8e68532c3cad7def37a173314e4ed57be12cb1bb
+      ref: cc8e8663f14cc4c829ba0ee770ad786a9ac69a79
       configurations: '["stock"]'
       artifact-prefix: booster-t1-stock-mujoco-hallway-
       check: false  # the robot repository's own CI tests the robot
       comment: false
   unitree-go1-playground-mujoco-hallway:
     needs: locks
-    uses: Living-Proof-Labs/capability-verifier/.github/workflows/walk-hallway.yml@3dd9cc7498fa7653d3cbead36e4775bec43a84c3
+    uses: Living-Proof-Labs/capability-verifier/.github/workflows/walk-hallway.yml@7943e0ea07c9f2221d4cd843366dec5572c6bf6f
     permissions:
       contents: read
       pull-requests: write
     with:
       repository: Living-Proof-Labs/livingproof-unitree-go1
-      ref: 9f6b3f0dcb34bc6e87836380b046a5c5836ffcfd
+      ref: c7bc81f43794bd9d62249eab219a2c361e63a4a7
       configurations: '["playground"]'
       artifact-prefix: unitree-go1-playground-mujoco-hallway-
       check: false  # the robot repository's own CI tests the robot
@@ -106,7 +119,7 @@ jobs:
   # every earlier run from the previous Pages artifact. Layout and index only (tools/site.py):
   # the verifier graded and the reporter rendered; nothing is committed.
   site:
-    needs: [unitree-g1-stock-mujoco-hallway, booster-t1-stock-mujoco-hallway, unitree-go1-playground-mujoco-hallway]
+    needs: [unitree-g1-stock-mujoco-hallway, unitree-g1-playground-mujoco-hallway, booster-t1-stock-mujoco-hallway, unitree-go1-playground-mujoco-hallway]
     if: >-
       github.ref == 'refs/heads/main' && (github.event_name == 'push' ||
       (github.event_name == 'workflow_dispatch' && inputs.reset-history))
