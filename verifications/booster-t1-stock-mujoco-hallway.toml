@@ -3,12 +3,12 @@
 # The robot repository supplies the configuration, world, simulator runner, specs and trial
 # plan through its own verification.lock.json; this file only selects what to verify.
 # Lock it with `livingproof capability verify lock <this file>` and review the lock diff.
-# ref is the merged reporter v3.3.1 commit on livingproof-booster-t1.
+# ref is the merged sim-mujoco v2.0.3 commit on livingproof-booster-t1.
 format = "livingproof-verification-definition/0.1.0"
 id = "booster-t1-stock-mujoco-hallway"
 procedure = "walk-hallway"
 
 [robot]
 repository = "Living-Proof-Labs/livingproof-booster-t1"
-ref = "4ff65842e866bbdc1662633788464a30256fd605"
+ref = "9bbcd3001998ab242e63273ea070b483d73c24d5"
 configurations = ["stock"]

@@ -3,12 +3,12 @@
 # The robot repository supplies the configuration, world, simulator runner, specs and trial
 # plan through its own verification.lock.json; this file only selects what to verify.
 # Lock it with `livingproof capability verify lock <this file>` and review the lock diff.
-# ref is the merged reporter v3.3.1 commit on livingproof-unitree-go1.
+# ref is the merged sim-mujoco v2.0.3 commit on livingproof-unitree-go1.
 format = "livingproof-verification-definition/0.1.0"
 id = "unitree-go1-playground-mujoco-hallway"
 procedure = "walk-hallway"
 
 [robot]
 repository = "Living-Proof-Labs/livingproof-unitree-go1"
-ref = "00e662d8f2c02f24f48802052f52802ef49b0e80"
+ref = "c56816dc1cf8bfe3be9c1385a609dd6c7de97694"
 configurations = ["playground"]
