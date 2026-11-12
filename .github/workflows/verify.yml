@@ -65,26 +65,26 @@ jobs:
       - run: '"$RUNNER_TEMP/tests/bin/pytest" tests/test_locks.py'
   unitree-g1-stock-mujoco-hallway:
     needs: locks
-    uses: Living-Proof-Labs/capability-verifier/.github/workflows/walk-hallway.yml@67bb6bbc330645f9fee66b9ab16f6c055cd313f8
+    uses: Living-Proof-Labs/capability-verifier/.github/workflows/walk-hallway.yml@44acb9ed412a04fc458addba47fdf019b6d21027
     permissions:
       contents: read
       pull-requests: write
     with:
       repository: Living-Proof-Labs/livingproof-unitree-g1
-      ref: 884cf0c461b1f64b50811a9cd09903f49202dc18
+      ref: 862cf979f57e40d6158070c59b432b0cf4eaa4bd
       configurations: '["stock"]'
       artifact-prefix: unitree-g1-stock-mujoco-hallway-
       check: false  # the robot repository's own CI tests the robot
       comment: false
   unitree-g1-playground-mujoco-hallway:
     needs: locks
-    uses: Living-Proof-Labs/capability-verifier/.github/workflows/walk-hallway.yml@67bb6bbc330645f9fee66b9ab16f6c055cd313f8
+    uses: Living-Proof-Labs/capability-verifier/.github/workflows/walk-hallway.yml@44acb9ed412a04fc458addba47fdf019b6d21027
     permissions:
       contents: read
       pull-requests: write
     with:
       repository: Living-Proof-Labs/livingproof-unitree-g1
-      ref: 884cf0c461b1f64b50811a9cd09903f49202dc18
+      ref: 862cf979f57e40d6158070c59b432b0cf4eaa4bd
       configurations: '["playground"]'
       artifact-prefix: unitree-g1-playground-mujoco-hallway-
       check: false  # the robot repository's own CI tests the robot
