@@ -2,7 +2,7 @@
   "format": "livingproof-verification-lock/0.2.0",
   "definition": {
     "path": "unitree-go1-playground-mujoco-hallway.toml",
-    "sha256": "0155350e3520618eab3ebc79984a9b2a0228468ab793cd8c3ef3543dfadc5ed2"
+    "sha256": "d0acee2b58cd728763ea9e3cd80ebcadc5c0ce5f2ae84f5f46746a6a0560753a"
   },
   "procedure": "walk-hallway",
   "scenario": "walk-hallway@0.1.0",
@@ -28,10 +28,10 @@
     },
     "verifier": {
       "repository": "Living-Proof-Labs/capability-verifier",
-      "tag": "v1.18.3",
-      "commit": "8b303a672c003b82a90178364e7f107a58eaedac",
+      "tag": "v1.18.5",
+      "commit": "2b69ed41627504d7b5b78d72594b07a2973569cc",
       "image": "ghcr.io/living-proof-labs/capability-verifier-hallway",
-      "digest": "sha256:0e0e58d4be5389cab2860455f7e0e9e5e641a5f957a4e5f59b52841981fa29eb"
+      "digest": "sha256:6d1647def1582ad25b6f877d6ec2086aa4c9e03b43a2614282a3ea5c940e1fb2"
     },
     "reporter": {
       "repository": "Living-Proof-Labs/livingproof-capability-report",
@@ -65,8 +65,8 @@
   "evaluators": {
     "livingproof-evaluator-scenario": {
       "repository": "Living-Proof-Labs/livingproof-evaluator-scenario",
-      "tag": "v1.0.0",
-      "commit": "752a6f0a9f9d448c950e56a8e345a69a6693a907"
+      "tag": "v1.1.2",
+      "commit": "9792c083a6418296501bab0b05afbde748a5089d"
     }
   }
 }

@@ -765,6 +765,41 @@ def test_the_committed_evaluator_pin_is_a_full_release_tag():
         assert lock_tool.REPO.fullmatch(pin["repository"])
 
 
+_HALLWAY_REF = re.compile(
+    r"ghcr\.io/living-proof-labs/capability-verifier-hallway"
+    r"(?::(?P<tag>\d+\.\d+\.\d+)(?:@(?P<digest>sha256:[0-9a-f]{64}))?)?"
+)
+
+
+def test_walk_hallway_pin_locks_and_hallway_image_agree():
+    """The uses pin, the four locks' verifier tag and commit, and the hallway image agree."""
+    text = WORKFLOW.read_text()
+    verifiers = []
+    for definition in DEFINITIONS:
+        lock = lock_of(definition)
+        assert_uses_matches_locked_verifier(text, lock, definition.stem)
+        verifiers.append(lock["releases"]["verifier"])
+    assert (
+        len({(item["tag"], item["commit"], item["digest"], item["image"]) for item in verifiers})
+        == 1
+    )
+    verifier = verifiers[0]
+    assert lock_tool.TAG.fullmatch(verifier["tag"])
+    assert lock_tool.SHA.fullmatch(verifier["commit"])
+    image_tag = verifier["tag"].removeprefix("v")
+    pinned = f"{verifier['image']}:{image_tag}@{verifier['digest']}"
+    devcontainer = json.loads((ROOT / ".devcontainer" / "devcontainer.json").read_text())
+    assert devcontainer["image"] == pinned
+    blobs = [
+        (ROOT / "README.md").read_text(),
+        (ROOT / ".devcontainer" / "devcontainer.json").read_text(),
+    ]
+    refs = [match.groupdict() for blob in blobs for match in _HALLWAY_REF.finditer(blob)]
+    assert refs
+    assert {ref["tag"] for ref in refs if ref["tag"]} == {image_tag}
+    assert {ref["digest"] for ref in refs if ref["digest"]} == {verifier["digest"]}
+
+
 def test_an_edited_robot_commit_is_rejected(tmp_path, monkeypatch):
     root = _copy_verification_repo(tmp_path)
     originals = _original_locks(root)
