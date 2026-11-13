@@ -10,11 +10,13 @@ locks stay readable: this command loads one when it is still beside the definiti
 the capability-verifier checker accepts both formats during the migration.
 
 A robot that still publishes ``verification.lock.json`` supplies scenario, plan, world
-and the specs, runner and reporter releases. The verifier pin is the walk-hallway commit
-that definition's job calls in ``.github/workflows/verify.yml``, with that tag's hallway
-image digest. The scenario-evaluator pin is read from that verifier release. A thin robot
-publishes the adapter and configurations only. ``lock`` then keeps those owned fields from
-the existing ``0.2.0`` and refreshes the commit, adapter and configuration sha256s. With
+and the specs and runner releases. The reporter tag, repository and image come from
+``verifications/settings.toml`` in this repository; the commit and digest are resolved
+from that tag. The verifier pin is the walk-hallway commit that definition's job calls
+in ``.github/workflows/verify.yml``, with that tag's hallway image digest. The
+scenario-evaluator pin is read from that verifier release. A thin robot publishes the
+adapter and configurations only. ``lock`` then keeps those owned fields from the
+existing ``0.2.0`` and refreshes the commit, adapter and configuration sha256s. With
 neither source it exits with that explanation. It does not raise ``FileNotFoundError``
 for a missing robot lock.
 """
@@ -257,6 +259,46 @@ def called_verifier(
         "commit": commit,
         "image": VERIFIER_IMAGE,
         "digest": digest,
+    }
+
+
+def settings_path(definition: Path) -> Path | None:
+    """``settings.toml`` beside the definition, when this repository names the reporter."""
+    path = definition.parent / "settings.toml"
+    return path if path.is_file() else None
+
+
+def load_reporter_setting(path: Path) -> dict:
+    """Repository, tag and image for the reporter. The commit and digest are resolved later."""
+    try:
+        document = tomllib.loads(path.read_text())
+    except tomllib.TOMLDecodeError as exc:
+        raise LockError(f"{path}: not valid TOML ({exc})") from None
+    reporter = document.get("reporter") if isinstance(document, dict) else None
+    if not isinstance(reporter, dict):
+        raise LockError(f"{path}: reporter must be a table with repository, tag and image")
+    repository, tag, image = reporter.get("repository"), reporter.get("tag"), reporter.get("image")
+    problems = []
+    if not isinstance(repository, str) or not REPO.fullmatch(repository):
+        problems.append("reporter.repository must be OWNER/NAME")
+    if not isinstance(tag, str) or not TAG.fullmatch(tag):
+        problems.append(f"reporter.tag must be a vX.Y.Z release (got {tag!r})")
+    if not isinstance(image, str) or not image.startswith("ghcr.io/"):
+        problems.append("reporter.image must be a ghcr.io image")
+    if problems:
+        raise LockError(f"{path}: " + "; ".join(problems))
+    return {"repository": repository, "tag": tag, "image": image}
+
+
+def reporter_pin(setting: dict, resolve, digester) -> dict:
+    """The reporter release: the setting's tag, the commit it resolves to, and its digest."""
+    tag = setting["tag"]
+    return {
+        "repository": setting["repository"],
+        "tag": tag,
+        "commit": resolve(setting["repository"], tag),
+        "image": setting["image"],
+        "digest": digester(setting["image"], tag.removeprefix("v")),
     }
 
 
@@ -660,15 +702,15 @@ def generate(
             called = called_verifier(workflow, document["id"], tag_of=tag_of, digester=digester)
             if called is not None:
                 releases = dict(owned["releases"])
-                previous = releases.get("verifier")
                 releases["verifier"] = called
                 owned["releases"] = releases
-                previous_commit = previous.get("commit") if isinstance(previous, dict) else None
-                if previous_commit != called["commit"]:
-                    notes.append(
-                        f"releases.verifier recorded as {called['tag']} "
-                        f"({called['commit'][:12]}); the workflow calls that commit"
-                    )
+        settings = settings_path(definition)
+        if settings is not None:
+            releases = dict(owned["releases"])
+            releases["reporter"] = reporter_pin(
+                load_reporter_setting(settings), resolve, digester or image_digest
+            )
+            owned["releases"] = releases
         evaluator, note = _evaluator_pin(
             owned["releases"],
             work,

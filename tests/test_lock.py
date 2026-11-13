@@ -497,7 +497,55 @@ def test_the_workflow_call_replaces_the_robot_verifier(tmp_path, monkeypatch):
         "digest": digest,
     }
     assert lock["releases"]["reporter"]["tag"] == "v1.2.3"
-    assert any("workflow calls that commit" in note for note in notes)
+    assert notes == []
+    assert not any("releases.verifier recorded as" in note for note in notes)
+
+
+def test_settings_replace_the_robot_reporter(tmp_path, monkeypatch):
+    base = tmp_path / "git"
+    _robot(base)
+    _use(monkeypatch, base)
+    definition = _definition(tmp_path)
+    settings = definition.parent / "settings.toml"
+    settings.write_text(
+        "[reporter]\n"
+        'repository = "Living-Proof-Labs/livingproof-capability-report"\n'
+        'tag = "v3.5.0"\n'
+        'image = "ghcr.io/living-proof-labs/livingproof-capability-report"\n'
+    )
+    digest = "sha256:" + "ef" * 32
+    seen = {}
+
+    def resolve(repository, tag):
+        seen.setdefault("resolved", []).append((repository, tag))
+        if repository.endswith("capability-report"):
+            return "7" * 40
+        return EVALUATOR_COMMIT
+
+    def digester(image, tag):
+        seen["image"] = image
+        seen["tag"] = tag
+        return digest
+
+    lock, notes = lock_tool.generate(
+        definition,
+        tmp_path / "work",
+        resolve=resolve,
+        verifier_pyproject=VERIFIER_WITH_EVALUATOR,
+        digester=digester,
+    )
+    assert ("Living-Proof-Labs/livingproof-capability-report", "v3.5.0") in seen["resolved"]
+    assert seen["image"] == "ghcr.io/living-proof-labs/livingproof-capability-report"
+    assert seen["tag"] == "3.5.0"
+    assert lock["releases"]["reporter"] == {
+        "repository": "Living-Proof-Labs/livingproof-capability-report",
+        "tag": "v3.5.0",
+        "commit": "7" * 40,
+        "image": "ghcr.io/living-proof-labs/livingproof-capability-report",
+        "digest": digest,
+    }
+    assert lock["releases"]["reporter"]["tag"] != "v1.2.3"
+    assert notes == []
 
 
 def test_resolve_tag_uses_the_peeled_commit(tmp_path, monkeypatch):

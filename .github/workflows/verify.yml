@@ -61,6 +61,8 @@ jobs:
       - name: livingproof capability verify lock --check --workflow
         run: |
           for definition in verifications/*.toml; do
+            # settings.toml names the reporter. It is not a verification definition.
+            [ "$(basename "$definition")" = settings.toml ] && continue
             "$RUNNER_TEMP/lock-check/bin/livingproof" capability verify lock --check \
               --workflow .github/workflows/verify.yml "$definition"
           done
