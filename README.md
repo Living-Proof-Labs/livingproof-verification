@@ -9,7 +9,7 @@ Scope and acceptance criteria: [Living-Proof-Labs/.github#11](https://github.com
 ## What is here
 
 - `verifications/*.toml`: declarative definitions. Each one selects a robot repository, a ref and the configurations to verify.
-- `verifications/*.lock.json`: the reviewed lock for each definition. `python3 tools/lock.py` writes `livingproof-verification-lock/0.2.0`: the robot commit and adapter, each configuration's sha256, and the releases, plan, world and scenario-evaluator pin this repository owns. A `0.1.0` lock (the sha256 of the robot's `verification.lock.json`, and the releases copied out of it) stays readable during the migration. The published locks are still `0.1.0`.
+- `verifications/*.lock.json`: the reviewed lock for each definition. `python3 tools/lock.py` writes `livingproof-verification-lock/0.2.0`: the robot commit and adapter, each configuration's sha256, and the releases, plan, world and scenario-evaluator pin this repository owns. A `0.1.0` lock (the sha256 of the robot's `verification.lock.json`, and the releases copied out of it) stays readable during the migration. The published locks are `0.2.0`.
 - `.github/workflows/verify.yml`: a thin call to the capability verifier's reusable `walk-hallway.yml` at the locked verifier commit, passing the locked robot repository, commit and configurations.
 
 The first definition is `unitree-g1-stock-mujoco-hallway`: Unitree G1 with its stock controller in the MuJoCo hallway, 3 trials.
@@ -64,9 +64,9 @@ Edit a definition, re-lock it, and review the lock diff:
 python3 tools/lock.py verifications/unitree-g1-stock-mujoco-hallway.toml
 ```
 
-`lock` writes `livingproof-verification-lock/0.2.0`. While the robot still publishes `verification.lock.json`, releases, plan and world are copied from that file and the scenario-evaluator pin is read from the verifier release (recorded as `livingproof-evaluator-scenario` `v1.0.0` when that release does not declare one). A thin robot publishes the adapter and configurations only. `lock` then keeps releases, plan, world and the evaluator pin from the existing `0.2.0` and refreshes the commit, adapter and configuration sha256s. With neither source it exits with that explanation. A `0.1.0` lock beside the definition stays readable. The published locks are still `0.1.0`; the locks job accepts both.
+`lock` writes `livingproof-verification-lock/0.2.0`. While the robot still publishes `verification.lock.json`, releases, plan and world are copied from that file and the scenario-evaluator pin is read from the verifier release (recorded as `livingproof-evaluator-scenario` `v1.0.0` when that release does not declare one). A thin robot publishes the adapter and configurations only. `lock` then keeps releases, plan, world and the evaluator pin from the existing `0.2.0` and refreshes the commit, adapter and configuration sha256s. With neither source it exits with that explanation. A `0.1.0` lock beside the definition stays readable. The published locks are `0.2.0`; the locks job accepts both.
 
-Then update the call in `.github/workflows/verify.yml` to the new robot commit (and the verifier commit, if the lock names a new one). `tests/test_locks.py` (the `locks` CI job, which every verification job waits for) and `lock --check --workflow` fail until the two agree. Both parse the workflow YAML, so a commented-out pin does not count.
+Then update the call in `.github/workflows/verify.yml` to the new robot commit (and the verifier commit, if the lock names a new one). `tests/test_locks.py` (the `locks` CI job, which every verification job waits for) and `lock --check --workflow` fail until the two agree. Both parse the workflow YAML, so a commented-out pin does not count. G1 is the exception until the call moves: its lock records verifier v1.17.0 and reporter v3.5.0, the releases its robot lock names, while the call stays on walk-hallway `44acb9ed` because that file reads the robot lock.
 
 ## Published reports
 

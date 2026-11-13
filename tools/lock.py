@@ -461,12 +461,15 @@ def _owned_from_robot(robot_lock: dict, where: str) -> dict:
 
 
 def _owned_from_existing(existing: dict | None, definition: Path, where: str) -> dict:
-    found = existing.get("format") if isinstance(existing, dict) else "no lock"
+    if isinstance(existing, dict):
+        beside = f"the lock beside {definition.name} is {existing.get('format')}"
+    else:
+        beside = f"no lock beside {definition.name}"
     if not isinstance(existing, dict) or existing.get("format") != FORMAT_V2:
         raise LockError(
             f"{where} publishes no {ROBOT_LOCK}. A thin robot publishes its adapter and "
             "configurations only. releases, scenario, plan, world and evaluators have to "
-            f"come from that file or from an existing {FORMAT_V2} ({definition.name} has {found})."
+            f"come from that file or from an existing {FORMAT_V2} ({beside})."
         )
     missing = [key for key in OWNED if key not in existing]
     if missing:
