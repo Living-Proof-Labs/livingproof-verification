@@ -395,6 +395,7 @@ def test_a_thin_robot_without_owned_fields_is_an_error_not_file_not_found(tmp_pa
     assert not isinstance(caught.value, FileNotFoundError)
     assert "FileNotFoundError" not in message
     assert "adapter and configurations only" in message
+    assert f"no lock beside {definition.name}" in message
     assert not lock_tool.lock_path(definition).exists()
 
 
@@ -408,8 +409,10 @@ def test_a_thin_robot_with_only_a_0_1_0_lock_names_what_is_missing(tmp_path, mon
     )
     with pytest.raises(lock_tool.LockError, match="livingproof-verification-lock/0.1.0") as caught:
         lock_tool.main([str(definition), "--work", str(tmp_path / "work")])
-    assert "FileNotFoundError" not in str(caught.value)
+    message = str(caught.value)
+    assert "FileNotFoundError" not in message
     assert not isinstance(caught.value, FileNotFoundError)
+    assert f"the lock beside {definition.name} is {lock_tool.FORMAT_V1}" in message
 
 
 def test_main_writes_the_lock_and_asks_for_review(tmp_path, monkeypatch, capsys):
