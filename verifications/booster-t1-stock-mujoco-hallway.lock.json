@@ -2,7 +2,7 @@
   "format": "livingproof-verification-lock/0.2.0",
   "definition": {
     "path": "booster-t1-stock-mujoco-hallway.toml",
-    "sha256": "87ed37b5136c7c4a4b9becf797db4ae0b04d4c2828be1c2676ca1544a6f4dd1b"
+    "sha256": "5bf0d60d7ed2c163417e0aa2f8c20fc5daa86a6bd44cfb06a76fa80ec9d47e49"
   },
   "procedure": "walk-hallway",
   "scenario": "walk-hallway@0.1.0",
@@ -28,10 +28,10 @@
     },
     "verifier": {
       "repository": "Living-Proof-Labs/capability-verifier",
-      "tag": "v1.18.1",
-      "commit": "c27c6376b4adc1e5b1d9567e4d5b210ab1570a4e",
+      "tag": "v1.18.2",
+      "commit": "1489cd20d29302800171d934734d6165e7c5604d",
       "image": "ghcr.io/living-proof-labs/capability-verifier-hallway",
-      "digest": "sha256:38592a80edfda1796f1c7eb28fb2252bbe30f5649bd0937236ce2e581301a0be"
+      "digest": "sha256:720ee5f1fa68a88a94771ac2d676d152d25479a2b1b565734a72946a9b701334"
     },
     "reporter": {
       "repository": "Living-Proof-Labs/livingproof-capability-report",

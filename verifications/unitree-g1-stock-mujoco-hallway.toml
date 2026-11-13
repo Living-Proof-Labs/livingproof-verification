@@ -3,7 +3,7 @@
 # Verification pins a released robot tag. The robot publishes its adapter and
 # configurations. Lock this definition with `python3 tools/lock.py` and review the diff.
 # ref is livingproof-unitree-g1 v1.0.0, commit da7d9504cb5d4deaa509b92a1973490e43888f90.
-# The call is walk-hallway.yml at capability-verifier v1.18.1. verification-lock passes
+# The call is walk-hallway.yml at capability-verifier v1.18.2. verification-lock passes
 # this lock, and its releases are what the run reads.
 format = "livingproof-verification-definition/0.1.0"
 id = "unitree-g1-stock-mujoco-hallway"
