@@ -1,14 +1,16 @@
 # SPDX-License-Identifier: Apache-2.0
 # Unitree G1 with its stock controller walks the hallway in MuJoCo.
-# The robot repository supplies the configuration, world, simulator runner, specs and trial
-# plan through its own verification.lock.json; this file only selects what to verify.
-# Lock it with `livingproof capability verify lock <this file>` and review the lock diff.
-# ref is the merged verifier v1.16.3 commit on livingproof-unitree-g1.
+# Verification pins a released robot tag. The robot publishes its adapter and
+# configurations. Lock this definition with `python3 tools/lock.py` and review the diff.
+# ref is livingproof-unitree-g1 v1.0.0, commit da7d9504cb5d4deaa509b92a1973490e43888f90.
+# The robot lock at that commit names verifier v1.17.0 and reporter v3.5.0. This
+# verification keeps verifier v1.16.3 and reporter v3.4.0, and does not adopt the
+# scenario evaluator.
 format = "livingproof-verification-definition/0.1.0"
 id = "unitree-g1-stock-mujoco-hallway"
 procedure = "walk-hallway"
 
 [robot]
 repository = "Living-Proof-Labs/livingproof-unitree-g1"
-ref = "862cf979f57e40d6158070c59b432b0cf4eaa4bd"
+ref = "v1.0.0"
 configurations = ["stock"]

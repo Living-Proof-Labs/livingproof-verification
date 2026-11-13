@@ -1,21 +1,19 @@
 {
-  "format": "livingproof-verification-lock/0.1.0",
+  "format": "livingproof-verification-lock/0.2.0",
   "definition": {
     "path": "unitree-g1-stock-mujoco-hallway.toml",
-    "sha256": "592dc049118c2c176b0bf1fdd17e2f11a93af7b3190ce273195f38d7012049ac"
+    "sha256": "d91637ea08fc16fbcefbc7449ac5590c5cbac62106369dfb4568b5b861d092cb"
   },
   "procedure": "walk-hallway",
+  "scenario": "walk-hallway@0.1.0",
   "robot": {
     "repository": "Living-Proof-Labs/livingproof-unitree-g1",
-    "ref": "862cf979f57e40d6158070c59b432b0cf4eaa4bd",
-    "commit": "862cf979f57e40d6158070c59b432b0cf4eaa4bd",
+    "ref": "v1.0.0",
+    "commit": "da7d9504cb5d4deaa509b92a1973490e43888f90",
     "configurations": [
       "stock"
     ],
-    "lock": {
-      "path": "verification.lock.json",
-      "sha256": "54dcb1a0fe5078928b66594410d745eef1406b3a96357dc81bc08c2be0d81825"
-    }
+    "adapter": "lpl_g1.adapter:ROBOT"
   },
   "releases": {
     "specs": {
@@ -41,6 +39,40 @@
       "commit": "9290993732b50032f93f9ba55d39112918758477",
       "image": "ghcr.io/living-proof-labs/livingproof-capability-report",
       "digest": "sha256:ad7760d6197ade7df4103b43ad81f7c4f04761eec1da4357ac665e650bcc374b"
+    }
+  },
+  "world": {
+    "id": "hallway-open",
+    "version": "0.1.0",
+    "repository": "Living-Proof-Labs/livingproof-worlds",
+    "tag": "v1.1.0",
+    "commit": "9b3e7119aa93a3370383227fb30bd39a9dd72b4b"
+  },
+  "configurations": [
+    {
+      "name": "stock",
+      "version": "1.1.0",
+      "path": "configurations/stock.json",
+      "sha256": "b8f8a6dd2e2286744359404eb6c46562b73875aef9de50276777ddccb2239770"
+    },
+    {
+      "name": "playground",
+      "version": "1.0.0",
+      "path": "configurations/playground.json",
+      "sha256": "d4e68f256c89a80e2b2ad815cf43c566ba7bb2ef6114fe22f71bd954f1f920a6"
+    }
+  ],
+  "plan": {
+    "trials": {
+      "count": 3
+    },
+    "command_speed": 0.5
+  },
+  "evaluators": {
+    "livingproof-evaluator-scenario": {
+      "repository": "Living-Proof-Labs/livingproof-evaluator-scenario",
+      "tag": "v1.0.0",
+      "commit": "752a6f0a9f9d448c950e56a8e345a69a6693a907"
     }
   }
 }

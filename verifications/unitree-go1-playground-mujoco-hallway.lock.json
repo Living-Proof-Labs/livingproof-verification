@@ -1,21 +1,19 @@
 {
-  "format": "livingproof-verification-lock/0.1.0",
+  "format": "livingproof-verification-lock/0.2.0",
   "definition": {
     "path": "unitree-go1-playground-mujoco-hallway.toml",
-    "sha256": "d8ed3360d939b36fff561f9c157573db488515d41dd6ce0977ed8a5599ab497f"
+    "sha256": "193bec66492576644d6b3fc9c24cf7e85c8e27f63dde0135f87abad6e53e5eb4"
   },
   "procedure": "walk-hallway",
+  "scenario": "walk-hallway@0.1.0",
   "robot": {
     "repository": "Living-Proof-Labs/livingproof-unitree-go1",
-    "ref": "c56816dc1cf8bfe3be9c1385a609dd6c7de97694",
-    "commit": "c56816dc1cf8bfe3be9c1385a609dd6c7de97694",
+    "ref": "v1.0.0",
+    "commit": "fa5383a64e6d351a7b592e75796bf1f32c107197",
     "configurations": [
       "playground"
     ],
-    "lock": {
-      "path": "verification.lock.json",
-      "sha256": "e5e3b6915ffb23414a870e1585c45e58430040ab3d5f62c740733aab64e66e35"
-    }
+    "adapter": "lpl_go1.adapter:ROBOT"
   },
   "releases": {
     "specs": {
@@ -41,6 +39,34 @@
       "commit": "6f7c6b1a834a3f1f78e8ea8a0aa34e89dff88b07",
       "image": "ghcr.io/living-proof-labs/livingproof-capability-report",
       "digest": "sha256:898badfd85561b7e5869f86d87a76ab04c4589db3fd83ca034f0947b8402dd6b"
+    }
+  },
+  "world": {
+    "id": "hallway-open",
+    "version": "0.1.0",
+    "repository": "Living-Proof-Labs/livingproof-worlds",
+    "tag": "v1.1.0",
+    "commit": "9b3e7119aa93a3370383227fb30bd39a9dd72b4b"
+  },
+  "configurations": [
+    {
+      "name": "playground",
+      "version": "1.0.0",
+      "path": "configurations/playground.json",
+      "sha256": "07bcbab38570ddb1c76c8508916298f2dc633be1543a78af7971bec338d6f930"
+    }
+  ],
+  "plan": {
+    "trials": {
+      "count": 3
+    },
+    "command_speed": 0.5
+  },
+  "evaluators": {
+    "livingproof-evaluator-scenario": {
+      "repository": "Living-Proof-Labs/livingproof-evaluator-scenario",
+      "tag": "v1.0.0",
+      "commit": "752a6f0a9f9d448c950e56a8e345a69a6693a907"
     }
   }
 }

@@ -72,7 +72,7 @@ jobs:
       pull-requests: write
     with:
       repository: Living-Proof-Labs/livingproof-unitree-g1
-      ref: 862cf979f57e40d6158070c59b432b0cf4eaa4bd
+      ref: da7d9504cb5d4deaa509b92a1973490e43888f90
       configurations: '["stock"]'
       artifact-prefix: unitree-g1-stock-mujoco-hallway-
       check: false  # the robot repository's own CI tests the robot
@@ -85,7 +85,7 @@ jobs:
       pull-requests: write
     with:
       repository: Living-Proof-Labs/livingproof-unitree-g1
-      ref: 862cf979f57e40d6158070c59b432b0cf4eaa4bd
+      ref: da7d9504cb5d4deaa509b92a1973490e43888f90
       configurations: '["playground"]'
       artifact-prefix: unitree-g1-playground-mujoco-hallway-
       check: false  # the robot repository's own CI tests the robot
@@ -98,7 +98,7 @@ jobs:
       pull-requests: write
     with:
       repository: Living-Proof-Labs/livingproof-booster-t1
-      ref: 9bbcd3001998ab242e63273ea070b483d73c24d5
+      ref: 61b2559ebb401973ec7733b4c886753e6d2b704c
       configurations: '["stock"]'
       artifact-prefix: booster-t1-stock-mujoco-hallway-
       check: false  # the robot repository's own CI tests the robot
@@ -111,7 +111,7 @@ jobs:
       pull-requests: write
     with:
       repository: Living-Proof-Labs/livingproof-unitree-go1
-      ref: c56816dc1cf8bfe3be9c1385a609dd6c7de97694
+      ref: fa5383a64e6d351a7b592e75796bf1f32c107197
       configurations: '["playground"]'
       artifact-prefix: unitree-go1-playground-mujoco-hallway-
       check: false  # the robot repository's own CI tests the robot
