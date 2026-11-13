@@ -9,11 +9,14 @@ each configuration's sha256 and the ``livingproof-evaluator-scenario`` pin. ``0.
 locks stay readable: this command loads one when it is still beside the definition, and
 the capability-verifier checker accepts both formats during the migration.
 
-A robot that still publishes ``verification.lock.json`` supplies releases, scenario, plan
-and world. A thin robot publishes the adapter and configurations only. ``lock`` then
-keeps those owned fields from the existing ``0.2.0`` and refreshes the commit, adapter
-and configuration sha256s. With neither source it exits with that explanation. It does
-not raise ``FileNotFoundError`` for a missing robot lock.
+A robot that still publishes ``verification.lock.json`` supplies scenario, plan, world
+and the specs, runner and reporter releases. The verifier pin is the walk-hallway commit
+that definition's job calls in ``.github/workflows/verify.yml``, with that tag's hallway
+image digest. The scenario-evaluator pin is read from that verifier release. A thin robot
+publishes the adapter and configurations only. ``lock`` then keeps those owned fields from
+the existing ``0.2.0`` and refreshes the commit, adapter and configuration sha256s. With
+neither source it exits with that explanation. It does not raise ``FileNotFoundError``
+for a missing robot lock.
 """
 
 from __future__ import annotations
@@ -26,6 +29,8 @@ from pathlib import Path
 import re
 import subprocess
 import tomllib
+import urllib.error
+import urllib.request
 
 FORMAT_V1 = "livingproof-verification-lock/0.1.0"
 FORMAT_V2 = "livingproof-verification-lock/0.2.0"
@@ -48,6 +53,16 @@ REPO = re.compile(r"[A-Za-z0-9-]+/[A-Za-z0-9._-]+")
 EVALUATOR_DEP = re.compile(
     r"livingproof-evaluator-scenario\s*@\s*git\+https://github\.com/"
     r"(?P<repository>[A-Za-z0-9-]+/[A-Za-z0-9._-]+)\.git@(?P<tag>v\d+\.\d+\.\d+)\b"
+)
+PROCEDURE = ".github/workflows/walk-hallway.yml"
+VERIFIER_IMAGE = "ghcr.io/living-proof-labs/capability-verifier-hallway"
+MANIFESTS = ", ".join(
+    [
+        "application/vnd.oci.image.index.v1+json",
+        "application/vnd.docker.distribution.manifest.list.v2+json",
+        "application/vnd.oci.image.manifest.v1+json",
+        "application/vnd.docker.distribution.manifest.v2+json",
+    ]
 )
 
 
@@ -118,6 +133,131 @@ def resolve_tag(repository: str, tag: str) -> str:
             f"{repository} has no tag {tag}; release it first (tags are never invented)"
         )
     return commit
+
+
+def image_digest(image: str, tag: str) -> str:
+    """Manifest digest of a public ghcr.io image. ``tag`` has no leading v."""
+    host, _, name = image.partition("/")
+    if host != "ghcr.io":
+        raise LockError(f"{image}: only ghcr.io images are supported")
+    try:
+        with urllib.request.urlopen(
+            f"https://ghcr.io/token?scope=repository:{name}:pull", timeout=60
+        ) as response:
+            token = json.load(response)["token"]
+        request = urllib.request.Request(
+            f"https://ghcr.io/v2/{name}/manifests/{tag}",
+            method="HEAD",
+            headers={"Authorization": f"Bearer {token}", "Accept": MANIFESTS},
+        )
+        with urllib.request.urlopen(request, timeout=60) as response:
+            digest = response.headers.get("Docker-Content-Digest", "")
+    except urllib.error.HTTPError as exc:
+        raise LockError(f"{image}:{tag} is not published ({exc.code}); release it first") from None
+    except OSError as exc:
+        raise LockError(f"{image}:{tag}: cannot read the registry digest ({exc})") from None
+    if not DIGEST.fullmatch(digest):
+        raise LockError(f"{image}:{tag}: registry returned no sha256 digest")
+    return digest
+
+
+def tag_of_commit(repository: str, commit: str) -> str:
+    """The one ``vX.Y.Z`` tag that peels to ``commit``. Several tags, or none, is an error."""
+    if not SHA.fullmatch(commit):
+        raise LockError(f"{repository} commit {commit!r} is not a full sha")
+    url = f"{git_base()}/{repository}.git"
+    try:
+        done = subprocess.run(
+            ["git", "ls-remote", "--tags", url],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+    except FileNotFoundError:
+        raise LockError("git is required to lock a definition") from None
+    except subprocess.CalledProcessError as exc:
+        detail = (exc.stderr or "").strip().splitlines()
+        tail = f": {detail[-1]}" if detail else ""
+        raise LockError(f"cannot list tags of {repository} (exit {exc.returncode}){tail}") from None
+    lightweight: dict[str, str] = {}
+    peeled: dict[str, str] = {}
+    for line in done.stdout.splitlines():
+        sha, _, name = line.partition("\t")
+        if name.endswith("^{}"):
+            peeled[name.removeprefix("refs/tags/")[:-3]] = sha
+        elif name.startswith("refs/tags/"):
+            lightweight[name.removeprefix("refs/tags/")] = sha
+    matches = [
+        tag
+        for tag in set(lightweight) | set(peeled)
+        if TAG.fullmatch(tag) and (peeled.get(tag) or lightweight.get(tag)) == commit
+    ]
+    if len(matches) != 1:
+        found = ", ".join(sorted(matches)) or "none"
+        raise LockError(
+            f"{repository} commit {commit[:12]} has {found} vX.Y.Z tags; the lock needs exactly one"
+        )
+    return matches[0]
+
+
+def _workflow_path(definition: Path) -> Path | None:
+    parents = definition.resolve().parents
+    if len(parents) < 2:
+        return None
+    path = parents[1] / ".github" / "workflows" / "verify.yml"
+    return path if path.is_file() else None
+
+
+def _job_uses(text: str, job: str) -> str | None:
+    """The ``uses`` value of ``job``. A commented-out line does not count."""
+    prefix = f"  {job}:"
+    lines = text.splitlines()
+    start = None
+    for index, line in enumerate(lines):
+        if line.split("#", 1)[0].rstrip() == prefix:
+            start = index + 1
+            break
+    if start is None:
+        return None
+    for line in lines[start:]:
+        code = line.split("#", 1)[0].rstrip()
+        if not code.strip():
+            continue
+        if code.startswith("  ") and not code.startswith("   ") and code.endswith(":"):
+            return None
+        stripped = code.strip()
+        if stripped.startswith("uses:"):
+            return stripped.split(":", 1)[1].strip()
+    return None
+
+
+def called_verifier(
+    workflow: Path,
+    definition_id: str,
+    *,
+    tag_of=None,
+    digester=None,
+) -> dict | None:
+    """The walk-hallway release ``definition_id``'s job calls, or None when it does not."""
+    uses = _job_uses(workflow.read_text(), definition_id)
+    if not isinstance(uses, str) or "@" not in uses:
+        return None
+    target, _, commit = uses.partition("@")
+    if not target.lower().endswith("/" + PROCEDURE.lower()) or not SHA.fullmatch(commit):
+        return None
+    repository = "/".join(target.split("/")[:2])
+    if not REPO.fullmatch(repository):
+        raise LockError(f"{workflow}: job {definition_id} uses {uses!r}")
+    tag = (tag_of or tag_of_commit)(repository, commit)
+    digest = (digester or image_digest)(VERIFIER_IMAGE, tag.removeprefix("v"))
+    return {
+        "repository": repository,
+        "tag": tag,
+        "commit": commit,
+        "image": VERIFIER_IMAGE,
+        "digest": digest,
+    }
 
 
 def lock_path(definition: Path) -> Path:
@@ -493,6 +633,8 @@ def generate(
     *,
     resolve=None,
     verifier_pyproject: str | None = None,
+    tag_of=None,
+    digester=None,
 ) -> tuple[dict, list[str]]:
     """Resolve ``definition`` into a ``0.2.0`` lock and notes. Writes nothing."""
     if resolve is None:
@@ -513,6 +655,20 @@ def generate(
         except json.JSONDecodeError as exc:
             raise LockError(f"{where}: {ROBOT_LOCK} is not valid JSON ({exc})") from None
         owned = _owned_from_robot(robot_lock, where)
+        workflow = _workflow_path(definition)
+        if workflow is not None:
+            called = called_verifier(workflow, document["id"], tag_of=tag_of, digester=digester)
+            if called is not None:
+                releases = dict(owned["releases"])
+                previous = releases.get("verifier")
+                releases["verifier"] = called
+                owned["releases"] = releases
+                previous_commit = previous.get("commit") if isinstance(previous, dict) else None
+                if previous_commit != called["commit"]:
+                    notes.append(
+                        f"releases.verifier recorded as {called['tag']} "
+                        f"({called['commit'][:12]}); the workflow calls that commit"
+                    )
         evaluator, note = _evaluator_pin(
             owned["releases"],
             work,

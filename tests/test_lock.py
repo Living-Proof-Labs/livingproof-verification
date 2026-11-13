@@ -436,6 +436,70 @@ def test_main_writes_the_lock_and_asks_for_review(tmp_path, monkeypatch, capsys)
     assert lock_tool.v2_problems(written) == []
 
 
+def test_the_workflow_call_replaces_the_robot_verifier(tmp_path, monkeypatch):
+    base = tmp_path / "git"
+    _robot(base)
+    _use(monkeypatch, base)
+    definition = tmp_path / "proj" / "verifications" / "g1-stock.toml"
+    definition.parent.mkdir(parents=True)
+    definition.write_text(
+        f'format = "{lock_tool.DEFINITION_FORMAT}"\n'
+        'id = "g1-stock"\n'
+        'procedure = "walk-hallway"\n'
+        "[robot]\n"
+        'repository = "Org/robot"\n'
+        'ref = "main"\n'
+        'configurations = ["stock"]\n'
+    )
+    called = "9" * 40
+    workflow = tmp_path / "proj" / ".github" / "workflows" / "verify.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_text(
+        "jobs:\n"
+        "  g1-stock:\n"
+        "    uses: Living-Proof-Labs/capability-verifier/.github/workflows/"
+        f"walk-hallway.yml@{called}  # v9.9.9\n"
+        "    # uses: Living-Proof-Labs/capability-verifier/.github/workflows/"
+        f"walk-hallway.yml@{'0' * 40}\n"
+    )
+    digest = "sha256:" + "cd" * 32
+    seen = {}
+
+    def tag_of(repository, commit):
+        seen["repository"] = repository
+        seen["commit"] = commit
+        return "v9.9.9"
+
+    def digester(image, tag):
+        seen["image"] = image
+        seen["tag"] = tag
+        return digest
+
+    lock, notes = lock_tool.generate(
+        definition,
+        tmp_path / "work",
+        resolve=_resolve,
+        verifier_pyproject=VERIFIER_WITH_EVALUATOR,
+        tag_of=tag_of,
+        digester=digester,
+    )
+    assert seen == {
+        "repository": "Living-Proof-Labs/capability-verifier",
+        "commit": called,
+        "image": lock_tool.VERIFIER_IMAGE,
+        "tag": "9.9.9",
+    }
+    assert lock["releases"]["verifier"] == {
+        "repository": "Living-Proof-Labs/capability-verifier",
+        "tag": "v9.9.9",
+        "commit": called,
+        "image": lock_tool.VERIFIER_IMAGE,
+        "digest": digest,
+    }
+    assert lock["releases"]["reporter"]["tag"] == "v1.2.3"
+    assert any("workflow calls that commit" in note for note in notes)
+
+
 def test_resolve_tag_uses_the_peeled_commit(tmp_path, monkeypatch):
     repo = tmp_path / "Living-Proof-Labs" / "livingproof-evaluator-scenario.git"
     _init(repo)
