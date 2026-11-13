@@ -2,12 +2,14 @@
 """Review guards, run in CI by the `locks` job before any verification: every definition
 has a current lock, and the thin workflow call passes exactly the locked values. The
 workflow is parsed as YAML, so a commented-out or misplaced pin never counts. `uses` must
-name the locked verifier commit and pass that definition's lock as `verification-lock`.
+name the locked verifier commit, its `# vX.Y.Z` comment must be the locked tag, and the job
+must pass that definition's lock as `verification-lock`.
 
 Release pins are checked by resolving them again. `tools/lock.py` takes the reporter tag
 from `verifications/settings.toml` and the verifier commit from the workflow call, then
 resolves commits with git and image digests with ghcr. The committed lock must match that
-resolution. Editing a tag, commit or digest in the file fails the diff. The full check is
+resolution. Editing a tag, commit or digest in the file fails the diff. A workflow-only
+verifier bump names `python3 tools/lock.py --update`. The full check is
 `livingproof capability verify lock --check --workflow .github/workflows/verify.yml`."""
 
 import hashlib
@@ -29,7 +31,6 @@ _spec = importlib.util.spec_from_file_location("lock_tool", ROOT / "tools/lock.p
 lock_tool = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(lock_tool)
 PROCEDURE = ".github/workflows/walk-hallway.yml"
-VERIFIER_COMMIT = "c27c6376b4adc1e5b1d9567e4d5b210ab1570a4e"
 
 
 def lock_of(definition: Path) -> dict:
@@ -91,7 +92,10 @@ def call_problems(lock: dict, job) -> list[str]:
         ),
         "with.verification-lock": (w.get("verification-lock"), lock_input(lock)),
     }
-    return [f"{k} is {got!r}, locked {exp!r}" for k, (got, exp) in want.items() if got != exp]
+    problems = [f"{k} is {got!r}, locked {exp!r}" for k, (got, exp) in want.items() if got != exp]
+    if not same_call(uses, pinned):
+        problems.append(lock_tool.UPDATE_HINT)
+    return problems
 
 
 def _pin_deltas(fresh: dict, committed: dict) -> list[str]:
@@ -121,8 +125,15 @@ def _pin_deltas(fresh: dict, committed: dict) -> list[str]:
             problems.append(
                 f"evaluators.{name}.{key} is {got.get(key)!r}, resolved {resolved.get(key)!r}"
             )
-    got_conf = (committed.get("robot") or {}).get("configurations")
-    resolved_conf = (fresh.get("robot") or {}).get("configurations")
+    got_robot = committed.get("robot") if isinstance(committed.get("robot"), dict) else {}
+    resolved_robot = fresh.get("robot") if isinstance(fresh.get("robot"), dict) else {}
+    for key in ("repository", "ref", "commit", "adapter"):
+        if got_robot.get(key) != resolved_robot.get(key):
+            problems.append(
+                f"robot.{key} is {got_robot.get(key)!r}, resolved {resolved_robot.get(key)!r}"
+            )
+    got_conf = got_robot.get("configurations")
+    resolved_conf = resolved_robot.get("configurations")
     if got_conf != resolved_conf:
         problems.append(f"robot.configurations is {got_conf!r}, resolved {resolved_conf!r}")
     if not problems and fresh != committed:
@@ -147,8 +158,11 @@ def release_drift(root: Path, work: Path) -> list[str]:
         except (OSError, json.JSONDecodeError) as exc:
             problems.append(f"{definition.stem}: {exc}")
             continue
-        for delta in _pin_deltas(fresh, committed):
+        deltas = _pin_deltas(fresh, committed)
+        for delta in deltas:
             problems.append(f"{definition.stem}: {delta}")
+        if any(delta.startswith("releases.verifier.") for delta in deltas):
+            problems.append(f"{definition.stem}: {lock_tool.UPDATE_HINT}")
     return problems
 
 
@@ -225,12 +239,15 @@ def test_verification_waits_for_the_lock_guard():
     assert any("-r .github/requirements/build.txt" in r for r in check)
     assert any("--require-hashes --no-deps -r .github/requirements/uv.txt" in r for r in check)
     assert any("a wrong livingproof-common hash installed" in r for r in check)
+    verifier = lock_of(DEFINITIONS[0])["releases"]["verifier"]
+    for definition in DEFINITIONS:
+        assert lock_of(definition)["releases"]["verifier"]["commit"] == verifier["commit"]
     tools = (ROOT / ".github/requirements/lock-check-git.txt").read_text()
     assert (
-        "capability-verifier @ git+https://github.com/Living-Proof-Labs/capability-verifier@c27c6376b4adc1e5b1d9567e4d5b210ab1570a4e"
+        f"capability-verifier @ git+https://github.com/{verifier['repository']}@{verifier['commit']}"
         in tools
     )
-    assert "v1.18.1" in tools
+    assert verifier["tag"] in tools
     for definition in DEFINITIONS:
         assert jobs[definition.stem]["needs"] == "locks"
 
@@ -262,21 +279,49 @@ def test_git_ci_requirements_are_pinned_by_commit():
         assert re.fullmatch(r"\S+ @ git\+https://\S+@[0-9a-f]{40}", entry), entry
 
 
+def uses_tag_comment(text: str, job: str) -> str | None:
+    """The ``# vX.Y.Z`` comment on ``job``'s ``uses`` line. A later comment does not count."""
+    prefix = f"  {job}:"
+    lines = text.splitlines()
+    start = None
+    for index, line in enumerate(lines):
+        if line.split("#", 1)[0].rstrip() == prefix:
+            start = index + 1
+            break
+    if start is None:
+        return None
+    for line in lines[start:]:
+        code, separator, comment = line.partition("#")
+        if not code.strip():
+            continue
+        if code.startswith("  ") and not code.startswith("   ") and code.rstrip().endswith(":"):
+            return None
+        if code.strip().startswith("uses:") and separator:
+            tag = comment.strip()
+            return tag if lock_tool.TAG.fullmatch(tag) else None
+    return None
+
+
+def assert_uses_matches_locked_verifier(text: str, lock: dict, job_name: str) -> None:
+    """``uses`` commit equals the locked commit, and its ``# vX.Y.Z`` comment is the locked tag."""
+    job = yaml.safe_load(text)["jobs"][job_name]
+    verifier = lock["releases"]["verifier"]
+    assert job["uses"].endswith("@" + verifier["commit"])
+    assert uses_tag_comment(text, job_name) == verifier["tag"]
+    assert job["with"]["verification-lock"] == lock_input(lock)
+    assert call_problems(lock, job) == []
+
+
 @pytest.mark.parametrize("definition", DEFINITIONS, ids=lambda p: p.stem)
 def test_uses_commit_matches_the_locked_verifier(definition):
     lock = lock_of(definition)
+    assert_uses_matches_locked_verifier(WORKFLOW.read_text(), lock, definition.stem)
     verifier = lock["releases"]["verifier"]
-    assert verifier["tag"] == "v1.18.1"
-    assert verifier["commit"] == VERIFIER_COMMIT
-    jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
-    job = jobs[definition.stem]
-    assert job["uses"].endswith("@" + VERIFIER_COMMIT)
-    assert job["with"]["verification-lock"] == lock_input(lock)
-    assert call_problems(lock, job) == []
     drifted = yaml.safe_load(WORKFLOW.read_text())
     drifted["jobs"][definition.stem]["uses"] = f"{verifier['repository']}/{PROCEDURE}@{'0' * 40}"
     problems = call_problems(lock, drifted["jobs"][definition.stem])
-    assert [p.split(" ")[0] for p in problems] == ["uses"]
+    assert [p.split(" ")[0] for p in problems] == ["uses", "run"]
+    assert lock_tool.UPDATE_HINT in problems
 
 
 def test_committed_locks_match_a_fresh_resolution(tmp_path):
@@ -303,4 +348,345 @@ def test_a_commented_out_pin_does_not_count():
         f"      verification-lock: {lock_input(lock)}\n"
     )
     problems = call_problems(lock, yaml.safe_load(text)["jobs"][definition.stem])
-    assert [p.split(" ")[0] for p in problems] == ["uses", "with.ref"]
+    assert [p.split(" ")[0] for p in problems] == ["uses", "with.ref", "run"]
+    assert lock_tool.UPDATE_HINT in problems
+
+
+# Released capability-verifier tags. A regression moves the workflow to one that is
+# not the locked commit. None of these is a branch, a pull request, or an unreleased sha.
+RELEASED_VERIFIER_COMMITS = {
+    "v1.18.1": "c27c6376b4adc1e5b1d9567e4d5b210ab1570a4e",
+    "v1.18.2": "1489cd20d29302800171d934734d6165e7c5604d",
+    "v1.18.3": "8b303a672c003b82a90178364e7f107a58eaedac",
+}
+
+
+def _other_released_verifier(current: str) -> tuple[str, str]:
+    matches = [
+        (tag, commit) for tag, commit in RELEASED_VERIFIER_COMMITS.items() if commit != current
+    ]
+    assert matches, "need a released verifier commit that is not the live pin"
+    return matches[0]
+
+
+def _copy_verification_repo(tmp_path: Path) -> Path:
+    root = tmp_path / "repo"
+    for source in (ROOT / "verifications").iterdir():
+        if not source.is_file():
+            continue
+        dest = root / "verifications" / source.name
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(source.read_bytes())
+    workflow = root / ".github" / "workflows" / "verify.yml"
+    workflow.parent.mkdir(parents=True)
+    workflow.write_bytes(WORKFLOW.read_bytes())
+    requirements = root / ".github" / "requirements"
+    requirements.mkdir(parents=True)
+    (requirements / "lock-check-git.txt").write_bytes(
+        (ROOT / ".github" / "requirements" / "lock-check-git.txt").read_bytes()
+    )
+    return root
+
+
+def _original_locks(root: Path) -> dict[str, dict]:
+    originals = {}
+    for path in (root / "verifications").glob("*.toml"):
+        if path.name == "settings.toml":
+            continue
+        originals[path.name] = json.loads(lock_tool.lock_path(path).read_text())
+    return originals
+
+
+def test_a_workflow_only_verifier_bump_with_stale_locks_is_rejected(tmp_path, monkeypatch):
+    locked = lock_of(DEFINITIONS[0])["releases"]["verifier"]["commit"]
+    other_tag, other_commit = _other_released_verifier(locked)
+    text = WORKFLOW.read_text().replace(locked, other_commit)
+    jobs = yaml.safe_load(text)["jobs"]
+    for definition in DEFINITIONS:
+        problems = call_problems(lock_of(definition), jobs[definition.stem])
+        assert any(item.startswith("uses ") for item in problems), problems
+        assert lock_tool.UPDATE_COMMAND in "\n".join(problems)
+        assert jobs[definition.stem]["uses"].endswith("@" + other_commit)
+    root = _copy_verification_repo(tmp_path)
+    originals = _original_locks(root)
+    digest = "sha256:" + "ab" * 32
+    (root / ".github" / "workflows" / "verify.yml").write_text(text)
+
+    def generate(definition, work, **kwargs):
+        fresh = json.loads(json.dumps(originals[definition.name]))
+        fresh["releases"]["verifier"]["tag"] = other_tag
+        fresh["releases"]["verifier"]["commit"] = other_commit
+        fresh["releases"]["verifier"]["digest"] = digest
+        return fresh, []
+
+    monkeypatch.setattr(lock_tool, "generate", generate)
+    problems = release_drift(root, tmp_path / "work")
+    for field in ("tag", "commit", "digest"):
+        assert any(f"releases.verifier.{field}" in item for item in problems), problems
+    assert any(lock_tool.UPDATE_COMMAND in item for item in problems)
+
+
+def test_a_stale_verifier_digest_is_rejected(tmp_path, monkeypatch):
+    root = _copy_verification_repo(tmp_path)
+    originals = _original_locks(root)
+    path = lock_tool.lock_path(root / "verifications" / DEFINITIONS[0].name)
+    lock = json.loads(path.read_text())
+    digest = lock["releases"]["verifier"]["digest"]
+    flipped = digest[:-1] + ("0" if digest[-1] != "0" else "1")
+    lock["releases"]["verifier"]["digest"] = flipped
+    path.write_text(json.dumps(lock, indent=2) + "\n")
+
+    def generate(definition, work, **kwargs):
+        return json.loads(json.dumps(originals[definition.name])), []
+
+    monkeypatch.setattr(lock_tool, "generate", generate)
+    problems = release_drift(root, tmp_path / "work")
+    assert any("releases.verifier.digest" in item and flipped in item for item in problems), (
+        problems
+    )
+    assert any(lock_tool.UPDATE_COMMAND in item for item in problems)
+    assert not any("evaluators." in item for item in problems)
+
+
+def test_a_stale_verifier_commit_is_rejected(tmp_path, monkeypatch):
+    root = _copy_verification_repo(tmp_path)
+    originals = _original_locks(root)
+    path = lock_tool.lock_path(root / "verifications" / DEFINITIONS[0].name)
+    lock = json.loads(path.read_text())
+    current = lock["releases"]["verifier"]["commit"]
+    _other_tag, other_commit = _other_released_verifier(current)
+    lock["releases"]["verifier"]["commit"] = other_commit
+    path.write_text(json.dumps(lock, indent=2) + "\n")
+
+    def generate(definition, work, **kwargs):
+        return json.loads(json.dumps(originals[definition.name])), []
+
+    monkeypatch.setattr(lock_tool, "generate", generate)
+    problems = release_drift(root, tmp_path / "work")
+    assert any("releases.verifier.commit" in item and other_commit in item for item in problems), (
+        problems
+    )
+    assert any(lock_tool.UPDATE_COMMAND in item for item in problems)
+    assert not any(item.startswith(DEFINITIONS[0].stem + ": robot.") for item in problems)
+
+
+def test_update_does_not_change_robot_or_evaluator_pins(tmp_path, monkeypatch, capsys):
+    root = _copy_verification_repo(tmp_path)
+    before = _original_locks(root)
+    current = next(iter(before.values()))["releases"]["verifier"]["commit"]
+    other_tag, other_commit = _other_released_verifier(current)
+    workflow = root / ".github" / "workflows" / "verify.yml"
+    workflow.write_text(workflow.read_text().replace(current, other_commit))
+    digest = "sha256:" + "cd" * 32
+    git_before = (root / ".github" / "requirements" / "lock-check-git.txt").read_text()
+    livingproof = next(
+        line for line in git_before.splitlines() if line.startswith("livingproof @ ")
+    )
+
+    def tag_of(repository, commit):
+        assert repository == "Living-Proof-Labs/capability-verifier"
+        assert commit == other_commit
+        return other_tag
+
+    def digester(image, tag):
+        assert image == lock_tool.VERIFIER_IMAGE
+        assert tag == other_tag.removeprefix("v")
+        return digest
+
+    monkeypatch.setattr(lock_tool, "repo_root", lambda: root)
+    monkeypatch.setattr(lock_tool, "tag_of_commit", tag_of)
+    monkeypatch.setattr(lock_tool, "image_digest", digester)
+    assert lock_tool.main(["--update"]) == 0
+    text = capsys.readouterr().out
+    assert "fix:" in text and "chore:" in text
+    for name, prior in before.items():
+        lock_path = (root / "verifications" / name).with_suffix(".lock.json")
+        written = json.loads(lock_path.read_text())
+        assert written["robot"] == prior["robot"]
+        assert written["evaluators"] == prior["evaluators"]
+        assert written["releases"]["specs"] == prior["releases"]["specs"]
+        assert written["releases"]["runner"] == prior["releases"]["runner"]
+        assert written["releases"]["reporter"] == prior["releases"]["reporter"]
+        assert written["plan"] == prior["plan"]
+        assert written["world"] == prior["world"]
+        assert written["configurations"] == prior["configurations"]
+        verifier = written["releases"]["verifier"]
+        assert verifier["tag"] == other_tag
+        assert verifier["commit"] == other_commit
+        assert verifier["digest"] == digest
+        assert verifier["repository"] == prior["releases"]["verifier"]["repository"]
+        assert verifier["image"] == prior["releases"]["verifier"]["image"]
+    git_after = (root / ".github" / "requirements" / "lock-check-git.txt").read_text()
+    assert livingproof in git_after
+    assert other_commit in git_after
+    assert current not in git_after
+    assert other_tag in git_after
+
+
+def _retarget_uses(text: str, old_commit: str, new_commit: str, old_tag: str, new_tag: str) -> str:
+    """Move each walk-hallway ``uses`` commit and its ``# vX.Y.Z`` comment. Other lines stay."""
+    rewritten = []
+    for line in text.splitlines(keepends=True):
+        code = line.split("#", 1)[0]
+        if "uses:" in code and old_commit in code:
+            line = line.replace(old_commit, new_commit, 1).replace(
+                f"# {old_tag}", f"# {new_tag}", 1
+            )
+        rewritten.append(line)
+    return "".join(rewritten)
+
+
+def test_a_released_tag_bump_then_update_passes_the_lock_checks(tmp_path):
+    """Moving the workflow pin to another released tag, then ``--update``, satisfies the checks.
+
+    Resolution is the real git tag lookup and the ghcr digest. The lock module's uses,
+    comment, and fresh-resolution checks then pass on that tree with no further edits.
+    """
+    root = _copy_verification_repo(tmp_path)
+    before = _original_locks(root)
+    current = next(iter(before.values()))["releases"]["verifier"]
+    other_tag, other_commit = _other_released_verifier(current["commit"])
+    workflow = root / ".github" / "workflows" / "verify.yml"
+    workflow.write_text(
+        _retarget_uses(
+            workflow.read_text(), current["commit"], other_commit, current["tag"], other_tag
+        )
+    )
+    assert lock_tool.update_locks(root)
+    text = workflow.read_text()
+    for name, prior in before.items():
+        definition = root / "verifications" / name
+        lock = json.loads(lock_tool.lock_path(definition).read_text())
+        assert_uses_matches_locked_verifier(text, lock, definition.stem)
+        assert lock["robot"] == prior["robot"]
+        assert lock["evaluators"] == prior["evaluators"]
+        assert lock["releases"]["specs"] == prior["releases"]["specs"]
+        assert lock["releases"]["runner"] == prior["releases"]["runner"]
+        assert lock["releases"]["reporter"] == prior["releases"]["reporter"]
+        verifier = lock["releases"]["verifier"]
+        assert verifier["tag"] == other_tag
+        assert verifier["commit"] == other_commit
+        assert lock_tool.DIGEST.fullmatch(verifier["digest"])
+    tools = (root / ".github" / "requirements" / "lock-check-git.txt").read_text()
+    assert other_commit in tools
+    assert current["commit"] not in tools
+    assert other_tag in tools
+    assert release_drift(root, tmp_path / "work") == []
+
+
+def _json_member(text: str, key: str) -> str:
+    """The raw ``"key": { ... }`` text, including nested objects."""
+    marker = f'"{key}": '
+    start = text.index(marker)
+    opener = start + len(marker)
+    if text[opener] != "{":
+        raise AssertionError(key)
+    depth = 0
+    for index in range(opener, len(text)):
+        char = text[index]
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start : index + 1]
+    raise AssertionError(key)
+
+
+def _flip_hex(value: str) -> str:
+    return value[:-1] + ("0" if value[-1] != "0" else "1")
+
+
+def test_update_leaves_robot_and_evaluator_pin_bytes_unchanged(tmp_path, monkeypatch):
+    """``--update`` rewrites the verifier and leaves robot and evaluator text untouched."""
+    root = _copy_verification_repo(tmp_path)
+    before_text = {
+        path.name: path.read_text() for path in (root / "verifications").glob("*.lock.json")
+    }
+    current = json.loads(next(iter(before_text.values())))["releases"]["verifier"]
+    other_tag, other_commit = _other_released_verifier(current["commit"])
+    workflow = root / ".github" / "workflows" / "verify.yml"
+    workflow.write_text(workflow.read_text().replace(current["commit"], other_commit))
+    digest = "sha256:" + "ab" * 32
+
+    monkeypatch.setattr(lock_tool, "tag_of_commit", lambda repository, commit: other_tag)
+    monkeypatch.setattr(lock_tool, "image_digest", lambda image, tag: digest)
+    assert lock_tool.update_locks(root)
+    evaluator = "livingproof-evaluator-scenario"
+    for name, prior in before_text.items():
+        after = (root / "verifications" / name).read_text()
+        assert _json_member(after, "robot") == _json_member(prior, "robot")
+        assert _json_member(after, "evaluators") == _json_member(prior, "evaluators")
+        written = json.loads(after)
+        source = json.loads(prior)
+        for field in ("repository", "ref", "commit", "adapter"):
+            assert written["robot"][field] == source["robot"][field]
+        for field in ("repository", "tag", "commit"):
+            assert written["evaluators"][evaluator][field] == source["evaluators"][evaluator][field]
+        assert written["releases"]["verifier"]["commit"] == other_commit
+        assert written["releases"]["verifier"]["digest"] == digest
+
+
+def test_an_edited_robot_commit_is_rejected(tmp_path, monkeypatch):
+    root = _copy_verification_repo(tmp_path)
+    originals = _original_locks(root)
+    path = lock_tool.lock_path(root / "verifications" / DEFINITIONS[0].name)
+    lock = json.loads(path.read_text())
+    flipped = _flip_hex(lock["robot"]["commit"])
+    lock["robot"]["commit"] = flipped
+    path.write_text(json.dumps(lock, indent=2) + "\n")
+
+    def generate(definition, work, **kwargs):
+        return json.loads(json.dumps(originals[definition.name])), []
+
+    monkeypatch.setattr(lock_tool, "generate", generate)
+    problems = release_drift(root, tmp_path / "work")
+    assert any("robot.commit" in item and flipped in item for item in problems), problems
+
+
+def test_an_edited_evaluator_commit_is_rejected(tmp_path, monkeypatch):
+    root = _copy_verification_repo(tmp_path)
+    originals = _original_locks(root)
+    path = lock_tool.lock_path(root / "verifications" / DEFINITIONS[0].name)
+    lock = json.loads(path.read_text())
+    name = "livingproof-evaluator-scenario"
+    flipped = _flip_hex(lock["evaluators"][name]["commit"])
+    lock["evaluators"][name]["commit"] = flipped
+    path.write_text(json.dumps(lock, indent=2) + "\n")
+
+    def generate(definition, work, **kwargs):
+        return json.loads(json.dumps(originals[definition.name])), []
+
+    monkeypatch.setattr(lock_tool, "generate", generate)
+    problems = release_drift(root, tmp_path / "work")
+    assert any(f"evaluators.{name}.commit" in item and flipped in item for item in problems), (
+        problems
+    )
+
+
+def test_the_lock_check_step_names_the_update_command_when_it_fails():
+    """The locks job's livingproof check fails before pytest, so that step names the command."""
+    text = WORKFLOW.read_text()
+    step = next(
+        item
+        for item in yaml.safe_load(text)["jobs"]["locks"]["steps"]
+        if item.get("name") == "livingproof capability verify lock --check --workflow"
+    )
+    script = step["run"]
+    _kept, separator, failure = script.partition("||")
+    assert separator == "||"
+    assert lock_tool.UPDATE_COMMAND in failure
+    assert "::error::" in failure
+    assert "exit 1" in failure
+    assert "capability verify lock --check" in script
+
+
+def test_the_maintainer_command_is_documented():
+    readme = (ROOT / "README.md").read_text()
+    renovate = json.loads((ROOT / "renovate.json").read_text())
+    notes = [
+        note for rule in renovate.get("packageRules", []) for note in rule.get("prBodyNotes", [])
+    ]
+    assert lock_tool.UPDATE_COMMAND in readme
+    assert any(lock_tool.UPDATE_COMMAND in note for note in notes)
+    assert "fix:" in readme and "chore:" in readme
