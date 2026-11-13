@@ -20,7 +20,7 @@
       "matchFileNames": [".github/workflows/verify.yml"],
       "matchPackageNames": ["Living-Proof-Labs/capability-verifier"],
       "prBodyNotes": [
-        "Hosted Mend Renovate does not run the lock generator on this repository (`allowedCommands` is self-hosted only, and this app has no allowlist). Check out this branch, run `python3 tools/lock.py --update`, and commit the result with a `fix:` or `chore:` prefix. That rewrites tag, commit and digest in all four `verifications/*.lock.json` files from this workflow pin. Do not hand-edit those fields."
+        "Hosted Mend Renovate does not run the lock generator on this repository (`allowedCommands` is self-hosted only, and this app has no allowlist). Check out this branch, run `python3 tools/lock.py --update`, and commit the result with a `fix:` or `chore:` prefix. That rewrites tag, commit and digest in all four `verifications/*.lock.json` files from this workflow pin, and refreshes the `livingproof-evaluator-scenario` pin from the dependency that release declares. Robot pins stay as committed. Do not hand-edit those fields."
       ]
     }
   ]

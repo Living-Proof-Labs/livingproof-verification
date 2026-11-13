@@ -385,6 +385,9 @@ def _copy_verification_repo(tmp_path: Path) -> Path:
     (requirements / "lock-check-git.txt").write_bytes(
         (ROOT / ".github" / "requirements" / "lock-check-git.txt").read_bytes()
     )
+    (requirements / "lock-check.in").write_bytes(
+        (ROOT / ".github" / "requirements" / "lock-check.in").read_bytes()
+    )
     return root
 
 
@@ -470,7 +473,31 @@ def test_a_stale_verifier_commit_is_rejected(tmp_path, monkeypatch):
     assert not any(item.startswith(DEFINITIONS[0].stem + ": robot.") for item in problems)
 
 
-def test_update_does_not_change_robot_or_evaluator_pins(tmp_path, monkeypatch, capsys):
+_FAKE_EVALUATOR_REPOSITORY = "Example-Org/livingproof-evaluator-scenario"
+_FAKE_EVALUATOR_TAG = "v9.9.9"
+_FAKE_EVALUATOR_COMMIT = "ab" * 20
+_FAKE_EVALUATOR_PYPROJECT = (
+    "dependencies = [\n"
+    '  "livingproof-evaluator-scenario @ '
+    f"git+https://github.com/{_FAKE_EVALUATOR_REPOSITORY}.git@{_FAKE_EVALUATOR_TAG}"
+    '",\n'
+    "]\n"
+)
+
+
+def _declared_evaluator_pyproject(repository: str, tag: str) -> str:
+    return (
+        "dependencies = [\n"
+        '  "livingproof-evaluator-scenario @ '
+        f'git+https://github.com/{repository}.git@{tag}",\n'
+        "]\n"
+    )
+
+
+def test_update_moves_the_evaluator_only_to_what_the_verifier_release_declares(
+    tmp_path, monkeypatch, capsys
+):
+    """The evaluator moves only to what the new verifier release declares."""
     root = _copy_verification_repo(tmp_path)
     before = _original_locks(root)
     current = next(iter(before.values()))["releases"]["verifier"]["commit"]
@@ -481,6 +508,19 @@ def test_update_does_not_change_robot_or_evaluator_pins(tmp_path, monkeypatch, c
     git_before = (root / ".github" / "requirements" / "lock-check-git.txt").read_text()
     livingproof = next(
         line for line in git_before.splitlines() if line.startswith("livingproof @ ")
+    )
+    old_evaluator_commit = next(iter(before.values()))["evaluators"][
+        "livingproof-evaluator-scenario"
+    ]["commit"]
+    extra_name = next(iter(before))
+    extra_path = (root / "verifications" / extra_name).with_suffix(".lock.json")
+    extra_lock = json.loads(extra_path.read_text())
+    kept = {"repository": "Org/kept", "tag": "v1.2.3", "commit": "c" * 40}
+    extra_lock["evaluators"]["kept-evaluator"] = kept
+    extra_path.write_text(json.dumps(extra_lock, indent=2) + "\n")
+    requirements_in = (root / ".github" / "requirements" / "lock-check.in").read_text()
+    livingproof_in = next(
+        line for line in requirements_in.splitlines() if line.startswith("livingproof @ ")
     )
 
     def tag_of(repository, commit):
@@ -493,17 +533,42 @@ def test_update_does_not_change_robot_or_evaluator_pins(tmp_path, monkeypatch, c
         assert tag == other_tag.removeprefix("v")
         return digest
 
+    def pyproject(repository, commit, work):
+        assert repository == "Living-Proof-Labs/capability-verifier"
+        assert commit == other_commit
+        return _FAKE_EVALUATOR_PYPROJECT
+
+    def resolve(repository, tag):
+        assert repository == _FAKE_EVALUATOR_REPOSITORY
+        assert tag == _FAKE_EVALUATOR_TAG
+        return _FAKE_EVALUATOR_COMMIT
+
     monkeypatch.setattr(lock_tool, "repo_root", lambda: root)
     monkeypatch.setattr(lock_tool, "tag_of_commit", tag_of)
     monkeypatch.setattr(lock_tool, "image_digest", digester)
+    monkeypatch.setattr(lock_tool, "_verifier_pyproject", pyproject)
+    monkeypatch.setattr(lock_tool, "resolve_tag", resolve)
     assert lock_tool.main(["--update"]) == 0
     text = capsys.readouterr().out
     assert "fix:" in text and "chore:" in text
+    assert _FAKE_EVALUATOR_TAG in text
     for name, prior in before.items():
         lock_path = (root / "verifications" / name).with_suffix(".lock.json")
         written = json.loads(lock_path.read_text())
         assert written["robot"] == prior["robot"]
-        assert written["evaluators"] == prior["evaluators"]
+        evaluator = written["evaluators"]["livingproof-evaluator-scenario"]
+        assert evaluator == {
+            "repository": _FAKE_EVALUATOR_REPOSITORY,
+            "tag": _FAKE_EVALUATOR_TAG,
+            "commit": _FAKE_EVALUATOR_COMMIT,
+        }
+        assert lock_tool.TAG.fullmatch(evaluator["tag"])
+        assert (
+            written["evaluators"]["livingproof-evaluator-scenario"]
+            != prior["evaluators"]["livingproof-evaluator-scenario"]
+        )
+        if name == extra_name:
+            assert written["evaluators"]["kept-evaluator"] == kept
         assert written["releases"]["specs"] == prior["releases"]["specs"]
         assert written["releases"]["runner"] == prior["releases"]["runner"]
         assert written["releases"]["reporter"] == prior["releases"]["reporter"]
@@ -521,6 +586,51 @@ def test_update_does_not_change_robot_or_evaluator_pins(tmp_path, monkeypatch, c
     assert other_commit in git_after
     assert current not in git_after
     assert other_tag in git_after
+    assert _FAKE_EVALUATOR_COMMIT in git_after
+    assert old_evaluator_commit not in git_after
+    assert f"{_FAKE_EVALUATOR_REPOSITORY}.git@{_FAKE_EVALUATOR_COMMIT}" in git_after
+    requirements_after = (root / ".github" / "requirements" / "lock-check.in").read_text()
+    assert livingproof_in in requirements_after
+    assert other_commit in requirements_after
+    assert current not in requirements_after
+    assert f"capability-verifier {other_tag}" in requirements_after
+    assert "livingproof v1.4.9" in requirements_after
+
+
+def test_update_records_a_full_evaluator_tag_when_the_declaration_is_not_one(tmp_path, monkeypatch):
+    """A branch or partial version in the release is not recorded; the pin stays vX.Y.Z."""
+    root = _copy_verification_repo(tmp_path)
+    before = _original_locks(root)
+    current = next(iter(before.values()))["releases"]["verifier"]["commit"]
+    other_tag, other_commit = _other_released_verifier(current)
+    workflow = root / ".github" / "workflows" / "verify.yml"
+    workflow.write_text(workflow.read_text().replace(current, other_commit))
+    declared_commit = "d" * 40
+
+    monkeypatch.setattr(lock_tool, "tag_of_commit", lambda repository, commit: other_tag)
+    monkeypatch.setattr(lock_tool, "image_digest", lambda image, tag: "sha256:" + "ef" * 32)
+    monkeypatch.setattr(
+        lock_tool,
+        "_verifier_pyproject",
+        lambda repository, commit, work: _declared_evaluator_pyproject(
+            "Living-Proof-Labs/livingproof-evaluator-scenario", "main"
+        ),
+    )
+
+    def resolve(repository, tag):
+        assert tag == "v1.0.0"
+        assert lock_tool.TAG.fullmatch(tag)
+        return declared_commit
+
+    monkeypatch.setattr(lock_tool, "resolve_tag", resolve)
+    assert lock_tool.update_locks(root)
+    for name in before:
+        written = json.loads((root / "verifications" / name).with_suffix(".lock.json").read_text())
+        evaluator = written["evaluators"]["livingproof-evaluator-scenario"]
+        assert evaluator["tag"] == "v1.0.0"
+        assert evaluator["commit"] == declared_commit
+        assert evaluator["tag"] != "main"
+        assert lock_tool.TAG.fullmatch(evaluator["tag"])
 
 
 def _retarget_uses(text: str, old_commit: str, new_commit: str, old_tag: str, new_tag: str) -> str:
@@ -559,7 +669,10 @@ def test_a_released_tag_bump_then_update_passes_the_lock_checks(tmp_path):
         lock = json.loads(lock_tool.lock_path(definition).read_text())
         assert_uses_matches_locked_verifier(text, lock, definition.stem)
         assert lock["robot"] == prior["robot"]
-        assert lock["evaluators"] == prior["evaluators"]
+        evaluator = lock["evaluators"]["livingproof-evaluator-scenario"]
+        assert lock_tool.TAG.fullmatch(evaluator["tag"])
+        assert lock_tool.SHA.fullmatch(evaluator["commit"])
+        assert lock_tool.REPO.fullmatch(evaluator["repository"])
         assert lock["releases"]["specs"] == prior["releases"]["specs"]
         assert lock["releases"]["runner"] == prior["releases"]["runner"]
         assert lock["releases"]["reporter"] == prior["releases"]["reporter"]
@@ -597,8 +710,8 @@ def _flip_hex(value: str) -> str:
     return value[:-1] + ("0" if value[-1] != "0" else "1")
 
 
-def test_update_leaves_robot_and_evaluator_pin_bytes_unchanged(tmp_path, monkeypatch):
-    """``--update`` rewrites the verifier and leaves robot and evaluator text untouched."""
+def test_update_leaves_robot_pin_bytes_unchanged(tmp_path, monkeypatch):
+    """``--update`` rewrites the verifier and leaves the robot pin bytes untouched."""
     root = _copy_verification_repo(tmp_path)
     before_text = {
         path.name: path.read_text() for path in (root / "verifications").glob("*.lock.json")
@@ -608,23 +721,48 @@ def test_update_leaves_robot_and_evaluator_pin_bytes_unchanged(tmp_path, monkeyp
     workflow = root / ".github" / "workflows" / "verify.yml"
     workflow.write_text(workflow.read_text().replace(current["commit"], other_commit))
     digest = "sha256:" + "ab" * 32
+    robot_before = {name: _json_member(text, "robot") for name, text in before_text.items()}
 
     monkeypatch.setattr(lock_tool, "tag_of_commit", lambda repository, commit: other_tag)
     monkeypatch.setattr(lock_tool, "image_digest", lambda image, tag: digest)
+    monkeypatch.setattr(
+        lock_tool,
+        "_verifier_pyproject",
+        lambda repository, commit, work: _FAKE_EVALUATOR_PYPROJECT,
+    )
+    monkeypatch.setattr(
+        lock_tool,
+        "resolve_tag",
+        lambda repository, tag: _FAKE_EVALUATOR_COMMIT,
+    )
     assert lock_tool.update_locks(root)
     evaluator = "livingproof-evaluator-scenario"
     for name, prior in before_text.items():
         after = (root / "verifications" / name).read_text()
+        assert _json_member(after, "robot") == robot_before[name]
         assert _json_member(after, "robot") == _json_member(prior, "robot")
-        assert _json_member(after, "evaluators") == _json_member(prior, "evaluators")
+        assert _json_member(after, "evaluators") != _json_member(prior, "evaluators")
         written = json.loads(after)
         source = json.loads(prior)
         for field in ("repository", "ref", "commit", "adapter"):
             assert written["robot"][field] == source["robot"][field]
-        for field in ("repository", "tag", "commit"):
-            assert written["evaluators"][evaluator][field] == source["evaluators"][evaluator][field]
+        assert written["evaluators"][evaluator] == {
+            "repository": _FAKE_EVALUATOR_REPOSITORY,
+            "tag": _FAKE_EVALUATOR_TAG,
+            "commit": _FAKE_EVALUATOR_COMMIT,
+        }
+        assert lock_tool.TAG.fullmatch(written["evaluators"][evaluator]["tag"])
         assert written["releases"]["verifier"]["commit"] == other_commit
         assert written["releases"]["verifier"]["digest"] == digest
+
+
+def test_the_committed_evaluator_pin_is_a_full_release_tag():
+    """Every lock's scenario evaluator pin is a full vX.Y.Z tag, not a branch or a prefix."""
+    for definition in DEFINITIONS:
+        pin = lock_of(definition)["evaluators"]["livingproof-evaluator-scenario"]
+        assert lock_tool.TAG.fullmatch(pin["tag"])
+        assert lock_tool.SHA.fullmatch(pin["commit"])
+        assert lock_tool.REPO.fullmatch(pin["repository"])
 
 
 def test_an_edited_robot_commit_is_rejected(tmp_path, monkeypatch):

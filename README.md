@@ -76,11 +76,11 @@ Check out the Renovate branch and regenerate the locks:
 
 ```sh
 python3 tools/lock.py --update
-git add verifications/*.lock.json .github/requirements/lock-check-git.txt
+git add verifications/*.lock.json .github/requirements/lock-check-git.txt .github/requirements/lock-check.in
 git commit -m "chore: refresh verification locks for the pinned verifier"
 ```
 
-A `fix:` prefix is the other conventional-commit form that fits this change. `--update` reads each job's walk-hallway commit, resolves its `vX.Y.Z` tag and the hallway image digest, and writes those fields into every lock. It also points `.github/requirements/lock-check-git.txt` at that same commit. Robot pins and the scenario-evaluator pin stay as committed. Review the diff and commit the files the command writes.
+A `fix:` prefix is the other conventional-commit form that fits this change. `--update` reads each job's walk-hallway commit, resolves its `vX.Y.Z` tag and the hallway image digest, and writes those fields into every lock. It also points `.github/requirements/lock-check-git.txt` at that same commit and, when `lock-check.in` pins the verifier, moves that pin too. The scenario-evaluator pin is refreshed from the dependency that verifier release declares. Robot pins stay as committed. Review the diff and commit the files the command writes.
 
 ## Published reports
 
