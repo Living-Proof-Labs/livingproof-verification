@@ -1,13 +1,17 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Offline review guards, run in CI by the `locks` job before any verification: every
-definition has a current lock, and the thin workflow call passes exactly the locked values.
-The workflow is parsed as YAML, so a commented-out or misplaced pin never counts. `uses`
-and `verification-lock` are derived from the lock's releases: the call must name the locked
-verifier commit and pass the lock file whose verifier and reporter the run reads. Nothing
-in this check reads a robot repository's own lock. The full check is
+"""Review guards, run in CI by the `locks` job before any verification: every definition
+has a current lock, and the thin workflow call passes exactly the locked values. The
+workflow is parsed as YAML, so a commented-out or misplaced pin never counts. `uses` must
+name the locked verifier commit and pass that definition's lock as `verification-lock`.
+
+Release pins are checked by resolving them again. `tools/lock.py` takes the reporter tag
+from `verifications/settings.toml` and the verifier commit from the workflow call, then
+resolves commits with git and image digests with ghcr. The committed lock must match that
+resolution. Editing a tag, commit or digest in the file fails the diff. The full check is
 `livingproof capability verify lock --check --workflow .github/workflows/verify.yml`."""
 
 import hashlib
+import importlib.util
 import json
 from pathlib import Path
 import re
@@ -17,8 +21,13 @@ import pytest
 import yaml
 
 ROOT = Path(__file__).parents[1]
-DEFINITIONS = sorted((ROOT / "verifications").glob("*.toml"))
+DEFINITIONS = sorted(
+    path for path in (ROOT / "verifications").glob("*.toml") if path.name != "settings.toml"
+)
 WORKFLOW = ROOT / ".github/workflows/verify.yml"
+_spec = importlib.util.spec_from_file_location("lock_tool", ROOT / "tools/lock.py")
+lock_tool = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(lock_tool)
 PROCEDURE = ".github/workflows/walk-hallway.yml"
 VERIFIER_COMMIT = "c27c6376b4adc1e5b1d9567e4d5b210ab1570a4e"
 
@@ -43,10 +52,10 @@ def same_call(uses, pinned: str) -> bool:
     return target.lower() == want.lower() and ref == commit
 
 
-def workflow_problems(text: str) -> list[str]:
+def workflow_problems(text: str, definitions=None) -> list[str]:
     """Every job calling walk-hallway.yml must be a definition's job with its exact locked call."""
     jobs = yaml.safe_load(text)["jobs"]
-    locks = {p.stem: lock_of(p) for p in DEFINITIONS}
+    locks = {p.stem: lock_of(p) for p in (DEFINITIONS if definitions is None else definitions)}
     problems = [
         f"{n}: no definition"
         for n, j in jobs.items()
@@ -61,23 +70,6 @@ def lock_input(lock: dict) -> str:
     """Path of the 0.2.0 lock the job passes as verification-lock."""
     name = Path(lock["definition"]["path"]).with_suffix(".lock.json")
     return f"verifications/{name}"
-
-
-def passed_releases(job) -> dict | None:
-    """Releases in the lock file the job passes. That file is what the run reads."""
-    w = job.get("with") if isinstance(job.get("with"), dict) else {}
-    rel = w.get("verification-lock")
-    if not isinstance(rel, str) or Path(rel).is_absolute() or ".." in Path(rel).parts:
-        return None
-    path = ROOT / rel
-    if not path.is_file():
-        return None
-    try:
-        document = json.loads(path.read_text())
-    except json.JSONDecodeError:
-        return None
-    releases = document.get("releases") if isinstance(document, dict) else None
-    return releases if isinstance(releases, dict) else None
 
 
 def call_problems(lock: dict, job) -> list[str]:
@@ -99,15 +91,64 @@ def call_problems(lock: dict, job) -> list[str]:
         ),
         "with.verification-lock": (w.get("verification-lock"), lock_input(lock)),
     }
-    problems = [f"{k} is {got!r}, locked {exp!r}" for k, (got, exp) in want.items() if got != exp]
-    # The run reads verifier and reporter from the passed lock file, not from a robot lock.
-    # An edited release the call does not pass is a failure.
-    releases = passed_releases(job)
-    for name in ("verifier", "reporter"):
-        got = None if releases is None else releases.get(name)
-        exp = lock["releases"][name]
-        if got != exp:
-            problems.append(f"releases.{name} is {got!r}, locked {exp!r}")
+    return [f"{k} is {got!r}, locked {exp!r}" for k, (got, exp) in want.items() if got != exp]
+
+
+def _pin_deltas(fresh: dict, committed: dict) -> list[str]:
+    """Fields a fresh resolution disagrees with. Empty when the committed lock matches."""
+    problems = []
+    for side in ("verifier", "reporter"):
+        got = (committed.get("releases") or {}).get(side) or {}
+        resolved = (fresh.get("releases") or {}).get(side) or {}
+        if not isinstance(got, dict):
+            got = {}
+        if not isinstance(resolved, dict):
+            resolved = {}
+        for key in sorted(set(got) | set(resolved)):
+            if got.get(key) != resolved.get(key):
+                problems.append(
+                    f"releases.{side}.{key} is {got.get(key)!r}, resolved {resolved.get(key)!r}"
+                )
+    name = "livingproof-evaluator-scenario"
+    got = (committed.get("evaluators") or {}).get(name) or {}
+    resolved = (fresh.get("evaluators") or {}).get(name) or {}
+    if not isinstance(got, dict):
+        got = {}
+    if not isinstance(resolved, dict):
+        resolved = {}
+    for key in ("repository", "tag", "commit"):
+        if got.get(key) != resolved.get(key):
+            problems.append(
+                f"evaluators.{name}.{key} is {got.get(key)!r}, resolved {resolved.get(key)!r}"
+            )
+    got_conf = (committed.get("robot") or {}).get("configurations")
+    resolved_conf = (fresh.get("robot") or {}).get("configurations")
+    if got_conf != resolved_conf:
+        problems.append(f"robot.configurations is {got_conf!r}, resolved {resolved_conf!r}")
+    if not problems and fresh != committed:
+        problems.append("resolved lock differs from the committed file")
+    return problems
+
+
+def release_drift(root: Path, work: Path) -> list[str]:
+    """Why each committed lock is not what ``tools/lock.py`` would write now."""
+    problems = []
+    for definition in sorted(
+        path for path in (root / "verifications").glob("*.toml") if path.name != "settings.toml"
+    ):
+        try:
+            fresh, _notes = lock_tool.generate(definition, work / definition.stem)
+        except lock_tool.LockError as exc:
+            problems.append(f"{definition.stem}: {exc}")
+            continue
+        committed_path = definition.with_name(definition.stem + ".lock.json")
+        try:
+            committed = json.loads(committed_path.read_text())
+        except (OSError, json.JSONDecodeError) as exc:
+            problems.append(f"{definition.stem}: {exc}")
+            continue
+        for delta in _pin_deltas(fresh, committed):
+            problems.append(f"{definition.stem}: {delta}")
     return problems
 
 
@@ -238,38 +279,10 @@ def test_uses_commit_matches_the_locked_verifier(definition):
     assert [p.split(" ")[0] for p in problems] == ["uses"]
 
 
-@pytest.mark.parametrize(
-    "stem",
-    [
-        "unitree-g1-playground-mujoco-hallway",
-        "unitree-go1-playground-mujoco-hallway",
-    ],
-)
-def test_a_reporter_edit_fails_when_the_call_does_not_follow(stem):
-    # Vera P8/P9: editing the reporter to v3.4.0 must fail unless the workflow passes it.
-    lock = lock_of(ROOT / f"verifications/{stem}.toml")
-    lock["releases"]["reporter"] = {
-        **lock["releases"]["reporter"],
-        "tag": "v3.4.0",
-        "commit": "0" * 40,
-    }
-    job = yaml.safe_load(WORKFLOW.read_text())["jobs"][stem]
-    problems = call_problems(lock, job)
-    assert any(p.startswith("releases.reporter") for p in problems)
-
-
-def test_a_verifier_edit_fails_when_the_call_does_not_follow():
-    definition = ROOT / "verifications/unitree-go1-playground-mujoco-hallway.toml"
-    lock = lock_of(definition)
-    lock["releases"]["verifier"] = {
-        **lock["releases"]["verifier"],
-        "tag": "v3.4.0",
-        "commit": "0" * 40,
-    }
-    job = yaml.safe_load(WORKFLOW.read_text())["jobs"][definition.stem]
-    problems = call_problems(lock, job)
-    assert any(p.startswith("uses") for p in problems)
-    assert any(p.startswith("releases.verifier") for p in problems)
+def test_committed_locks_match_a_fresh_resolution(tmp_path):
+    # Tags come from this repo (settings.toml and the workflow call). Commits and
+    # digests are resolved from git and ghcr, then compared to the committed files.
+    assert release_drift(ROOT, tmp_path) == []
 
 
 def test_a_commented_out_pin_does_not_count():
