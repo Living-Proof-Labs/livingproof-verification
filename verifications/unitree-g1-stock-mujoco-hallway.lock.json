@@ -2,7 +2,7 @@
   "format": "livingproof-verification-lock/0.2.0",
   "definition": {
     "path": "unitree-g1-stock-mujoco-hallway.toml",
-    "sha256": "625170d1bb2be2322da6165b43b9571a4d0b4fae082714a257cade232afb088a"
+    "sha256": "1d83a01b0630c2378fa30ba91326e1c371cef2c82db88f2a0c3a35eeb15ded1a"
   },
   "procedure": "walk-hallway",
   "scenario": "walk-hallway@0.1.0",
@@ -28,10 +28,10 @@
     },
     "verifier": {
       "repository": "Living-Proof-Labs/capability-verifier",
-      "tag": "v1.18.2",
-      "commit": "1489cd20d29302800171d934734d6165e7c5604d",
+      "tag": "v1.18.3",
+      "commit": "8b303a672c003b82a90178364e7f107a58eaedac",
       "image": "ghcr.io/living-proof-labs/capability-verifier-hallway",
-      "digest": "sha256:720ee5f1fa68a88a94771ac2d676d152d25479a2b1b565734a72946a9b701334"
+      "digest": "sha256:0e0e58d4be5389cab2860455f7e0e9e5e641a5f957a4e5f59b52841981fa29eb"
     },
     "reporter": {
       "repository": "Living-Proof-Labs/livingproof-capability-report",

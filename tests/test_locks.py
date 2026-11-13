@@ -30,7 +30,7 @@ _spec = importlib.util.spec_from_file_location("lock_tool", ROOT / "tools/lock.p
 lock_tool = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(lock_tool)
 PROCEDURE = ".github/workflows/walk-hallway.yml"
-VERIFIER_COMMIT = "1489cd20d29302800171d934734d6165e7c5604d"
+VERIFIER_COMMIT = "8b303a672c003b82a90178364e7f107a58eaedac"
 
 
 def lock_of(definition: Path) -> dict:
@@ -276,7 +276,7 @@ def test_git_ci_requirements_are_pinned_by_commit():
 def test_uses_commit_matches_the_locked_verifier(definition):
     lock = lock_of(definition)
     verifier = lock["releases"]["verifier"]
-    assert verifier["tag"] == "v1.18.2"
+    assert verifier["tag"] == "v1.18.3"
     assert verifier["commit"] == VERIFIER_COMMIT
     jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
     job = jobs[definition.stem]
@@ -318,11 +318,12 @@ def test_a_commented_out_pin_does_not_count():
     assert lock_tool.UPDATE_HINT in problems
 
 
-# Released capability-verifier tags. A regression moves the workflow to the one that is
-# not the locked commit. Neither value is a branch, a pull request, or an unreleased sha.
+# Released capability-verifier tags. A regression moves the workflow to one that is
+# not the locked commit. None of these is a branch, a pull request, or an unreleased sha.
 RELEASED_VERIFIER_COMMITS = {
     "v1.18.1": "c27c6376b4adc1e5b1d9567e4d5b210ab1570a4e",
     "v1.18.2": "1489cd20d29302800171d934734d6165e7c5604d",
+    "v1.18.3": "8b303a672c003b82a90178364e7f107a58eaedac",
 }
 
 
