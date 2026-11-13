@@ -10,17 +10,26 @@
     "docker-compose",
     "npm",
     "pip-compile",
-    "custom.regex", "renovate-config",
+    "custom.regex",
+    "renovate-config",
     "devcontainer"
   ],
   "packageRules": [
     {
-      "description": "A capability-verifier workflow bump has to regenerate verifications/*.lock.json in the same PR. Hosted Mend Renovate does not run postUpgradeTasks without a self-hosted allowedCommands allowlist, which this app does not grant.",
-      "matchManagers": ["github-actions"],
-      "matchFileNames": [".github/workflows/verify.yml"],
-      "matchPackageNames": ["Living-Proof-Labs/capability-verifier"],
+      "description": "Coordinate verifier workflow and hallway image proposals; a maintainer generates locked evidence before merge.",
+      "matchManagers": [
+        "github-actions",
+        "devcontainer"
+      ],
+      "matchPackageNames": [
+        "Living-Proof-Labs/capability-verifier",
+        "ghcr.io/living-proof-labs/capability-verifier-hallway"
+      ],
+      "groupName": "capability verifier and evidence",
+      "groupSlug": "capability-verifier-evidence",
+      "automerge": false,
       "prBodyNotes": [
-        "Hosted Mend Renovate does not run the lock generator on this repository (`allowedCommands` is self-hosted only, and this app has no allowlist). Check out this branch, run `python3 tools/lock.py --update`, and commit the result with a `fix:` or `chore:` prefix. That rewrites tag, commit and digest in all four `verifications/*.lock.json` files from this workflow pin, and refreshes the `livingproof-evaluator-scenario` pin from the dependency that release declares. Robot pins stay as committed. Do not hand-edit those fields."
+        "Maintainer completion required for workflow-only, image-only, digest-only and grouped updates. Select one published capability-verifier vX.Y.Z release, review its provenance, then run `python3 tools/update_verifier.py --tag vX.Y.Z` on this branch. It coordinates workflow SHA, devcontainer digest, README example and all four locks through `python3 tools/lock.py --update` logic; evaluator follows only that release declaration, robot/reporter pins stay unchanged. Hosted Mend Renovate cannot execute our lock generator; grouping does not guarantee matching releases. Review the generated diff, commit with a `fix:` or `chore:` prefix, and require exact-head fresh-resolution checks and all four configuration pipelines before human approval/merge. See README.md, Updating the verifier. Never hand-edit hashes or bypass a failing guard."
       ]
     }
   ]
