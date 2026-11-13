@@ -1,3 +1,4 @@
 # capability-verifier v1.18.3 (caller verification-lock overrides a robot lock)
 capability-verifier @ git+https://github.com/Living-Proof-Labs/capability-verifier@8b303a672c003b82a90178364e7f107a58eaedac
 livingproof @ git+https://github.com/Living-Proof-Labs/livingproof@0398448326e414bfe38b95cf880b5e9d34bf7341
+livingproof-evaluator-scenario @ git+https://github.com/Living-Proof-Labs/livingproof-evaluator-scenario.git@752a6f0a9f9d448c950e56a8e345a69a6693a907
