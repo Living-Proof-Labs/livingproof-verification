@@ -20,7 +20,7 @@ The recommended path is the devcontainer (`.devcontainer/devcontainer.json`): th
 
 ```sh
 docker run --rm -u $(id -u):$(id -g) -v $PWD:/work \
-  ghcr.io/living-proof-labs/capability-verifier-hallway:1.15.2 \
+  ghcr.io/living-proof-labs/capability-verifier-hallway:1.18.5@sha256:6d1647def1582ad25b6f877d6ec2086aa4c9e03b43a2614282a3ea5c940e1fb2 \
   capability verify run --reporter source verifications/unitree-g1-stock-mujoco-hallway.toml
 ```
 
@@ -76,11 +76,11 @@ Check out the Renovate branch and regenerate the locks:
 
 ```sh
 python3 tools/lock.py --update
-git add verifications/*.lock.json .github/requirements/lock-check-git.txt
+git add verifications/*.lock.json .github/requirements/lock-check-git.txt .github/requirements/lock-check.in
 git commit -m "chore: refresh verification locks for the pinned verifier"
 ```
 
-A `fix:` prefix is the other conventional-commit form that fits this change. `--update` reads each job's walk-hallway commit, resolves its `vX.Y.Z` tag and the hallway image digest, and writes those fields into every lock. It also points `.github/requirements/lock-check-git.txt` at that same commit. Robot pins and the scenario-evaluator pin stay as committed. Review the diff and commit the files the command writes.
+A `fix:` prefix is the other conventional-commit form that fits this change. `--update` reads each job's walk-hallway commit, resolves its `vX.Y.Z` tag and the hallway image digest, and writes those fields into every lock. It also points `.github/requirements/lock-check-git.txt` at that same commit and, when `lock-check.in` pins the verifier, moves that pin too. The scenario-evaluator pin is refreshed from the dependency that verifier release declares. Robot pins stay as committed. Review the diff and commit the files the command writes.
 
 ## Published reports
 
