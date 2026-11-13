@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 # Thin call: the capability verifier's reusable workflow runs every step. The robot
 # repository, commit and configurations below must equal the matching lock. Every uses
-# commit is capability-verifier v1.18.3 (8b303a672c003b82a90178364e7f107a58eaedac), and
+# commit is the capability-verifier release named in that line's `# vX.Y.Z` comment, and
 # it must equal the locked verifier. verification-lock is this repository's 0.2.0 lock.
-# v1.18.3 reads that lock even when the robot commit still publishes its own.
+# The pinned release reads that lock even when the robot commit still publishes its own.
 name: verify
 on:
   pull_request:
@@ -34,7 +34,7 @@ jobs:
       # Every package but the two git installs is hashed in .github/requirements/lock-check.txt
       # and installed with --require-hashes on its own: uv skipped the hash check on a URL wheel
       # when a git requirement shared the install. livingproof v1.4.9 and capability-verifier
-      # v1.18.3 are pinned by commit in lock-check-git.txt and installed after, with --no-deps
+      # are pinned by commit in lock-check-git.txt and installed after, with --no-deps
       # and --no-build-isolation: their build backends come hashed from build.txt.
       - name: A wrong hash must refuse the install
         run: |

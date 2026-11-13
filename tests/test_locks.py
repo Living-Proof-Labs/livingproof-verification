@@ -2,7 +2,8 @@
 """Review guards, run in CI by the `locks` job before any verification: every definition
 has a current lock, and the thin workflow call passes exactly the locked values. The
 workflow is parsed as YAML, so a commented-out or misplaced pin never counts. `uses` must
-name the locked verifier commit and pass that definition's lock as `verification-lock`.
+name the locked verifier commit, its `# vX.Y.Z` comment must be the locked tag, and the job
+must pass that definition's lock as `verification-lock`.
 
 Release pins are checked by resolving them again. `tools/lock.py` takes the reporter tag
 from `verifications/settings.toml` and the verifier commit from the workflow call, then
@@ -30,7 +31,6 @@ _spec = importlib.util.spec_from_file_location("lock_tool", ROOT / "tools/lock.p
 lock_tool = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(lock_tool)
 PROCEDURE = ".github/workflows/walk-hallway.yml"
-VERIFIER_COMMIT = "8b303a672c003b82a90178364e7f107a58eaedac"
 
 
 def lock_of(definition: Path) -> dict:
@@ -272,17 +272,44 @@ def test_git_ci_requirements_are_pinned_by_commit():
         assert re.fullmatch(r"\S+ @ git\+https://\S+@[0-9a-f]{40}", entry), entry
 
 
+def uses_tag_comment(text: str, job: str) -> str | None:
+    """The ``# vX.Y.Z`` comment on ``job``'s ``uses`` line. A later comment does not count."""
+    prefix = f"  {job}:"
+    lines = text.splitlines()
+    start = None
+    for index, line in enumerate(lines):
+        if line.split("#", 1)[0].rstrip() == prefix:
+            start = index + 1
+            break
+    if start is None:
+        return None
+    for line in lines[start:]:
+        code, separator, comment = line.partition("#")
+        if not code.strip():
+            continue
+        if code.startswith("  ") and not code.startswith("   ") and code.rstrip().endswith(":"):
+            return None
+        if code.strip().startswith("uses:") and separator:
+            tag = comment.strip()
+            return tag if lock_tool.TAG.fullmatch(tag) else None
+    return None
+
+
+def assert_uses_matches_locked_verifier(text: str, lock: dict, job_name: str) -> None:
+    """``uses`` commit equals the locked commit, and its ``# vX.Y.Z`` comment is the locked tag."""
+    job = yaml.safe_load(text)["jobs"][job_name]
+    verifier = lock["releases"]["verifier"]
+    assert job["uses"].endswith("@" + verifier["commit"])
+    assert uses_tag_comment(text, job_name) == verifier["tag"]
+    assert job["with"]["verification-lock"] == lock_input(lock)
+    assert call_problems(lock, job) == []
+
+
 @pytest.mark.parametrize("definition", DEFINITIONS, ids=lambda p: p.stem)
 def test_uses_commit_matches_the_locked_verifier(definition):
     lock = lock_of(definition)
+    assert_uses_matches_locked_verifier(WORKFLOW.read_text(), lock, definition.stem)
     verifier = lock["releases"]["verifier"]
-    assert verifier["tag"] == "v1.18.3"
-    assert verifier["commit"] == VERIFIER_COMMIT
-    jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
-    job = jobs[definition.stem]
-    assert job["uses"].endswith("@" + VERIFIER_COMMIT)
-    assert job["with"]["verification-lock"] == lock_input(lock)
-    assert call_problems(lock, job) == []
     drifted = yaml.safe_load(WORKFLOW.read_text())
     drifted["jobs"][definition.stem]["uses"] = f"{verifier['repository']}/{PROCEDURE}@{'0' * 40}"
     problems = call_problems(lock, drifted["jobs"][definition.stem])
@@ -487,6 +514,57 @@ def test_update_does_not_change_robot_or_evaluator_pins(tmp_path, monkeypatch, c
     assert other_commit in git_after
     assert current not in git_after
     assert other_tag in git_after
+
+
+def _retarget_uses(text: str, old_commit: str, new_commit: str, old_tag: str, new_tag: str) -> str:
+    """Move each walk-hallway ``uses`` commit and its ``# vX.Y.Z`` comment. Other lines stay."""
+    rewritten = []
+    for line in text.splitlines(keepends=True):
+        code = line.split("#", 1)[0]
+        if "uses:" in code and old_commit in code:
+            line = line.replace(old_commit, new_commit, 1).replace(
+                f"# {old_tag}", f"# {new_tag}", 1
+            )
+        rewritten.append(line)
+    return "".join(rewritten)
+
+
+def test_a_released_tag_bump_then_update_passes_the_lock_checks(tmp_path):
+    """Moving the workflow pin to another released tag, then ``--update``, satisfies the checks.
+
+    Resolution is the real git tag lookup and the ghcr digest. The lock module's uses,
+    comment, and fresh-resolution checks then pass on that tree with no further edits.
+    """
+    root = _copy_verification_repo(tmp_path)
+    before = _original_locks(root)
+    current = next(iter(before.values()))["releases"]["verifier"]
+    other_tag, other_commit = _other_released_verifier(current["commit"])
+    workflow = root / ".github" / "workflows" / "verify.yml"
+    workflow.write_text(
+        _retarget_uses(
+            workflow.read_text(), current["commit"], other_commit, current["tag"], other_tag
+        )
+    )
+    assert lock_tool.update_locks(root)
+    text = workflow.read_text()
+    for name, prior in before.items():
+        definition = root / "verifications" / name
+        lock = json.loads(lock_tool.lock_path(definition).read_text())
+        assert_uses_matches_locked_verifier(text, lock, definition.stem)
+        assert lock["robot"] == prior["robot"]
+        assert lock["evaluators"] == prior["evaluators"]
+        assert lock["releases"]["specs"] == prior["releases"]["specs"]
+        assert lock["releases"]["runner"] == prior["releases"]["runner"]
+        assert lock["releases"]["reporter"] == prior["releases"]["reporter"]
+        verifier = lock["releases"]["verifier"]
+        assert verifier["tag"] == other_tag
+        assert verifier["commit"] == other_commit
+        assert lock_tool.DIGEST.fullmatch(verifier["digest"])
+    tools = (root / ".github" / "requirements" / "lock-check-git.txt").read_text()
+    assert other_commit in tools
+    assert current["commit"] not in tools
+    assert other_tag in tools
+    assert release_drift(root, tmp_path / "work") == []
 
 
 def test_the_maintainer_command_is_documented():
