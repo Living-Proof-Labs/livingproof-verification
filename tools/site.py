@@ -4,13 +4,13 @@
 The verifier's grade and trial counts are read from report.json, never recomputed.
 The public run page is the reporter's HTML: this module asks the pinned reporter to
 render it with this site's evidence paths, retention and a link to the run history.
-SHA256SUMS are checked against the reporter's own files. Per verification and
-configuration:
+The incoming SHA256SUMS are checked, then Actions URLs are removed from the
+published report and SHA256SUMS is rewritten over those published files. Per
+verification and configuration:
 
     <robot>/<variant>/runs/<run-id>/   the styled report as index.html;
-                                       report.{json,md,txt}, SHA256SUMS, run.json;
-                                       report.html, or report.html.orig when the
-                                       reporter's HTML is kept only so SHA256SUMS verifies
+                                       report.{html,json,md,txt}, SHA256SUMS, run.json
+                                       (no report.html.orig; artifact ids stay in run.json)
     <robot>/<variant>/runs/<run-id>/evidence/<name>/
                                        site copies of the run's linked evidence (MCAP,
                                        videos), with sha256 in run.json. Copies older
@@ -56,7 +56,7 @@ REPORT_FILES = ("report.html", "report.json", "report.md", "report.txt")
 # the site so it outlives the Actions artifacts and needs no GitHub sign-in. Pages sites
 # are limited to 1 GB; past this per-run budget an artifact is listed but not copied.
 MAX_RUN_EVIDENCE_BYTES = 25_000_000
-ORIGINAL_HTML = "report.html.orig"  # served as a download, not as a page
+ORIGINAL_HTML = "report.html.orig"  # never published; deleted if a restore still has it
 SETTINGS = ROOT / "verifications" / "settings.toml"
 # Reporter anchors this site must not publish. The public page is re-rendered instead.
 ARTIFACT_LINK = re.compile(
@@ -936,32 +936,89 @@ def drop_listing_pages(folder: Path) -> None:
 
 
 def html_is_dirty(text: str) -> bool:
-    return ARTIFACT_WORD.search(text) is not None or ACTIONS_HREF.search(text) is not None
+    return ARTIFACT_WORD.search(text) is not None or "/actions/" in text.lower()
 
 
-def original_html(folder: Path) -> str:
+def _is_actions_url(value: object) -> bool:
+    return isinstance(value, str) and (
+        "/actions/" in value.lower() or ARTIFACT_WORD.search(value) is not None
+    )
+
+
+def strip_actions_links(report: dict) -> bool:
+    """Drop Actions run and artifact URLs from ``evidence_links``. Returns whether it changed."""
+    links = report.get("evidence_links")
+    if not isinstance(links, dict):
+        return False
+    changed = False
+    if _is_actions_url(links.get("run")):
+        links.pop("run", None)
+        changed = True
+    entries = links.get("links")
+    if isinstance(entries, list):
+        for entry in entries:
+            if isinstance(entry, dict) and _is_actions_url(entry.get("url")):
+                entry.pop("url", None)
+                changed = True
+    return changed
+
+
+def strip_actions_text(text: str) -> str:
+    """Remove Actions URLs and the word artifact from a published text file."""
+    text = ACTIONS_ANCHOR.sub(lambda match: match.group(3), text)
+    text = ACTIONS_URL.sub("", text)
+    return ARTIFACT_WORD.sub("", text)
+
+
+def reporter_html(folder: Path) -> str:
+    """The reporter's HTML, read once. A restored ``report.html.orig`` is not left published."""
     parked = folder / ORIGINAL_HTML
     if parked.is_file():
-        return parked.read_text()
-    return (folder / "report.html").read_text()
-
-
-def park_original(folder: Path, public: str) -> None:
-    """Keep the reporter's bytes for SHA256SUMS. A dirty report.html is not a public page."""
+        text = parked.read_text()
+        parked.unlink()
+        return text
     report = folder / "report.html"
+    if report.is_file():
+        return report.read_text()
+    return ""
+
+
+def write_published_checksums(folder: Path) -> None:
+    """Checksum every file in the run folder except this list. ``report.html.orig`` is absent."""
+    names = sorted(
+        path.relative_to(folder).as_posix()
+        for path in folder.rglob("*")
+        if path.is_file() and path.name != "SHA256SUMS"
+    )
+    if any(name == ORIGINAL_HTML or name.endswith("/" + ORIGINAL_HTML) for name in names):
+        raise SiteError(f"{folder}: {ORIGINAL_HTML} is not a published file")
+    lines = [
+        f"{hashlib.sha256((folder / name).read_bytes()).hexdigest()}  {name}" for name in names
+    ]
+    (folder / "SHA256SUMS").write_text(("\n".join(lines) + "\n") if lines else "")
+
+
+def publish_report_files(folder: Path, html_text: str) -> None:
+    """Strip Actions URLs, then checksum the files that stay in the run folder."""
     parked = folder / ORIGINAL_HTML
     if parked.is_file():
-        if report.is_file():
-            report.unlink()
-        return
-    if not report.is_file():
-        return
-    original = report.read_text()
-    if original == public:
-        return
-    if html_is_dirty(original):
-        parked.write_text(original)
-        report.unlink()
+        parked.unlink()
+    report_path = folder / "report.json"
+    if report_path.is_file():
+        report = read_report(report_path)
+        if isinstance(report, dict) and strip_actions_links(report):
+            report_path.write_text(json.dumps(report, indent=2) + "\n")
+    if html_text:
+        (folder / "report.html").write_text(strip_actions_text(html_text))
+    for name in ("report.md", "report.txt"):
+        path = folder / name
+        if not path.is_file():
+            continue
+        text = path.read_text(errors="replace")
+        cleaned = strip_actions_text(text)
+        if cleaned != text:
+            path.write_text(cleaned)
+    write_published_checksums(folder)
 
 
 def scrub_reporter_html(text: str, record: dict, *, trial: bool, expired: bool) -> str:
@@ -1073,6 +1130,7 @@ def render_with_reporter(
 
 def publish_run_page(folder: Path, record: dict, *, now: str, days: int, trial: bool) -> None:
     """The run directory's index is the styled report, not a frame around it."""
+    html_text = reporter_html(folder)
     created = (record.get("run") or {}).get("created", "")
     expired = bool(now) and bool(created) and evidence_expired(created, now, days)
     drop_listing_pages(folder)
@@ -1080,7 +1138,11 @@ def publish_run_page(folder: Path, record: dict, *, now: str, days: int, trial: 
         for entry in record.get("evidence") or []:
             write_listing(folder, entry, up="../../../../")
     links = evidence_links_document(record.get("evidence"), expired=expired)
-    report = read_report(folder / "report.json")
+    report_path = folder / "report.json"
+    report = read_report(report_path)
+    if isinstance(report, dict) and strip_actions_links(report):
+        # Before the published checksum, and before the page embeds this JSON.
+        report_path.write_text(json.dumps(report, indent=2) + "\n")
     if report_is_renderable(report):
         public = render_with_reporter(
             report,
@@ -1090,13 +1152,13 @@ def publish_run_page(folder: Path, record: dict, *, now: str, days: int, trial: 
             retention=days if links["links"] else None,
         )
     else:
-        public = scrub_reporter_html(original_html(folder), record, trial=trial, expired=expired)
+        public = scrub_reporter_html(html_text, record, trial=trial, expired=expired)
     if html_is_dirty(public):
         raise SiteError(
             f"{folder / 'index.html'}: public page still names an artifact or links to /actions/"
         )
-    park_original(folder, public)
     (folder / "index.html").write_text(public)
+    publish_report_files(folder, html_text)
 
 
 def redirect_page(target: str, title: str = "Latest report") -> str:
@@ -1113,15 +1175,41 @@ def redirect_page(target: str, title: str = "Latest report") -> str:
     )
 
 
+_TEXT_SUFFIXES = {
+    ".html",
+    ".json",
+    ".txt",
+    ".md",
+    ".svg",
+    ".orig",
+    ".xml",
+    ".css",
+    ".js",
+    ".yml",
+    ".yaml",
+}
+
+
+def published_text(path: Path) -> bool:
+    """A published file the lint reads. ``run.json`` is the one place ids may remain."""
+    if not path.is_file() or path.name == "run.json":
+        return False
+    if path.suffix.lower() in _TEXT_SUFFIXES or path.name.endswith(".orig"):
+        return True
+    return path.name in {"SHA256SUMS"}
+
+
 def public_page_problems(site: Path) -> list[str]:
-    """HTML this build emits that names an artifact or links to ``/actions/``."""
+    """Published text, other than run.json, that names an artifact or an Actions URL."""
     problems = []
-    for page_path in sorted(site.rglob("*.html")):
-        text = page_path.read_text(errors="replace")
-        relative = str(page_path.relative_to(site))
+    for path in sorted(site.rglob("*")):
+        if not published_text(path):
+            continue
+        text = path.read_text(errors="replace")
+        relative = str(path.relative_to(site))
         if ARTIFACT_WORD.search(text):
             problems.append(f"{relative} mentions an artifact")
-        if ACTIONS_HREF.search(text):
+        if "/actions/" in text.lower():
             problems.append(f"{relative} links to /actions/")
     return problems
 

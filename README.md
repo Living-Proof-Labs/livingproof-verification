@@ -125,13 +125,13 @@ the run's metadata (`actions: read`). `run.json` keeps, for every link, the id, 
 expiry and digest next to the site copy's files, sizes and sha256. That record is not copied
 onto the public pages. Evidence links passed to the reporter are relative paths of the copies
 on this site. A pruned copy is passed with `expired: true`, and the reporter prints
-"Evidence kept for N days" from the same setting. `report.json`, `report.md`, `report.txt` and
-`SHA256SUMS` stay as the reporter wrote them. When the reporter's `report.html` itself would
-put a run or download address on the public page, it is kept as `report.html.orig` so
-`SHA256SUMS` still verifies (`sed 's/  report.html$/  report.html.orig/' SHA256SUMS | sha256sum -c`).
-The page readers open is the re-rendered report. `site.py build` fails if any HTML file it
-emits contains the word "artifact" (any case) or an `href` or `src` containing `/actions/`.
-Runs that never received copies are left without new files.
+"Evidence kept for N days" from the same setting. `report.json`, `report.md`, and `report.txt`
+stay beside the page. The published `report.json` has those Actions URLs removed before `SHA256SUMS` is
+rewritten over the files in the run folder, so `sha256sum -c SHA256SUMS` still
+matches. `report.html.orig` is not published and is not listed in `SHA256SUMS`.
+The page readers open is the re-rendered report. `site.py build` fails if any
+published text file other than `run.json` contains the word "artifact" (any case)
+or an `/actions/` URL. Runs that never received copies are left without new files.
 
 A several-file MCAP copy links to `evidence/<name>.html`, which lists each file's size and
 sha256. A walk-hallway run's evidence is about 5.2 MB (MCAP 3.9 MB, two videos 0.6 MB each).
