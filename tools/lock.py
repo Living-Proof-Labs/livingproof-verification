@@ -3,6 +3,13 @@
 """Write a ``livingproof-verification-lock/0.2.0`` for one verification definition.
 
     python3 tools/lock.py verifications/<definition>.toml
+    python3 tools/lock.py --update
+
+``--update`` refreshes ``releases.verifier`` (tag, commit and digest) in every
+``verifications/*.lock.json`` from the walk-hallway commit that definition's job
+calls, and points ``.github/requirements/lock-check-git.txt`` at that same commit.
+Robot pins and the scenario-evaluator pin stay as committed. The digest is read
+from the registry.
 
 The lock owns releases (specs, runner, verifier, reporter digest), the plan, the world,
 each configuration's sha256 and the ``livingproof-evaluator-scenario`` pin. ``0.1.0``
@@ -58,6 +65,9 @@ EVALUATOR_DEP = re.compile(
 )
 PROCEDURE = ".github/workflows/walk-hallway.yml"
 VERIFIER_IMAGE = "ghcr.io/living-proof-labs/capability-verifier-hallway"
+# One command for a maintainer finishing a capability-verifier workflow bump.
+UPDATE_COMMAND = "python3 tools/lock.py --update"
+UPDATE_HINT = f"run `{UPDATE_COMMAND}` and commit the lock diff with a fix: or chore: prefix"
 MANIFESTS = ", ".join(
     [
         "application/vnd.oci.image.index.v1+json",
@@ -756,11 +766,137 @@ def generate(
     return lock, notes
 
 
+def repo_root() -> Path:
+    return Path(__file__).resolve().parents[1]
+
+
+def definition_paths(root: Path) -> list[Path]:
+    directory = root / "verifications"
+    if not directory.is_dir():
+        raise LockError(f"{directory} is missing")
+    paths = sorted(path for path in directory.glob("*.toml") if path.name != "settings.toml")
+    if not paths:
+        raise LockError(f"{directory} has no verification definitions")
+    return paths
+
+
+def _sync_lock_check_git(root: Path, verifier: dict) -> None:
+    """Point the locks job's capability-verifier install at ``verifier``."""
+    path = root / ".github" / "requirements" / "lock-check-git.txt"
+    if not path.is_file():
+        raise LockError(f"{path} is missing; the locks job installs the verifier from it")
+    text = path.read_text()
+    pin = (
+        f"capability-verifier @ git+https://github.com/{verifier['repository']}"
+        f"@{verifier['commit']}"
+    )
+    comment = (
+        f"# capability-verifier {verifier['tag']} (caller verification-lock overrides a robot lock)"
+    )
+    saw_comment = False
+    saw_pin = False
+    rewritten = []
+    for line in text.splitlines():
+        if line.startswith("# capability-verifier "):
+            rewritten.append(comment)
+            saw_comment = True
+        elif line.startswith("capability-verifier @ "):
+            rewritten.append(pin)
+            saw_pin = True
+        else:
+            rewritten.append(line)
+    if not saw_comment or not saw_pin:
+        raise LockError(f"{path.name}: expected a capability-verifier comment and a git pin line")
+    updated = "\n".join(rewritten) + ("\n" if text.endswith("\n") else "")
+    if updated != text:
+        path.write_text(updated)
+
+
+def update_locks(root: Path, *, tag_of=None, digester=None) -> list[Path]:
+    """Refresh every lock's verifier pin from that job's workflow commit.
+
+    Writes tag, commit and digest from the walk-hallway ``uses`` line. Robot,
+    evaluator, reporter, specs and runner stay as committed. Also records the
+    same commit in ``lock-check-git.txt``. The four jobs must name one release.
+    """
+    workflow = root / ".github" / "workflows" / "verify.yml"
+    if not workflow.is_file():
+        raise LockError(f"{workflow} is missing")
+    pending: list[tuple[Path, dict]] = []
+    for definition in definition_paths(root):
+        document = load_definition(definition)
+        called = called_verifier(workflow, document["id"], tag_of=tag_of, digester=digester)
+        if called is None:
+            raise LockError(
+                f"{definition.name}: {workflow.name} has no walk-hallway commit pin "
+                f"for job {document['id']}"
+            )
+        path = lock_path(definition)
+        if not path.is_file():
+            raise LockError(
+                f"{path.name} is missing. --update refreshes an existing lock; "
+                f"create it with python3 tools/lock.py {definition.name} first"
+            )
+        lock = read_lock(path)
+        if lock.get("format") != FORMAT_V2:
+            raise LockError(f"{path.name}: --update requires {FORMAT_V2}")
+        releases = lock.get("releases")
+        if not isinstance(releases, dict):
+            raise LockError(f"{path.name}: releases must be an object")
+        robot = json.dumps(lock.get("robot"), sort_keys=True)
+        evaluators = json.dumps(lock.get("evaluators"), sort_keys=True)
+        releases["verifier"] = called
+        if json.dumps(lock.get("robot"), sort_keys=True) != robot:
+            raise LockError(f"{path.name}: --update must not change the robot pin")
+        if json.dumps(lock.get("evaluators"), sort_keys=True) != evaluators:
+            raise LockError(f"{path.name}: --update must not change the evaluator pin")
+        problems = v2_problems(lock)
+        if problems:
+            raise LockError(f"{path.name}: " + "; ".join(problems))
+        pending.append((path, lock))
+    verifiers = [lock["releases"]["verifier"] for _, lock in pending]
+    if len({item["commit"] for item in verifiers}) != 1:
+        raise LockError(
+            "walk-hallway jobs pin different verifier commits; "
+            "lock-check-git.txt can record only one"
+        )
+    if (
+        len({item["tag"] for item in verifiers}) != 1
+        or len({item["repository"] for item in verifiers}) != 1
+    ):
+        raise LockError("walk-hallway jobs pin different verifier releases")
+    written = []
+    for path, lock in pending:
+        path.write_text(json.dumps(lock, indent=2) + "\n")
+        written.append(path)
+    _sync_lock_check_git(root, verifiers[0])
+    return written
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("definition", type=Path)
+    parser.add_argument("definition", nargs="?", type=Path)
+    parser.add_argument(
+        "--update",
+        action="store_true",
+        help="refresh releases.verifier in every verifications/*.lock.json from the workflow pin",
+    )
     parser.add_argument("--work", type=Path, default=Path("artifacts/.lock-work"))
     args = parser.parse_args(argv)
+    if args.update:
+        if args.definition is not None:
+            raise LockError("pass a definition or --update, not both")
+        written = update_locks(repo_root())
+        verifier = read_lock(written[0])["releases"]["verifier"]
+        names = ", ".join(path.name for path in written)
+        print(
+            f"updated {names} to {verifier['tag']} ({verifier['commit'][:12]}); "
+            f"digest {verifier['digest']}. "
+            "Review the diff and commit it with a fix: or chore: prefix."
+        )
+        return 0
+    if args.definition is None:
+        parser.error("a definition path is required (or pass --update)")
     lock, notes = generate(args.definition, args.work)
     path = lock_path(args.definition)
     path.write_text(json.dumps(lock, indent=2) + "\n")

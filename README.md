@@ -10,7 +10,7 @@ Scope and acceptance criteria: [Living-Proof-Labs/.github#11](https://github.com
 
 - `verifications/*.toml`: declarative definitions. Each one selects a robot repository, a ref and the configurations to verify. `verifications/settings.toml` is not a definition; it names the reporter release.
 - `verifications/*.lock.json`: the reviewed lock for each definition. `python3 tools/lock.py` writes `livingproof-verification-lock/0.2.0`: the robot commit and adapter, each configuration's sha256, and the releases, plan, world and scenario-evaluator pin this repository owns. A `0.1.0` lock (the sha256 of the robot's `verification.lock.json`, and the releases copied out of it) stays readable during the migration. The published locks are `0.2.0`.
-- `.github/workflows/verify.yml`: a thin call to capability-verifier v1.18.1's `walk-hallway.yml`. Each job's `uses` commit is that lock's verifier commit, and `verification-lock` passes this repository's 0.2.0 lock. v1.18.1 reads that lock even when the robot commit still publishes its own. The call also passes the locked robot repository, commit and configurations.
+- `.github/workflows/verify.yml`: a thin call to the capability verifier's `walk-hallway.yml`. Each job's `uses` commit is that lock's verifier commit, and the `# vX.Y.Z` comment on that line is the locked tag. `verification-lock` passes this repository's 0.2.0 lock. The pinned release reads that lock even when the robot commit still publishes its own. The call also passes the locked robot repository, commit and configurations.
 
 The first definition is `unitree-g1-stock-mujoco-hallway`: Unitree G1 with its stock controller in the MuJoCo hallway, 3 trials.
 
@@ -33,10 +33,10 @@ uv venv .venv
 VIRTUAL_ENV=.venv uv pip install \
   "livingproof-common @ https://github.com/Living-Proof-Labs/livingproof-common/releases/download/v1.0.0/livingproof_common-1.0.0-py3-none-any.whl" \
   "livingproof @ git+https://github.com/Living-Proof-Labs/livingproof@v1.4.9" \
-  "capability-verifier @ git+https://github.com/Living-Proof-Labs/capability-verifier@v1.18.1"
+  "capability-verifier @ git+https://github.com/Living-Proof-Labs/capability-verifier@<commit in .github/requirements/lock-check-git.txt>"
 ```
 
-capability-verifier v1.10.0 was the first release to ship `livingproof capability verify`; the locks job uses v1.18.1 (`c27c637`, which accepts lock formats `0.1.0` and `0.2.0` and lets a caller lock override a robot lock). CI installs the same versions in its `locks` job from `.github/requirements/`: the two git installs pinned by commit in `lock-check-git.txt`; every other package (the `livingproof-common` wheel and uv itself included) by sha256, installed with `--require-hashes` apart from the git installs, since uv skipped a URL wheel's hash when a git requirement shared the install. The git installs build with `--no-build-isolation` from hashed build backends in `build.txt` (hatchling, hatch-vcs, setuptools), so nothing is fetched unhashed at build time. The job first proves a wrong hash refuses the install.
+capability-verifier v1.10.0 was the first release to ship `livingproof capability verify`; the locks job installs the capability-verifier commit from `lock-check-git.txt` (the locked verifier, which accepts lock formats `0.1.0` and `0.2.0` and lets a caller lock override a robot lock). CI installs the same versions in its `locks` job from `.github/requirements/`: the two git installs pinned by commit in `lock-check-git.txt`; every other package (the `livingproof-common` wheel and uv itself included) by sha256, installed with `--require-hashes` apart from the git installs, since uv skipped a URL wheel's hash when a git requirement shared the install. The git installs build with `--no-build-isolation` from hashed build backends in `build.txt` (hatchling, hatch-vcs, setuptools), so nothing is fetched unhashed at build time. The job first proves a wrong hash refuses the install.
 
 Check the lock and the workflow call, then run:
 
@@ -67,6 +67,20 @@ python3 tools/lock.py verifications/unitree-g1-stock-mujoco-hallway.toml
 `lock` writes `livingproof-verification-lock/0.2.0`. While the robot still publishes `verification.lock.json`, plan, world and the specs and runner releases are copied from that file. The reporter tag, repository and image come from `verifications/settings.toml`; the commit and digest are resolved from that tag. The verifier pin is the walk-hallway commit that definition's job calls, and the scenario-evaluator pin is read from that verifier release (recorded as `livingproof-evaluator-scenario` `v1.0.0` when that release does not declare one). A thin robot publishes the adapter and configurations only. `lock` then keeps releases, plan, world and the evaluator pin from the existing `0.2.0` and refreshes the commit, adapter and configuration sha256s. With neither source it exits with that explanation. A `0.1.0` lock beside the definition stays readable. The published locks are `0.2.0`; the locks job accepts both.
 
 Then update the call in `.github/workflows/verify.yml` to the new robot commit and, when the lock names a new verifier, to that verifier commit. `tests/test_locks.py` (the `locks` CI job, which every verification job waits for) and `lock --check --workflow` fail until `uses`, `verification-lock` and the locked verifier and reporter agree. Both parse the workflow YAML, so a commented-out pin does not count. Every configuration's `uses` commit is its locked verifier commit.
+
+## Complete a capability-verifier workflow bump
+
+Renovate opens a pull request that moves the walk-hallway `uses` commit in `.github/workflows/verify.yml`. The four `verifications/*.lock.json` files have to move in that same pull request. Hosted Mend Renovate does not run `postUpgradeTasks` here: `allowedCommands` is a self-hosted admin option, and this repository's Mend app has no allowlist, so the generator does not run inside Renovate. CI fails the workflow-only pull request and names the command below.
+
+Check out the Renovate branch and regenerate the locks:
+
+```sh
+python3 tools/lock.py --update
+git add verifications/*.lock.json .github/requirements/lock-check-git.txt
+git commit -m "chore: refresh verification locks for the pinned verifier"
+```
+
+A `fix:` prefix is the other conventional-commit form that fits this change. `--update` reads each job's walk-hallway commit, resolves its `vX.Y.Z` tag and the hallway image digest, and writes those fields into every lock. It also points `.github/requirements/lock-check-git.txt` at that same commit. Robot pins and the scenario-evaluator pin stay as committed. Review the diff and commit the files the command writes.
 
 ## Published reports
 
