@@ -125,8 +125,15 @@ def _pin_deltas(fresh: dict, committed: dict) -> list[str]:
             problems.append(
                 f"evaluators.{name}.{key} is {got.get(key)!r}, resolved {resolved.get(key)!r}"
             )
-    got_conf = (committed.get("robot") or {}).get("configurations")
-    resolved_conf = (fresh.get("robot") or {}).get("configurations")
+    got_robot = committed.get("robot") if isinstance(committed.get("robot"), dict) else {}
+    resolved_robot = fresh.get("robot") if isinstance(fresh.get("robot"), dict) else {}
+    for key in ("repository", "ref", "commit", "adapter"):
+        if got_robot.get(key) != resolved_robot.get(key):
+            problems.append(
+                f"robot.{key} is {got_robot.get(key)!r}, resolved {resolved_robot.get(key)!r}"
+            )
+    got_conf = got_robot.get("configurations")
+    resolved_conf = resolved_robot.get("configurations")
     if got_conf != resolved_conf:
         problems.append(f"robot.configurations is {got_conf!r}, resolved {resolved_conf!r}")
     if not problems and fresh != committed:
@@ -565,6 +572,96 @@ def test_a_released_tag_bump_then_update_passes_the_lock_checks(tmp_path):
     assert current["commit"] not in tools
     assert other_tag in tools
     assert release_drift(root, tmp_path / "work") == []
+
+
+def _json_member(text: str, key: str) -> str:
+    """The raw ``"key": { ... }`` text, including nested objects."""
+    marker = f'"{key}": '
+    start = text.index(marker)
+    opener = start + len(marker)
+    if text[opener] != "{":
+        raise AssertionError(key)
+    depth = 0
+    for index in range(opener, len(text)):
+        char = text[index]
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start : index + 1]
+    raise AssertionError(key)
+
+
+def _flip_hex(value: str) -> str:
+    return value[:-1] + ("0" if value[-1] != "0" else "1")
+
+
+def test_update_leaves_robot_and_evaluator_pin_bytes_unchanged(tmp_path, monkeypatch):
+    """``--update`` rewrites the verifier and leaves robot and evaluator text untouched."""
+    root = _copy_verification_repo(tmp_path)
+    before_text = {
+        path.name: path.read_text() for path in (root / "verifications").glob("*.lock.json")
+    }
+    current = json.loads(next(iter(before_text.values())))["releases"]["verifier"]
+    other_tag, other_commit = _other_released_verifier(current["commit"])
+    workflow = root / ".github" / "workflows" / "verify.yml"
+    workflow.write_text(workflow.read_text().replace(current["commit"], other_commit))
+    digest = "sha256:" + "ab" * 32
+
+    monkeypatch.setattr(lock_tool, "tag_of_commit", lambda repository, commit: other_tag)
+    monkeypatch.setattr(lock_tool, "image_digest", lambda image, tag: digest)
+    assert lock_tool.update_locks(root)
+    evaluator = "livingproof-evaluator-scenario"
+    for name, prior in before_text.items():
+        after = (root / "verifications" / name).read_text()
+        assert _json_member(after, "robot") == _json_member(prior, "robot")
+        assert _json_member(after, "evaluators") == _json_member(prior, "evaluators")
+        written = json.loads(after)
+        source = json.loads(prior)
+        for field in ("repository", "ref", "commit", "adapter"):
+            assert written["robot"][field] == source["robot"][field]
+        for field in ("repository", "tag", "commit"):
+            assert written["evaluators"][evaluator][field] == source["evaluators"][evaluator][field]
+        assert written["releases"]["verifier"]["commit"] == other_commit
+        assert written["releases"]["verifier"]["digest"] == digest
+
+
+def test_an_edited_robot_commit_is_rejected(tmp_path, monkeypatch):
+    root = _copy_verification_repo(tmp_path)
+    originals = _original_locks(root)
+    path = lock_tool.lock_path(root / "verifications" / DEFINITIONS[0].name)
+    lock = json.loads(path.read_text())
+    flipped = _flip_hex(lock["robot"]["commit"])
+    lock["robot"]["commit"] = flipped
+    path.write_text(json.dumps(lock, indent=2) + "\n")
+
+    def generate(definition, work, **kwargs):
+        return json.loads(json.dumps(originals[definition.name])), []
+
+    monkeypatch.setattr(lock_tool, "generate", generate)
+    problems = release_drift(root, tmp_path / "work")
+    assert any("robot.commit" in item and flipped in item for item in problems), problems
+
+
+def test_an_edited_evaluator_commit_is_rejected(tmp_path, monkeypatch):
+    root = _copy_verification_repo(tmp_path)
+    originals = _original_locks(root)
+    path = lock_tool.lock_path(root / "verifications" / DEFINITIONS[0].name)
+    lock = json.loads(path.read_text())
+    name = "livingproof-evaluator-scenario"
+    flipped = _flip_hex(lock["evaluators"][name]["commit"])
+    lock["evaluators"][name]["commit"] = flipped
+    path.write_text(json.dumps(lock, indent=2) + "\n")
+
+    def generate(definition, work, **kwargs):
+        return json.loads(json.dumps(originals[definition.name])), []
+
+    monkeypatch.setattr(lock_tool, "generate", generate)
+    problems = release_drift(root, tmp_path / "work")
+    assert any(f"evaluators.{name}.commit" in item and flipped in item for item in problems), (
+        problems
+    )
 
 
 def test_the_lock_check_step_names_the_update_command_when_it_fails():
