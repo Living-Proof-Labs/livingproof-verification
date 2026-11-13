@@ -1511,3 +1511,63 @@ def test_build_fails_when_a_published_report_keeps_an_actions_url(tmp_path, monk
         site_tool.build(
             site=tmp_path / "site", reports=reports, run=run("7", "2026-11-02T00:00:00Z")
         )
+
+
+def test_sha256sum_c_accepts_the_published_run_folder(tmp_path):
+    """Hand check: from the run folder, ``sha256sum -c SHA256SUMS`` exits 0."""
+    evidence, artifacts = evidence_for(tmp_path)
+    site = tmp_path / "site"
+    site_tool.build(
+        site,
+        reports_with_links(tmp_path, "r1"),
+        run("7", "2026-11-02T00:00:00Z"),
+        evidence=evidence,
+        artifacts=artifacts,
+    )
+    folders = list(site.glob("*/*/runs/*"))
+    assert folders
+    for folder in folders:
+        completed = subprocess.run(
+            ["sha256sum", "-c", "SHA256SUMS"],
+            cwd=folder,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        assert "FAILED" not in completed.stdout
+        assert "report.html.orig" not in completed.stdout
+        assert "report.html.orig" not in (folder / "SHA256SUMS").read_text()
+
+
+def test_checksums_cover_the_scrubbed_report_json_and_the_bundle_digest_stays(tmp_path):
+    """SHA256SUMS hashes the scrubbed report.json, not the incoming reporter file.
+
+    ``source_bundle_sha256`` still matches the bundle, which this publish does not change.
+    """
+    from livingproof_capability_report.core import digest as bundle_digest
+
+    reports = _renderable_reports(tmp_path)
+    stamp_actions_urls(reports)
+    incoming = {}
+    for path in reports.glob("*/report.json"):
+        payload = json.loads(path.read_text())
+        incoming[path.parent.name] = {
+            "hash": hashlib.sha256(path.read_bytes()).hexdigest(),
+            "bundle_sha": payload["source_bundle_sha256"],
+        }
+        assert "/actions/" in path.read_text().lower()
+    site = tmp_path / "site"
+    site_tool.build(site, reports, run("7", "2026-11-02T00:00:00Z"))
+    for target in site_tool.targets():
+        folder = site / target["robot"] / target["variant"] / "runs" / "7"
+        published = folder / "report.json"
+        report = json.loads(published.read_text())
+        sums = published_checksums(folder)
+        published_hash = hashlib.sha256(published.read_bytes()).hexdigest()
+        original = incoming[target["artifact"]]
+        assert sums["report.json"] == published_hash
+        assert published_hash != original["hash"]
+        assert "/actions/" not in published.read_text().lower()
+        assert "artifact" not in published.read_text().lower()
+        assert report["source_bundle_sha256"] == original["bundle_sha"]
+        assert bundle_digest(report["source_bundle"]) == report["source_bundle_sha256"]
