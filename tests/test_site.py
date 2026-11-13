@@ -806,7 +806,7 @@ def test_a_2_0_0_trial_model_report_is_labelled_trial(tmp_path):
     assert "trial 4 (FAIL): video" in page and f'href="{ART}/103"' not in page
     assert "seed 4 (FAIL)" not in page
     assert "artifact" not in page.lower()
-    assert (folder / "report.html.orig").read_text() == REPORTER_HTML
+    assert not (folder / "report.html.orig").exists()
     latest = (site / "unitree-g1/stock-mujoco-hallway/latest/index.html").read_text()
     assert "url=../runs/7/" in latest and "trial 1" not in latest
     local_links_resolve(site)
@@ -851,7 +851,7 @@ def test_a_v3_3_report_that_already_says_trial_is_not_labelled_twice(tmp_path):
     )
     assert page.count("trial 1 (PASS): video") == 1
     assert "trial 4 (FAIL): video" in page and "<a " not in page.split("trial 4")[1][:80]
-    assert (folder / "report.html.orig").read_text() == html_in
+    assert not (folder / "report.html.orig").exists()
     local_links_resolve(site)
 
 
@@ -989,14 +989,14 @@ def test_published_report_links_evidence_to_the_site_copies(tmp_path):
     assert f'href="{ART}/101"' not in html and f'href="{ART}/103"' not in html
     assert "seed 4 (FAIL): video" in html
     assert "artifact" not in html.lower() and "/actions/" not in html
-    assert (folder / "report.html.orig").read_text() == REPORTER_HTML
-    for name in ("report.json", "report.md", "report.txt", "SHA256SUMS"):
+    assert not (folder / "report.html.orig").exists()
+    for name in ("report.json", "report.md", "report.txt"):
         assert (folder / name).read_bytes() == (source / name).read_bytes(), name
     sums = dict(
         reversed(line.split("  ")) for line in (folder / "SHA256SUMS").read_text().splitlines()
     )
-    orig = hashlib.sha256((folder / "report.html.orig").read_bytes()).hexdigest()
-    assert sums["report.html"] == orig
+    assert "report.html.orig" not in sums
+    assert sums["report.html"] == hashlib.sha256((folder / "report.html").read_bytes()).hexdigest()
     latest = site / "unitree-g1/stock-mujoco-hallway/latest"
     assert not (latest / "report.html").exists()
     assert not (latest / "report.html.orig").exists()
@@ -1043,7 +1043,7 @@ def test_published_report_drops_the_actions_link_once_expired(tmp_path):
     assert f"<a href='evidence/{PREFIX}-mcap-stock/trials.mcap'>" not in html
     assert not (folder / f"evidence/{PREFIX}-mcap-stock/trials.mcap").exists()
     assert (folder / "report.json").is_file() and (folder / "run.json").is_file()
-    assert (folder / "report.html.orig").read_text() == REPORTER_HTML
+    assert not (folder / "report.html.orig").exists()
     for page in site.rglob("*.html"):
         assert not artifact_anchors(page.read_text()), page
         assert "artifact" not in page.read_text().lower()
@@ -1116,10 +1116,7 @@ def test_a_real_reporter_v3_0_3_report_publishes_with_no_actions_links(tmp_path,
         html = page.read_text()
         assert "/actions/" not in html
         assert "artifact" not in html.lower()
-    parked = list(site.rglob("report.html.orig"))
-    assert len(parked) == len(site_tool.targets())
-    for page in parked:
-        assert page.read_text() == real
+    assert list(site.rglob("report.html.orig")) == []
     # The guard stays strict: publishing the reporter file unchanged fails the build.
     monkeypatch.setattr(site_tool, "scrub_reporter_html", lambda text, record, **kwargs: text)
     with pytest.raises(site_tool.SiteError, match="index.html"):
@@ -1375,3 +1372,142 @@ def test_retention_changes_what_is_pruned_and_the_kept_for_text(tmp_path, monkey
     record = json.loads((folder / "run.json").read_text())
     assert record["evidence"][0]["artifact"]["id"] == "101"
     local_links_resolve(site)
+
+
+RUN_URL = "https://github.com/Living-Proof-Labs/livingproof-verification/actions/runs/7"
+
+
+def stamp_actions_urls(reports: Path) -> None:
+    """Put Actions run and artifact URLs into the reporter files, then restamp the incoming sums."""
+    for folder in reports.iterdir():
+        if not (folder / "report.json").is_file():
+            continue
+        report = json.loads((folder / "report.json").read_text())
+        report["evidence_links"] = {
+            "run": RUN_URL,
+            "links": [
+                {"label": "MCAP", "kind": "mcap", "url": f"{ART}/101"},
+                {"label": "clip", "kind": "note", "url": "https://example.com/clip"},
+            ],
+        }
+        (folder / "report.json").write_text(json.dumps(report))
+        (folder / "report.md").write_text(f"Evidence: {RUN_URL} and {ART}/101\n")
+        (folder / "report.txt").write_text("report.txt\n")
+        restamp(folder)
+
+
+def published_checksums(folder: Path) -> dict[str, str]:
+    return dict(
+        reversed(line.split("  ")) for line in (folder / "SHA256SUMS").read_text().splitlines()
+    )
+
+
+def test_published_files_except_run_json_have_no_actions_urls(tmp_path):
+    """Every published file other than run.json is free of artifact wording and /actions/ URLs."""
+    reports = reports_with_links(tmp_path, "r1")
+    stamp_actions_urls(reports)
+    evidence, artifacts = evidence_for(tmp_path)
+    site = tmp_path / "site"
+    site_tool.build(
+        site,
+        reports,
+        run("7", "2026-11-02T00:00:00Z"),
+        evidence=evidence,
+        artifacts=artifacts,
+    )
+    assert site_tool.public_page_problems(site) == []
+    scanned = []
+    for path in site.rglob("*"):
+        if not path.is_file() or path.name == "run.json":
+            continue
+        text = path.read_text(errors="replace")
+        scanned.append(path)
+        assert "artifact" not in text.lower(), path
+        assert "/actions/" not in text.lower(), path
+    assert scanned
+
+
+def test_published_report_json_drops_actions_urls_and_run_json_keeps_them(tmp_path):
+    reports = reports_with_links(tmp_path, "r1")
+    stamp_actions_urls(reports)
+    evidence, artifacts = evidence_for(tmp_path)
+    site = tmp_path / "site"
+    site_tool.build(
+        site,
+        reports,
+        run("7", "2026-11-02T00:00:00Z"),
+        evidence=evidence,
+        artifacts=artifacts,
+    )
+    folder = site / "unitree-g1/stock-mujoco-hallway/runs/7"
+    published = json.loads((folder / "report.json").read_text())
+    blob = json.dumps(published)
+    assert "/actions/" not in blob.lower()
+    assert "artifact" not in blob.lower()
+    links = published["evidence_links"]
+    assert "run" not in links
+    assert all(entry.get("url") != f"{ART}/101" for entry in links["links"])
+    assert any(entry.get("url") == "https://example.com/clip" for entry in links["links"])
+    record = json.loads((folder / "run.json").read_text())
+    assert record["run"]["url"] == (
+        "https://github.com/Living-Proof-Labs/livingproof-verification/actions/runs/7"
+    )
+    assert record["evidence"][0]["artifact"]["url"].endswith("/artifacts/101")
+    assert "artifact" in json.dumps(record).lower()
+
+
+def test_report_html_orig_is_not_published(tmp_path):
+    evidence, artifacts = evidence_for(tmp_path)
+    site = tmp_path / "site"
+    site_tool.build(
+        site,
+        reports_with_links(tmp_path, "r1"),
+        run("7", "2026-11-02T00:00:00Z"),
+        evidence=evidence,
+        artifacts=artifacts,
+    )
+    assert list(site.rglob("report.html.orig")) == []
+    folder = site / "unitree-g1/stock-mujoco-hallway/runs/7"
+    # A restored copy is removed on the next render and is not checksummed.
+    (folder / "report.html.orig").write_text(REPORTER_HTML)
+    site_tool.render(site, now="2026-11-02T00:00:00Z")
+    assert not (folder / "report.html.orig").exists()
+    assert "report.html.orig" not in (folder / "SHA256SUMS").read_text()
+    assert list(site.rglob("*.orig")) == []
+
+
+def test_sha256sums_verifies_exactly_the_published_files(tmp_path):
+    evidence, artifacts = evidence_for(tmp_path)
+    site = tmp_path / "site"
+    site_tool.build(
+        site,
+        reports_with_links(tmp_path, "r1"),
+        run("7", "2026-11-02T00:00:00Z"),
+        evidence=evidence,
+        artifacts=artifacts,
+    )
+    folders = list(site.glob("*/*/runs/*"))
+    assert folders
+    for folder in folders:
+        sums = published_checksums(folder)
+        files = {
+            path.relative_to(folder).as_posix()
+            for path in folder.rglob("*")
+            if path.is_file() and path.name != "SHA256SUMS"
+        }
+        assert set(sums) == files
+        assert "report.html.orig" not in sums
+        for name, digest in sums.items():
+            assert hashlib.sha256((folder / name).read_bytes()).hexdigest() == digest
+
+
+def test_build_fails_when_a_published_report_keeps_an_actions_url(tmp_path, monkeypatch):
+    """The lint covers json and markdown, not only html, and build stops on it."""
+    reports = reports_for(tmp_path, "r1", 12, "FAIL")
+    stamp_actions_urls(reports)
+    monkeypatch.setattr(site_tool, "strip_actions_links", lambda report: False)
+    monkeypatch.setattr(site_tool, "strip_actions_text", lambda text: text)
+    with pytest.raises(site_tool.SiteError, match=r"report\.(json|md)"):
+        site_tool.build(
+            site=tmp_path / "site", reports=reports, run=run("7", "2026-11-02T00:00:00Z")
+        )
