@@ -20,7 +20,7 @@ ROOT = Path(__file__).parents[1]
 DEFINITIONS = sorted((ROOT / "verifications").glob("*.toml"))
 WORKFLOW = ROOT / ".github/workflows/verify.yml"
 PROCEDURE = ".github/workflows/walk-hallway.yml"
-VERIFIER_COMMIT = "9a8069ade06012995b40bff1234e90ddce77476b"
+VERIFIER_COMMIT = "c27c6376b4adc1e5b1d9567e4d5b210ab1570a4e"
 
 
 def lock_of(definition: Path) -> dict:
@@ -186,10 +186,10 @@ def test_verification_waits_for_the_lock_guard():
     assert any("a wrong livingproof-common hash installed" in r for r in check)
     tools = (ROOT / ".github/requirements/lock-check-git.txt").read_text()
     assert (
-        "capability-verifier @ git+https://github.com/Living-Proof-Labs/capability-verifier@9a8069ade06012995b40bff1234e90ddce77476b"
+        "capability-verifier @ git+https://github.com/Living-Proof-Labs/capability-verifier@c27c6376b4adc1e5b1d9567e4d5b210ab1570a4e"
         in tools
     )
-    assert "v1.18.0" in tools
+    assert "v1.18.1" in tools
     for definition in DEFINITIONS:
         assert jobs[definition.stem]["needs"] == "locks"
 
@@ -225,7 +225,7 @@ def test_git_ci_requirements_are_pinned_by_commit():
 def test_uses_commit_matches_the_locked_verifier(definition):
     lock = lock_of(definition)
     verifier = lock["releases"]["verifier"]
-    assert verifier["tag"] == "v1.18.0"
+    assert verifier["tag"] == "v1.18.1"
     assert verifier["commit"] == VERIFIER_COMMIT
     jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
     job = jobs[definition.stem]
