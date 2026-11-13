@@ -91,13 +91,13 @@ capability-report artifacts out as a static site and the `pages` job deploys it 
 and configuration (`<robot>` from the robot repository, `<variant>` from the definition id):
 
 - `/` lists every robot and variant with the verifier's latest grade and trial counts
-- `/<robot>/<variant>/latest/` is the newest run, `/<robot>/<variant>/` its run history
-- `/<robot>/<variant>/runs/<run-id>/` keeps each run: the reporter's `report.{html,json,md,txt}`
-  and `SHA256SUMS` unchanged, `run.json`, and a page naming the CI run (as text), linking this repository's commit
-  and the locked robot, specs, runner, verifier and reporter releases
+- `/<robot>/<variant>/latest/` redirects to the newest run and stores no second copy of it
+- `/<robot>/<variant>/` is the run history: run id, time, grade, commit, checksum file and the locked release tags, as text
+- `/<robot>/<variant>/runs/<run-id>/` is that run's styled report (the reporter's HTML), plus `report.json`, `report.md`, `report.txt`, `SHA256SUMS` and `run.json`
 
-`tools/site.py` only lays out and indexes: the verifier grades, the reporter renders, and the
-counts are read from `report.json`. Earlier runs are restored from the previous run's Pages
+`tools/site.py` lays the reports out and asks the pinned reporter to render each run page with
+a relative link to that history, the site's evidence paths and the retention setting. The
+verifier grades; the counts are read from `report.json`. Earlier runs are restored from the previous run's Pages
 artifact (kept 90 days); if that artifact has expired the job fails rather than drop history.
 If GitHub no longer lists any earlier artifact but the live site still answers (`site.json`,
 written by every build, or `index.html`), the job also fails. Only a manual run of `verify` on
@@ -116,35 +116,28 @@ python3 tools/site.py build site --reports reports --evidence evidence --run-id 
 
 | What | Where | Kept |
 | --- | --- | --- |
-| Reports (`report.*`, `SHA256SUMS`, `run.json`) | the Pages site, every run folder | for as long as the site's run history (each publish restores the previous Pages artifact, kept 90 days) |
-| Linked evidence (MCAP, PASS/FAIL videos) | copied into `runs/<run-id>/evidence/<artifact>/` by the `site` job | with the report, same lifetime |
-| Original Actions artifacts | GitHub Actions | until their `expires_at` (30 days for these runs); downloading needs a GitHub sign-in, even on a public repository |
+| Reports (`report.*`, `SHA256SUMS`, `run.json`, the run page) | the Pages site, every run folder | for as long as the site's run history (each publish restores the previous Pages artifact, kept 90 days) |
+| Linked evidence (MCAP, PASS/FAIL videos, media) | copied into `runs/<run-id>/evidence/<name>/` by the `site` job | for `site.evidence_retention_days` in `verifications/settings.toml`, then removed on the next publish |
+| Run history | the Pages site | with the reports; `latest/` is only a redirect to the newest run |
 
 The `site` job downloads the run's `*-links-*`, `*-mcap-*` and `*-video-*` artifacts and reads
-the run's artifact metadata (`actions: read`). `run.json` keeps, for every link in the report,
-the original artifact's id, name, URL, expiry and digest next to the site copy's files, sizes
-and sha256, so evidence identity stays tied to the assessment. `report.json`, `report.md`,
-`report.txt` and `SHA256SUMS` are published exactly as the reporter wrote them. Each run page lists the site copies first. The Actions artifact is named
-as text, never linked (lpv #23: Actions pages 404 for logged-out readers), marked maintainers only
-with its expiry date; at each later publish an expired one is re-rendered as "expired <date>, no
-longer available". CI runs are likewise shown as text, and `site.py build` fails if any built
-page still has an `href` or `src` containing `/actions/`. Runs published before
-this change carry no copies: their pages say the evidence was not copied and that the links
-inside the report expire.
+the run's metadata (`actions: read`). `run.json` keeps, for every link, the id, name, URL,
+expiry and digest next to the site copy's files, sizes and sha256. That record is not copied
+onto the public pages. Evidence links passed to the reporter are relative paths of the copies
+on this site. A pruned copy is passed with `expired: true`, and the reporter prints
+"Evidence kept for N days" from the same setting. `report.json`, `report.md`, and `report.txt`
+stay beside the page. The published `report.json` has those Actions URLs removed before `SHA256SUMS` is
+rewritten over the files in the run folder, so `sha256sum -c SHA256SUMS` still
+matches. `report.html.orig` is not published and is not listed in `SHA256SUMS`.
+The page readers open is the re-rendered report. `site.py build` fails if any
+published text file other than `run.json` contains the word "artifact" (any case)
+or an `/actions/` URL. Runs that never received copies are left without new files.
 
-The published `report.html` is the one exception: its evidence links are rewritten at every
-publish to point at the site copies, each followed by the original Actions artifact as a
-secondary text reference with its expiry (never a link). An artifact
-with several files (the MCAP artifact holds every trial) links to a listing page,
-`evidence/<artifact>.html`, with each file's size and sha256, rather than to its first file. The
-reporter's own `report.html` is kept beside it as `report.html.orig`, which is the file
-`SHA256SUMS` verifies (`sed 's/  report.html$/  report.html.orig/' SHA256SUMS | sha256sum -c`).
-`report.json` and `report.md` keep the Actions URLs, as the lossless record.
-
-A walk-hallway run's evidence is about 5.2 MB (MCAP 3.9 MB, two videos 0.6 MB each), so a run
-and its `latest/` copy add about 10 MB. GitHub Pages sites are limited to 1 GB, which is
-roughly 190 runs; past `MAX_RUN_EVIDENCE_BYTES` (25 MB per run) an artifact is listed as not
-preserved instead of copied.
+A several-file MCAP copy links to `evidence/<name>.html`, which lists each file's size and
+sha256. A walk-hallway run's evidence is about 5.2 MB (MCAP 3.9 MB, two videos 0.6 MB each).
+`latest/` no longer stores that copy again. GitHub Pages sites are limited to 1 GB; past
+`MAX_RUN_EVIDENCE_BYTES` (25 MB per run) a download is listed in `run.json` as not preserved
+instead of copied.
 
 Publishing needs GitHub Pages enabled for this repository with **Source: GitHub Actions**.
 

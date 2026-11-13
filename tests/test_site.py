@@ -8,6 +8,8 @@ import io
 import json
 from pathlib import Path
 import re
+import shutil
+import subprocess
 import tarfile
 import urllib.error
 import urllib.request
@@ -106,12 +108,17 @@ def test_second_run_updates_latest_and_keeps_the_first(tmp_path):
     )
     base = site / "unitree-g1/stock-mujoco-hallway"
     assert (base / "runs/100/report.md").read_text() == "report.md 12"
-    assert (base / "latest/report.md").read_text() == "report.md 19"
+    assert (base / "runs/200/report.md").read_text() == "report.md 19"
+    assert not (base / "latest/report.md").exists()
+    names = sorted(path.name for path in (base / "latest").rglob("*") if path.is_file())
+    assert names == ["index.html"]
     index = (site / "index.html").read_text()
     assert "19/20 passed" in index and "history (2 runs)" in index
     history = (base / "index.html").read_text()
     assert history.index("runs/200/") < history.index("runs/100/")
     latest = (base / "latest/index.html").read_text()
+    assert 'http-equiv="refresh"' in latest and "url=../runs/200/" in latest
+    assert 'href="../runs/200/"' in latest
     lock = json.loads(
         (ROOT / "verifications/unitree-g1-stock-mujoco-hallway.lock.json").read_text()
     )
@@ -122,9 +129,8 @@ def test_second_run_updates_latest_and_keeps_the_first(tmp_path):
         f"livingproof-capability-report/releases/tag/{releases['reporter']['tag']}",
         f"livingproof-unitree-g1/tree/{lock['robot']['commit']}",
     ):
-        assert link in latest
-    assert "CI run 200 · 2026-11-03T06:00:00Z · maintainers only" in latest
-    assert "/actions/" not in latest
+        assert link in history
+    assert "/actions/" not in latest and "artifact" not in latest.lower()
     local_links_resolve(site)
 
 
@@ -305,7 +311,9 @@ def test_restore_then_build_keeps_history(tmp_path, monkeypatch):
     )
     base = restored / "unitree-g1/stock-mujoco-hallway"
     assert sorted(p.name for p in (base / "runs").iterdir()) == ["100", "200"]
-    assert json.loads((base / "latest/run.json").read_text())["run"]["id"] == "200"
+    latest = (base / "latest/index.html").read_text()
+    assert "url=../runs/200/" in latest
+    assert not (base / "latest/run.json").exists()
 
 
 SITE_URL = "https://docs.example/livingproof-verification/"
@@ -732,12 +740,9 @@ def test_linked_evidence_is_copied_with_its_identity(tmp_path):
     assert "index" not in video and "trial" not in video
     assert (folder / video["files"][0]["path"]).read_bytes() == b"pass video"
     page = (folder / "index.html").read_text()
-    assert "seed 1 (PASS): video" in page
-    assert "trial 1 (PASS)" not in page
     assert f'href="{ART}/101"' not in page
-    assert "maintainers only, GitHub sign-in required; available until 2026-12-02T08:54:02Z" in page
-    assert f'href="evidence/{PREFIX}-mcap-stock/trials.mcap"' in page
-    assert (site / "unitree-g1/stock-mujoco-hallway/latest" / video["files"][0]["path"]).is_file()
+    assert "artifact" not in page.lower()
+    assert not (site / "unitree-g1/stock-mujoco-hallway/latest" / "evidence").exists()
     local_links_resolve(site)
 
 
@@ -792,22 +797,18 @@ def test_a_2_0_0_trial_model_report_is_labelled_trial(tmp_path):
     stored = json.loads((folder / "report.json").read_text())
     assert stored["source_bundle"]["results"][0]["id"] == "stock-seed-01"
     page = (folder / "index.html").read_text()
+    assert "trial 1 (PASS): video" in page
+    assert "seed 1 (PASS)" not in page
+    assert (
+        f"<a href='evidence/{PREFIX}-video-stock-seed-1-pass/seed-01-pass.mp4'>"
+        "trial 1 (PASS): video</a>" in page
+    )
+    assert "trial 4 (FAIL): video" in page and f'href="{ART}/103"' not in page
+    assert "seed 4 (FAIL)" not in page
+    assert "artifact" not in page.lower()
+    assert not (folder / "report.html.orig").exists()
     latest = (site / "unitree-g1/stock-mujoco-hallway/latest/index.html").read_text()
-    assert "trial 1 (PASS): video" in page and "trial 1 (PASS): video" in latest
-    assert "seed 1 (PASS)" not in page and "seed 1 (PASS)" not in latest
-    for html_path in (
-        folder / "report.html",
-        site / "unitree-g1/stock-mujoco-hallway/latest/report.html",
-    ):
-        html = html_path.read_text()
-        assert (
-            f"<a href='evidence/{PREFIX}-video-stock-seed-1-pass/seed-01-pass.mp4'>"
-            "trial 1 (PASS): video</a>" in html
-        )
-        assert "trial 4 (FAIL): video (not on this site: no copy recorded for this run)" in html
-        assert "seed 1 (PASS)" not in html and "seed 4 (FAIL)" not in html
-        assert f"evidence/{PREFIX}-video-stock-seed-1-pass/seed-01-pass.mp4" in html
-    assert (folder / "report.html.orig").read_text() == REPORTER_HTML
+    assert "url=../runs/7/" in latest and "trial 1" not in latest
     local_links_resolve(site)
 
 
@@ -841,28 +842,21 @@ def test_a_v3_3_report_that_already_says_trial_is_not_labelled_twice(tmp_path):
         artifacts=artifacts,
     )
     folder = site / "unitree-g1/stock-mujoco-hallway/runs/7"
-    html = (folder / "report.html").read_text()
-    latest = (site / "unitree-g1/stock-mujoco-hallway/latest/report.html").read_text()
-    for published in (html, latest):
-        assert "trial trial" not in published
-        assert "seed 1 (PASS)" not in published and "seed 4 (FAIL)" not in published
-        assert (
-            f"<a href='evidence/{PREFIX}-video-stock-seed-1-pass/seed-01-pass.mp4'>"
-            "trial 1 (PASS): video</a>" in published
-        )
-        assert published.count("trial 1 (PASS): video") == 1
-        assert (
-            "trial 4 (FAIL): video (not on this site: no copy recorded for this run)" in published
-        )
-    assert (folder / "report.html.orig").read_text() == html_in
     page = (folder / "index.html").read_text()
     assert "trial trial" not in page
-    assert "trial 1 (PASS): video" in page and "seed 1 (PASS)" not in page
+    assert "seed 1 (PASS)" not in page and "seed 4 (FAIL)" not in page
+    assert (
+        f"<a href='evidence/{PREFIX}-video-stock-seed-1-pass/seed-01-pass.mp4'>"
+        "trial 1 (PASS): video</a>" in page
+    )
+    assert page.count("trial 1 (PASS): video") == 1
+    assert "trial 4 (FAIL): video" in page and "<a " not in page.split("trial 4")[1][:80]
+    assert not (folder / "report.html.orig").exists()
     local_links_resolve(site)
 
 
 def test_expired_actions_artifacts_are_labelled_not_linked(tmp_path):
-    """#11: after expiry no page keeps a live-looking link to the Actions artifact."""
+    """A later publish drops copies past retention and does not link the old addresses."""
     evidence, artifacts = evidence_for(tmp_path)
     site = tmp_path / "site"
     site_tool.build(
@@ -872,15 +866,16 @@ def test_expired_actions_artifacts_are_labelled_not_linked(tmp_path):
         evidence=evidence,
         artifacts=artifacts,
     )
-    # A later publish (after both artifacts expired) re-renders the restored run.
+    # Thirty-one days later the copies are past the retention setting.
     site_tool.build(site, reports_for(tmp_path, "r2", 15, "FAIL"), run("8", "2026-12-03T00:00:00Z"))
-    page = (site / "unitree-g1/stock-mujoco-hallway/runs/7/index.html").read_text()
-    assert ART not in page
-    assert page.count("no longer available") == 2
-    assert "expired 2026-12-02T08:54:02Z" in page and "sha256:" + "1" * 64 in page
-    assert f'href="evidence/{PREFIX}-mcap-stock/trials.mcap"' in page  # the copy remains
-    newer = (site / "unitree-g1/stock-mujoco-hallway/runs/8/index.html").read_text()
-    assert "was not copied to this site" in newer
+    folder = site / "unitree-g1/stock-mujoco-hallway/runs/7"
+    page = (folder / "index.html").read_text()
+    assert ART not in page and "artifact" not in page.lower()
+    assert f'href="evidence/{PREFIX}-mcap-stock/trials.mcap"' not in page
+    assert not (folder / f"evidence/{PREFIX}-mcap-stock/trials.mcap").exists()
+    assert (folder / "run.json").is_file() and (folder / "report.json").is_file()
+    newer = site / "unitree-g1/stock-mujoco-hallway/runs/8"
+    assert not (newer / "evidence").exists()
     local_links_resolve(site)
 
 
@@ -902,7 +897,7 @@ def test_evidence_not_downloaded_or_over_budget_is_listed_unpreserved(tmp_path, 
     assert not video["preserved"] and "budget" in video["reason"]
     assert not (folder / "evidence").exists()
     page = (folder / "index.html").read_text()
-    assert f'href="{ART}/101"' not in page and "Actions artifact 101: expiry unknown</span>" in page
+    assert f'href="{ART}/101"' not in page and "artifact" not in page.lower()
 
 
 def test_publishing_downloads_the_linked_evidence():
@@ -984,49 +979,41 @@ def publish_with_links(tmp_path: Path) -> Path:
 def test_published_report_links_evidence_to_the_site_copies(tmp_path):
     site = publish_with_links(tmp_path)
     source = tmp_path / "r1" / f"{PREFIX}-capability-report-stock"
-    base = site / "unitree-g1/stock-mujoco-hallway"
-    for folder in (base / "runs/7", base / "latest"):
-        html = (folder / "report.html").read_text()
-        assert f"<a href='evidence/{PREFIX}-mcap-stock/trials.mcap'>MCAP, all 20 trials</a>" in html
-        assert (
-            f"<a href='evidence/{PREFIX}-video-stock-seed-1-pass/seed-01-pass.mp4'>"
-            "seed 1 (PASS): video</a>" in html
-        )
-        assert (
-            "original Actions artifact 101, maintainers only (GitHub sign-in), "
-            "expires 2026-12-02T08:54:02Z" in html
-        )
-        assert f'href="{ART}/101"' not in html
-        # No copy was recorded for 103: the label stays, unlinked, and says why.
-        assert "seed 4 (FAIL): video (not on this site: no copy recorded for this run)" in html
-        assert "original Actions artifact 103: expiry unknown" in html
-        assert f'href="{ART}/103"' not in html
-        # The lossless JSON inside <pre> is text, not a link, and is left as the reporter wrote it.
-        assert f"&quot;{ART}/101&quot;" in html
-        # Stored reporter outputs are unchanged; the reporter's report.html is kept, verifiable.
-        assert (folder / "report.html.orig").read_text() == REPORTER_HTML
-        for name in ("report.json", "report.md", "report.txt", "SHA256SUMS"):
-            assert (folder / name).read_bytes() == (source / name).read_bytes(), name
-        sums = dict(
-            reversed(line.split("  ")) for line in (folder / "SHA256SUMS").read_text().splitlines()
-        )
-        orig = hashlib.sha256((folder / "report.html.orig").read_bytes()).hexdigest()
-        assert sums["report.html"] == orig
-        assert 'href="report.html.orig"' in (folder / "index.html").read_text()
+    folder = site / "unitree-g1/stock-mujoco-hallway/runs/7"
+    html = (folder / "index.html").read_text()
+    assert f"<a href='evidence/{PREFIX}-mcap-stock/trials.mcap'>MCAP, all 20 trials</a>" in html
+    assert (
+        f"<a href='evidence/{PREFIX}-video-stock-seed-1-pass/seed-01-pass.mp4'>"
+        "seed 1 (PASS): video</a>" in html
+    )
+    assert f'href="{ART}/101"' not in html and f'href="{ART}/103"' not in html
+    assert "seed 4 (FAIL): video" in html
+    assert "artifact" not in html.lower() and "/actions/" not in html
+    assert not (folder / "report.html.orig").exists()
+    for name in ("report.json", "report.md", "report.txt"):
+        assert (folder / name).read_bytes() == (source / name).read_bytes(), name
+    sums = dict(
+        reversed(line.split("  ")) for line in (folder / "SHA256SUMS").read_text().splitlines()
+    )
+    assert "report.html.orig" not in sums
+    assert sums["report.html"] == hashlib.sha256((folder / "report.html").read_bytes()).hexdigest()
+    latest = site / "unitree-g1/stock-mujoco-hallway/latest"
+    assert not (latest / "report.html").exists()
+    assert not (latest / "report.html.orig").exists()
     local_links_resolve(site)
 
 
 def test_no_published_page_links_to_github_actions(tmp_path):
-    """lpv #23: zero /actions/ hrefs; live artifacts stay referenced as text with expiry."""
+    """lpv #23 and #48: no artifact wording and no /actions/ href on any emitted page."""
     site = publish_with_links(tmp_path)
     pages = list(site.rglob("*.html"))
-    assert any(p.name == "report.html" for p in pages)
-    assert site_tool.actions_links(site) == []
+    assert any(p.name == "index.html" for p in pages)
+    assert site_tool.public_page_problems(site) == []
     for page in pages:
-        assert not artifact_anchors(page.read_text()), page
-    text = "".join(p.read_text() for p in pages)
-    assert "Actions artifact 101, maintainers only (GitHub sign-in), expires 2026-12-02" in text
-    assert "maintainers only, GitHub sign-in required; available until 2026-12-02" in text
+        text = page.read_text()
+        assert not artifact_anchors(text), page
+        assert "artifact" not in text.lower()
+    assert (site / "unitree-g1/stock-mujoco-hallway/runs/7/report.json").is_file()
 
 
 def test_the_build_refuses_a_site_that_links_to_github_actions(tmp_path, monkeypatch):
@@ -1039,8 +1026,10 @@ def test_the_build_refuses_a_site_that_links_to_github_actions(tmp_path, monkeyp
         )
     pages = tmp_path / "pages"
     pages.mkdir()
-    (pages / "page.html").write_text("<p>Actions artifact 101 (/actions/ as text is fine)</p>")
-    assert site_tool.actions_links(pages) == []
+    (pages / "page.html").write_text("<p>CI run 101, commit abc, sha256 deadbeef</p>")
+    assert site_tool.public_page_problems(pages) == []
+    (pages / "page.html").write_text("<p>Actions artifact 101</p>")
+    assert site_tool.public_page_problems(pages) == ["page.html mentions an artifact"]
     (pages / "page.html").write_text(f"<a href='{ART}/101'>x</a>")
     assert site_tool.actions_links(pages) == ["page.html"]
 
@@ -1048,15 +1037,16 @@ def test_the_build_refuses_a_site_that_links_to_github_actions(tmp_path, monkeyp
 def test_published_report_drops_the_actions_link_once_expired(tmp_path):
     site = publish_with_links(tmp_path)
     site_tool.build(site, reports_for(tmp_path, "r2", 15, "FAIL"), run("8", "2026-12-03T00:00:00Z"))
-    html = (site / "unitree-g1/stock-mujoco-hallway/runs/7/report.html").read_text()
+    folder = site / "unitree-g1/stock-mujoco-hallway/runs/7"
+    html = (folder / "index.html").read_text()
     assert not artifact_anchors(html)
-    assert "original Actions artifact 101 expired 2026-12-02T08:54:02Z" in html
-    assert f"<a href='evidence/{PREFIX}-mcap-stock/trials.mcap'>" in html
-    assert (site / "unitree-g1/stock-mujoco-hallway/runs/7/report.html.orig").read_text() == (
-        REPORTER_HTML
-    )
+    assert f"<a href='evidence/{PREFIX}-mcap-stock/trials.mcap'>" not in html
+    assert not (folder / f"evidence/{PREFIX}-mcap-stock/trials.mcap").exists()
+    assert (folder / "report.json").is_file() and (folder / "run.json").is_file()
+    assert not (folder / "report.html.orig").exists()
     for page in site.rglob("*.html"):
         assert not artifact_anchors(page.read_text()), page
+        assert "artifact" not in page.read_text().lower()
     local_links_resolve(site)
 
 
@@ -1086,24 +1076,21 @@ def test_the_all_trials_mcap_link_opens_a_listing_of_every_trial(tmp_path):
         evidence=evidence,
         artifacts=artifacts,
     )
-    for folder in (
-        site / "unitree-g1/stock-mujoco-hallway/runs/7",
-        site / "unitree-g1/stock-mujoco-hallway/latest",
-    ):
-        report = (folder / "report.html").read_text()
-        listing = f"evidence/{PREFIX}-mcap-stock.html"
-        assert f"<a href='{listing}'>MCAP, all 20 trials</a> (21 files)" in report
-        assert "seed-01.mcap'>MCAP" not in report
-        page = (folder / listing).read_text()
-        for seed in range(1, 21):
-            assert f'href="{PREFIX}-mcap-stock/mcap/seed-{seed:02d}.mcap"' in page, seed
-        assert f'href="{PREFIX}-mcap-stock/media.json"' in page
-        # Back to the reports index at the site root, from runs/7/ and latest/ alike.
-        up = "../" * len(folder.relative_to(site).parts)
-        assert f'<a href="../{up}index.html">← All verification reports</a>' in page
-        assert f'href="{listing}">all 21 files</a>' in (folder / "index.html").read_text()
-        # The single-file video keeps its direct link.
-        assert f"<a href='evidence/{PREFIX}-video-stock-seed-1-pass/seed-01-pass.mp4'>" in report
+    folder = site / "unitree-g1/stock-mujoco-hallway/runs/7"
+    report = (folder / "index.html").read_text()
+    listing = f"evidence/{PREFIX}-mcap-stock.html"
+    assert f"<a href='{listing}'>MCAP, all 20 trials</a>" in report
+    assert "seed-01.mcap'>MCAP" not in report
+    page = (folder / listing).read_text()
+    for seed in range(1, 21):
+        assert f'href="{PREFIX}-mcap-stock/mcap/seed-{seed:02d}.mcap"' in page, seed
+    assert f'href="{PREFIX}-mcap-stock/media.json"' in page
+    assert "artifact" not in page.lower()
+    up = "../" * len(folder.relative_to(site).parts)
+    assert f'<a href="../{up}index.html">← All verification reports</a>' in page
+    assert f"<a href='evidence/{PREFIX}-video-stock-seed-1-pass/seed-01-pass.mp4'>" in report
+    latest = site / "unitree-g1/stock-mujoco-hallway/latest"
+    assert sorted(path.name for path in latest.rglob("*") if path.is_file()) == ["index.html"]
     local_links_resolve(site)
 
 
@@ -1122,19 +1109,465 @@ def test_a_real_reporter_v3_0_3_report_publishes_with_no_actions_links(tmp_path,
         write_reports(reports / target["artifact"], 15, "FAIL", html=real)
     site = tmp_path / "site"
     site_tool.build(site, reports, run("41703287431", "2026-11-03T19:40:00Z"))
-    assert site_tool.actions_links(site) == []
-    published = list(site.rglob("report.html"))
-    assert len(published) == 2 * len(site_tool.targets())
-    for page in published:
+    assert site_tool.public_page_problems(site) == []
+    published = list(site.rglob("index.html"))
+    assert published
+    for page in site.rglob("*.html"):
         html = page.read_text()
         assert "/actions/" not in html
-        assert (
-            "<li>CI run 41703287431 <small>(maintainers only, GitHub sign-in required)</small></li>"
-            in html
-        )
-        assert "original Actions artifact 13265357254: expiry unknown" in html
-        assert (page.parent / "report.html.orig").read_text() == real
-    # The guard stays strict: without the rewrite, the same real report fails the build.
-    monkeypatch.setattr(site_tool, "ACTIONS_ANCHOR", re.compile(r"(?!x)x(.)(.)(.)"))
-    with pytest.raises(site_tool.SiteError, match=r"report\.html"):
+        assert "artifact" not in html.lower()
+    assert list(site.rglob("report.html.orig")) == []
+    # The guard stays strict: publishing the reporter file unchanged fails the build.
+    monkeypatch.setattr(site_tool, "scrub_reporter_html", lambda text, record, **kwargs: text)
+    with pytest.raises(site_tool.SiteError, match="index.html"):
         site_tool.build(tmp_path / "site2", reports, run("41703287431", "2026-11-03T19:40:00Z"))
+
+
+def test_retention_lives_only_in_settings():
+    """One setting, default 7. The site builder does not repeat that number."""
+    assert site_tool.retention_days() == 7
+    source = (ROOT / "tools/site.py").read_text()
+    assert re.search(r"\b7\b", source) is None
+    assert "Evidence kept for" not in source
+    assigned = []
+    for path in (ROOT / "verifications").glob("*.toml"):
+        for line in path.read_text().splitlines():
+            if "evidence_retention_days" in line and not line.strip().startswith("#"):
+                assigned.append((path.name, line.strip()))
+    assert assigned == [("settings.toml", "evidence_retention_days = 7")]
+
+
+def test_evidence_links_are_only_relative_site_paths():
+    """Vera's nit (a): an artifact URL or a plain actions/runs URL is never passed on."""
+    run_url = "https://github.com/Living-Proof-Labs/livingproof-verification/actions/runs/99"
+    artifact_url = run_url + "/artifacts/101"
+    records = [
+        {
+            "label": "MCAP, all 20 trials",
+            "kind": "mcap",
+            "url": artifact_url,
+            "preserved": True,
+            "files": [{"path": f"evidence/{PREFIX}-mcap-stock/trials.mcap"}],
+            "artifact": {"id": "101", "name": f"{PREFIX}-mcap-stock", "url": artifact_url},
+        },
+        {
+            "label": "video",
+            "kind": "video",
+            "seed": 1,
+            "status": "PASS",
+            "url": run_url,
+            "preserved": True,
+            "files": [{"path": run_url}],
+            "artifact": {"id": "102", "url": run_url},
+        },
+        {
+            "label": "logs",
+            "kind": "log",
+            "url": artifact_url,
+            "preserved": False,
+            "files": [],
+            "reason": "not downloaded when this run was published",
+        },
+    ]
+    live = site_tool.evidence_links_document(records, expired=False)
+    blob = json.dumps(live)
+    assert "run" not in live
+    assert "://" not in blob and "/actions/" not in blob and "artifact" not in blob.lower()
+    assert live["links"] == [
+        {
+            "label": "MCAP, all 20 trials",
+            "kind": "mcap",
+            "path": f"evidence/{PREFIX}-mcap-stock/trials.mcap",
+            "expired": False,
+        }
+    ]
+    expired = site_tool.evidence_links_document(records[:1], expired=True)
+    assert expired["links"] == [{"label": "MCAP, all 20 trials", "kind": "mcap", "expired": True}]
+    assert "path" not in expired["links"][0] and "url" not in expired["links"][0]
+    untouched = site_tool.evidence_links_document(records[2:], expired=False)
+    assert untouched == {"links": []}
+
+
+def _renderable_bundle(directory: Path) -> None:
+    """A saved report the pinned reporter can render again. Observations stay beside it."""
+    reporter = shutil.which("livingproof-capability-report")
+    if reporter is None:
+        raise AssertionError("livingproof-capability-report is not on PATH")
+    observation = b'{"observed": true}\n'
+    bundle = {
+        "schema_version": "1.1.0",
+        "producer": {"id": "capability-verifier", "version": "1.18.1", "commit": "c" * 40},
+        "results": [
+            {
+                "id": "stock-seed-01",
+                "spec": {
+                    "repository": "Living-Proof-Labs/robot-capability-specs",
+                    "tag": "v1.6.1",
+                    "commit": "a" * 40,
+                    "capability": "walk-hallway",
+                    "revision": "1.0.0",
+                },
+                "system": {"id": "unitree-g1/stock", "version": "1.0.0"},
+                "environment": {"id": "mujoco", "version": "1.0.0"},
+                "evidence": [
+                    {
+                        "id": "obs",
+                        "path": "evidence/obs.json",
+                        "sha256": hashlib.sha256(observation).hexdigest(),
+                    }
+                ],
+                "assessments": [
+                    {
+                        "id": "a1",
+                        "evaluator": "hallway",
+                        "kind": "deterministic",
+                        "version": "1.0.0",
+                        "status": "PASS",
+                        "rationale": "walked",
+                        "mandatory": True,
+                        "evidence_ids": ["obs"],
+                        "provenance": {},
+                    }
+                ],
+                "provenance": {},
+                "original_result": {"seed": 1, "status": "PASS"},
+                "decision": {
+                    "status": "PASS",
+                    "reason": "walked",
+                    "policy": {"id": "walk", "version": "1.0.0"},
+                    "failures": [],
+                    "assessor_types": ["deterministic"],
+                },
+            }
+        ],
+        "assessment": {
+            "format": "livingproof-run-assessment/0.1",
+            "policy": {"id": "walk", "version": "1.0.0"},
+            "aggregation": "all",
+            "decisions": [{"result_id": "stock-seed-01", "status": "PASS", "reason": "walked"}],
+            "runs": [
+                {
+                    "capability": "walk-hallway",
+                    "spec": "walk-hallway@1.0.0",
+                    "system": {"id": "unitree-g1/stock"},
+                    "environment": {"id": "mujoco"},
+                    "run_id": "run-1",
+                    "k": 1,
+                    "n": 1,
+                    "required_passes": 1,
+                    "grade": "PASS",
+                    "result_ids": ["stock-seed-01"],
+                    "failures": [],
+                    "prototype": False,
+                    "interval": {"method": "wilson", "level": 0.95, "lower": 0.2, "upper": 1.0},
+                }
+            ],
+        },
+    }
+    root = directory.parent / "bundle"
+    (root / "evidence").mkdir(parents=True, exist_ok=True)
+    (root / "evidence/obs.json").write_bytes(observation)
+    manifest = root / "manifest.json"
+    manifest.write_text(json.dumps(bundle))
+    directory.mkdir(parents=True, exist_ok=True)
+    report_json = directory / "report.json"
+    subprocess.run(
+        [reporter, "render", str(manifest), "--format", "json", "-o", str(report_json)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run(
+        [
+            reporter,
+            "render",
+            str(report_json),
+            "--format",
+            "html",
+            "-o",
+            str(directory / "report.html"),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    # Markdown and the terminal text are part of the checksummed set. The public
+    # page is the HTML render; these two stay byte-for-byte with SHA256SUMS.
+    (directory / "report.md").write_text("report.md\n")
+    (directory / "report.txt").write_text("report.txt\n")
+    restamp(directory)
+
+
+def _renderable_reports(tmp_path: Path) -> Path:
+    reports = tmp_path / "renderable"
+    sample = tmp_path / "sample-report"
+    _renderable_bundle(sample)
+    for target in site_tool.targets():
+        destination = reports / target["artifact"]
+        destination.mkdir(parents=True)
+        for name in (*site_tool.REPORT_FILES, "SHA256SUMS"):
+            shutil.copyfile(sample / name, destination / name)
+    return reports
+
+
+def _page(site: Path) -> str:
+    return (site / "unitree-g1/stock-mujoco-hallway/runs/7/index.html").read_text()
+
+
+def test_retention_changes_what_is_pruned_and_the_kept_for_text(tmp_path, monkeypatch):
+    """The same setting prunes copies and is what the reporter prints."""
+    evidence, artifacts = evidence_for(tmp_path)
+    reports = _renderable_reports(tmp_path)
+    site = tmp_path / "site"
+    site_tool.build(
+        site,
+        reports,
+        run("7", "2026-11-01T00:00:00Z"),
+        evidence=evidence,
+        artifacts=artifacts,
+    )
+    folder = site / "unitree-g1/stock-mujoco-hallway/runs/7"
+    video = f"evidence/{PREFIX}-video-stock-seed-1-pass/seed-01-pass.mp4"
+    mcap = f"evidence/{PREFIX}-mcap-stock/trials.mcap"
+    assert (folder / video).is_file() and (folder / mcap).is_file()
+    assert "Evidence kept for 7 days" in _page(site)
+    assert f"src='{video}'" in _page(site)
+    sums = dict(
+        reversed(line.split("  ")) for line in (folder / "SHA256SUMS").read_text().splitlines()
+    )
+    for name in site_tool.REPORT_FILES:
+        assert hashlib.sha256((folder / name).read_bytes()).hexdigest() == sums[name]
+    latest = site / "unitree-g1/stock-mujoco-hallway/latest"
+    assert sorted(path.name for path in latest.rglob("*") if path.is_file()) == ["index.html"]
+    assert "url=../runs/7/" in (latest / "index.html").read_text()
+    # A run that never received copies is not backfilled.
+    others = [path for path in (site).glob("*/*/runs/7") if path != folder]
+    assert others and all(not (path / "evidence").exists() for path in others)
+    assert site_tool.public_page_problems(site) == []
+
+    # Four days later, 7 still keeps the copies and says 7.
+    site_tool.render(site, now="2026-11-05T00:00:00Z")
+    assert (folder / video).is_file()
+    assert "Evidence kept for 7 days" in _page(site) and "Evidence kept for 3 days" not in _page(
+        site
+    )
+
+    other = tmp_path / "settings.toml"
+    other.write_text(
+        (ROOT / "verifications/settings.toml")
+        .read_text()
+        .replace("evidence_retention_days = 7", "evidence_retention_days = 3")
+    )
+    monkeypatch.setattr(site_tool, "SETTINGS", other)
+    assert site_tool.retention_days() == 3
+    site_tool.render(site, now="2026-11-05T00:00:00Z")
+    assert not (folder / video).exists() and not (folder / mcap).exists()
+    assert (folder / "run.json").is_file()
+    assert (folder / "report.json").is_file() and (folder / "index.html").is_file()
+    assert (folder / "report.html").is_file()
+    page = _page(site)
+    assert "Evidence kept for 3 days" in page and "Evidence kept for 7 days" not in page
+    assert f"src='{video}'" not in page and f"href='{video}'" not in page
+    assert "artifact" not in page.lower() and "/actions/" not in page
+    record = json.loads((folder / "run.json").read_text())
+    assert record["evidence"][0]["artifact"]["id"] == "101"
+    local_links_resolve(site)
+
+
+RUN_URL = "https://github.com/Living-Proof-Labs/livingproof-verification/actions/runs/7"
+
+
+def stamp_actions_urls(reports: Path) -> None:
+    """Put Actions run and artifact URLs into the reporter files, then restamp the incoming sums."""
+    for folder in reports.iterdir():
+        if not (folder / "report.json").is_file():
+            continue
+        report = json.loads((folder / "report.json").read_text())
+        report["evidence_links"] = {
+            "run": RUN_URL,
+            "links": [
+                {"label": "MCAP", "kind": "mcap", "url": f"{ART}/101"},
+                {"label": "clip", "kind": "note", "url": "https://example.com/clip"},
+            ],
+        }
+        (folder / "report.json").write_text(json.dumps(report))
+        (folder / "report.md").write_text(f"Evidence: {RUN_URL} and {ART}/101\n")
+        (folder / "report.txt").write_text("report.txt\n")
+        restamp(folder)
+
+
+def published_checksums(folder: Path) -> dict[str, str]:
+    return dict(
+        reversed(line.split("  ")) for line in (folder / "SHA256SUMS").read_text().splitlines()
+    )
+
+
+def test_published_files_except_run_json_have_no_actions_urls(tmp_path):
+    """Every published file other than run.json is free of artifact wording and /actions/ URLs."""
+    reports = reports_with_links(tmp_path, "r1")
+    stamp_actions_urls(reports)
+    evidence, artifacts = evidence_for(tmp_path)
+    site = tmp_path / "site"
+    site_tool.build(
+        site,
+        reports,
+        run("7", "2026-11-02T00:00:00Z"),
+        evidence=evidence,
+        artifacts=artifacts,
+    )
+    assert site_tool.public_page_problems(site) == []
+    scanned = []
+    for path in site.rglob("*"):
+        if not path.is_file() or path.name == "run.json":
+            continue
+        text = path.read_text(errors="replace")
+        scanned.append(path)
+        assert "artifact" not in text.lower(), path
+        assert "/actions/" not in text.lower(), path
+    assert scanned
+
+
+def test_published_report_json_drops_actions_urls_and_run_json_keeps_them(tmp_path):
+    reports = reports_with_links(tmp_path, "r1")
+    stamp_actions_urls(reports)
+    evidence, artifacts = evidence_for(tmp_path)
+    site = tmp_path / "site"
+    site_tool.build(
+        site,
+        reports,
+        run("7", "2026-11-02T00:00:00Z"),
+        evidence=evidence,
+        artifacts=artifacts,
+    )
+    folder = site / "unitree-g1/stock-mujoco-hallway/runs/7"
+    published = json.loads((folder / "report.json").read_text())
+    blob = json.dumps(published)
+    assert "/actions/" not in blob.lower()
+    assert "artifact" not in blob.lower()
+    links = published["evidence_links"]
+    assert "run" not in links
+    assert all(entry.get("url") != f"{ART}/101" for entry in links["links"])
+    assert any(entry.get("url") == "https://example.com/clip" for entry in links["links"])
+    record = json.loads((folder / "run.json").read_text())
+    assert record["run"]["url"] == (
+        "https://github.com/Living-Proof-Labs/livingproof-verification/actions/runs/7"
+    )
+    assert record["evidence"][0]["artifact"]["url"].endswith("/artifacts/101")
+    assert "artifact" in json.dumps(record).lower()
+
+
+def test_report_html_orig_is_not_published(tmp_path):
+    evidence, artifacts = evidence_for(tmp_path)
+    site = tmp_path / "site"
+    site_tool.build(
+        site,
+        reports_with_links(tmp_path, "r1"),
+        run("7", "2026-11-02T00:00:00Z"),
+        evidence=evidence,
+        artifacts=artifacts,
+    )
+    assert list(site.rglob("report.html.orig")) == []
+    folder = site / "unitree-g1/stock-mujoco-hallway/runs/7"
+    # A restored copy is removed on the next render and is not checksummed.
+    (folder / "report.html.orig").write_text(REPORTER_HTML)
+    site_tool.render(site, now="2026-11-02T00:00:00Z")
+    assert not (folder / "report.html.orig").exists()
+    assert "report.html.orig" not in (folder / "SHA256SUMS").read_text()
+    assert list(site.rglob("*.orig")) == []
+
+
+def test_sha256sums_verifies_exactly_the_published_files(tmp_path):
+    evidence, artifacts = evidence_for(tmp_path)
+    site = tmp_path / "site"
+    site_tool.build(
+        site,
+        reports_with_links(tmp_path, "r1"),
+        run("7", "2026-11-02T00:00:00Z"),
+        evidence=evidence,
+        artifacts=artifacts,
+    )
+    folders = list(site.glob("*/*/runs/*"))
+    assert folders
+    for folder in folders:
+        sums = published_checksums(folder)
+        files = {
+            path.relative_to(folder).as_posix()
+            for path in folder.rglob("*")
+            if path.is_file() and path.name != "SHA256SUMS"
+        }
+        assert set(sums) == files
+        assert "report.html.orig" not in sums
+        for name, digest in sums.items():
+            assert hashlib.sha256((folder / name).read_bytes()).hexdigest() == digest
+
+
+def test_build_fails_when_a_published_report_keeps_an_actions_url(tmp_path, monkeypatch):
+    """The lint covers json and markdown, not only html, and build stops on it."""
+    reports = reports_for(tmp_path, "r1", 12, "FAIL")
+    stamp_actions_urls(reports)
+    monkeypatch.setattr(site_tool, "strip_actions_links", lambda report: False)
+    monkeypatch.setattr(site_tool, "strip_actions_text", lambda text: text)
+    with pytest.raises(site_tool.SiteError, match=r"report\.(json|md)"):
+        site_tool.build(
+            site=tmp_path / "site", reports=reports, run=run("7", "2026-11-02T00:00:00Z")
+        )
+
+
+def test_sha256sum_c_accepts_the_published_run_folder(tmp_path):
+    """Hand check: from the run folder, ``sha256sum -c SHA256SUMS`` exits 0."""
+    evidence, artifacts = evidence_for(tmp_path)
+    site = tmp_path / "site"
+    site_tool.build(
+        site,
+        reports_with_links(tmp_path, "r1"),
+        run("7", "2026-11-02T00:00:00Z"),
+        evidence=evidence,
+        artifacts=artifacts,
+    )
+    folders = list(site.glob("*/*/runs/*"))
+    assert folders
+    for folder in folders:
+        completed = subprocess.run(
+            ["sha256sum", "-c", "SHA256SUMS"],
+            cwd=folder,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        assert "FAILED" not in completed.stdout
+        assert "report.html.orig" not in completed.stdout
+        assert "report.html.orig" not in (folder / "SHA256SUMS").read_text()
+
+
+def test_checksums_cover_the_scrubbed_report_json_and_the_bundle_digest_stays(tmp_path):
+    """SHA256SUMS hashes the scrubbed report.json, not the incoming reporter file.
+
+    ``source_bundle_sha256`` still matches the bundle, which this publish does not change.
+    """
+    from livingproof_capability_report.core import digest as bundle_digest
+
+    reports = _renderable_reports(tmp_path)
+    stamp_actions_urls(reports)
+    incoming = {}
+    for path in reports.glob("*/report.json"):
+        payload = json.loads(path.read_text())
+        incoming[path.parent.name] = {
+            "hash": hashlib.sha256(path.read_bytes()).hexdigest(),
+            "bundle_sha": payload["source_bundle_sha256"],
+        }
+        assert "/actions/" in path.read_text().lower()
+    site = tmp_path / "site"
+    site_tool.build(site, reports, run("7", "2026-11-02T00:00:00Z"))
+    for target in site_tool.targets():
+        folder = site / target["robot"] / target["variant"] / "runs" / "7"
+        published = folder / "report.json"
+        report = json.loads(published.read_text())
+        sums = published_checksums(folder)
+        published_hash = hashlib.sha256(published.read_bytes()).hexdigest()
+        original = incoming[target["artifact"]]
+        assert sums["report.json"] == published_hash
+        assert published_hash != original["hash"]
+        assert "/actions/" not in published.read_text().lower()
+        assert "artifact" not in published.read_text().lower()
+        assert report["source_bundle_sha256"] == original["bundle_sha"]
+        assert bundle_digest(report["source_bundle"]) == report["source_bundle_sha256"]

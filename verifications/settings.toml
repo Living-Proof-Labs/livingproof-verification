@@ -4,5 +4,11 @@
 # verification.lock.json.
 [reporter]
 repository = "Living-Proof-Labs/livingproof-capability-report"
-tag = "v3.5.0"
+tag = "v3.6.0"
 image = "ghcr.io/living-proof-labs/livingproof-capability-report"
+
+# Days a run's copied evidence stays on the public site. tools/site.py prunes
+# older MCAP, video and media copies on publish and passes this same number to
+# the reporter. Report pages and run.json are kept.
+[site]
+evidence_retention_days = 7

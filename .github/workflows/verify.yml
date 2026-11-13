@@ -176,6 +176,10 @@ jobs:
           else
             python3 tools/site.py restore site
           fi
+      - name: Install the pinned reporter
+        run: |
+          python3 tools/install_reporter.py
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - name: Add this run and write the index pages
         env:
           COMMIT: ${{ github.sha }}

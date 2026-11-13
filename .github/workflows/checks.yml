@@ -31,6 +31,8 @@ jobs:
           VIRTUAL_ENV="$RUNNER_TEMP/checks" uv pip install --require-hashes --no-deps \
             -r .github/requirements/checks.txt -r .github/requirements/tests.txt
           echo "$RUNNER_TEMP/checks/bin" >> "$GITHUB_PATH"
+      - name: Install the pinned reporter
+        run: python3 tools/install_reporter.py --venv "$RUNNER_TEMP/checks"
       - run: ruff check .
       - run: ruff format --check .
       - run: pytest
