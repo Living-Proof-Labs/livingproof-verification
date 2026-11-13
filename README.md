@@ -8,8 +8,8 @@ Scope and acceptance criteria: [Living-Proof-Labs/.github#11](https://github.com
 
 ## What is here
 
-- `verifications/*.toml`: declarative definitions. Each one selects a robot repository, a ref and the configurations to verify. The robot repository's own `verification.lock.json` supplies the world, simulator runner, specs, trial plan, verifier and reporter releases.
-- `verifications/*.lock.json`: the reviewed lock for each definition. It records the robot commit, the sha256 of the robot's lock, and the releases that lock names.
+- `verifications/*.toml`: declarative definitions. Each one selects a robot repository, a ref and the configurations to verify.
+- `verifications/*.lock.json`: the reviewed lock for each definition. `python3 tools/lock.py` writes `livingproof-verification-lock/0.2.0`: the robot commit and adapter, each configuration's sha256, and the releases, plan, world and scenario-evaluator pin this repository owns. A `0.1.0` lock (the sha256 of the robot's `verification.lock.json`, and the releases copied out of it) stays readable during the migration. The published locks are still `0.1.0`.
 - `.github/workflows/verify.yml`: a thin call to the capability verifier's reusable `walk-hallway.yml` at the locked verifier commit, passing the locked robot repository, commit and configurations.
 
 The first definition is `unitree-g1-stock-mujoco-hallway`: Unitree G1 with its stock controller in the MuJoCo hallway, 3 trials.
@@ -33,10 +33,10 @@ uv venv .venv
 VIRTUAL_ENV=.venv uv pip install \
   "livingproof-common @ https://github.com/Living-Proof-Labs/livingproof-common/releases/download/v1.0.0/livingproof_common-1.0.0-py3-none-any.whl" \
   "livingproof @ git+https://github.com/Living-Proof-Labs/livingproof@v1.4.9" \
-  "capability-verifier @ git+https://github.com/Living-Proof-Labs/capability-verifier@v1.16.2"
+  "capability-verifier @ git+https://github.com/Living-Proof-Labs/capability-verifier@v1.18.0"
 ```
 
-capability-verifier v1.10.0 was the first release to ship `livingproof capability verify`; the locks job uses v1.16.2. CI installs the same versions in its `locks` job from `.github/requirements/`: the two git installs pinned by commit in `lock-check-git.txt`; every other package (the `livingproof-common` wheel and uv itself included) by sha256, installed with `--require-hashes` apart from the git installs, since uv skipped a URL wheel's hash when a git requirement shared the install. The git installs build with `--no-build-isolation` from hashed build backends in `build.txt` (hatchling, hatch-vcs, setuptools), so nothing is fetched unhashed at build time. The job first proves a wrong hash refuses the install.
+capability-verifier v1.10.0 was the first release to ship `livingproof capability verify`; the locks job uses v1.18.0 (`9a8069a`, which accepts lock formats `0.1.0` and `0.2.0`). CI installs the same versions in its `locks` job from `.github/requirements/`: the two git installs pinned by commit in `lock-check-git.txt`; every other package (the `livingproof-common` wheel and uv itself included) by sha256, installed with `--require-hashes` apart from the git installs, since uv skipped a URL wheel's hash when a git requirement shared the install. The git installs build with `--no-build-isolation` from hashed build backends in `build.txt` (hatchling, hatch-vcs, setuptools), so nothing is fetched unhashed at build time. The job first proves a wrong hash refuses the install.
 
 Check the lock and the workflow call, then run:
 
@@ -61,10 +61,12 @@ A pass/fail tally is written to `artifacts/runs/<id>/summary.json`. Everything u
 Edit a definition, re-lock it, and review the lock diff:
 
 ```sh
-.venv/bin/livingproof capability verify lock verifications/unitree-g1-stock-mujoco-hallway.toml
+python3 tools/lock.py verifications/unitree-g1-stock-mujoco-hallway.toml
 ```
 
-Then update the call in `.github/workflows/verify.yml` to the new robot commit (and the verifier commit, if the robot lock names a new one). `tests/test_locks.py` (the `locks` CI job, which every verification job waits for) and `lock --check --workflow` fail until the two agree. Both parse the workflow YAML, so a commented-out pin does not count.
+`lock` writes `livingproof-verification-lock/0.2.0`. While the robot still publishes `verification.lock.json`, releases, plan and world are copied from that file and the scenario-evaluator pin is read from the verifier release (recorded as `livingproof-evaluator-scenario` `v1.0.0` when that release does not declare one). A thin robot publishes the adapter and configurations only. `lock` then keeps releases, plan, world and the evaluator pin from the existing `0.2.0` and refreshes the commit, adapter and configuration sha256s. With neither source it exits with that explanation. A `0.1.0` lock beside the definition stays readable. The published locks are still `0.1.0`; the locks job accepts both.
+
+Then update the call in `.github/workflows/verify.yml` to the new robot commit (and the verifier commit, if the lock names a new one). `tests/test_locks.py` (the `locks` CI job, which every verification job waits for) and `lock --check --workflow` fail until the two agree. Both parse the workflow YAML, so a commented-out pin does not count.
 
 ## Published reports
 

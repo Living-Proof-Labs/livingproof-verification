@@ -1,4 +1,4 @@
-# The locks job's tools: livingproof v1.4.9 and capability-verifier v1.16.2, pinned by commit
+# The locks job's tools: livingproof v1.4.9 and capability-verifier v1.18.0, pinned by commit
 # (git installs cannot carry a hash; the commit is the content pin). Every other requirement
 # is hashed in lock-check.txt. uv skipped a URL wheel's hash when a git requirement shared the
 # install, so the git lines live apart in lock-check-git.txt. Regenerate with:

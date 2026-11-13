@@ -84,6 +84,13 @@ def test_lock_is_current_for_its_definition(definition):
     lock = lock_of(definition)
     d = tomllib.loads(definition.read_text())
     assert lock["definition"]["sha256"] == hashlib.sha256(definition.read_bytes()).hexdigest()
+    assert lock["format"] in {
+        "livingproof-verification-lock/0.1.0",
+        "livingproof-verification-lock/0.2.0",
+    }
+    if lock["format"] == "livingproof-verification-lock/0.2.0":
+        for entry in lock["configurations"]:
+            assert re.fullmatch(r"[0-9a-f]{64}", entry["sha256"])
     assert lock["robot"]["repository"] == d["robot"]["repository"]
     assert lock["robot"]["configurations"] == d["robot"]["configurations"]
     assert len(lock["robot"]["commit"]) == 40
@@ -143,9 +150,10 @@ def test_verification_waits_for_the_lock_guard():
     assert any("a wrong livingproof-common hash installed" in r for r in check)
     tools = (ROOT / ".github/requirements/lock-check-git.txt").read_text()
     assert (
-        "capability-verifier @ git+https://github.com/Living-Proof-Labs/capability-verifier@1e0393ec2496b13b3c03544a41febe8aa5dabbac"
+        "capability-verifier @ git+https://github.com/Living-Proof-Labs/capability-verifier@9a8069ade06012995b40bff1234e90ddce77476b"
         in tools
     )
+    assert "v1.18.0" in tools
     for definition in DEFINITIONS:
         assert jobs[definition.stem]["needs"] == "locks"
 
