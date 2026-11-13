@@ -68,19 +68,23 @@ python3 tools/lock.py verifications/unitree-g1-stock-mujoco-hallway.toml
 
 Then update the call in `.github/workflows/verify.yml` to the new robot commit and, when the lock names a new verifier, to that verifier commit. `tests/test_locks.py` (the `locks` CI job, which every verification job waits for) and `lock --check --workflow` fail until `uses`, `verification-lock` and the locked verifier and reporter agree. Both parse the workflow YAML, so a commented-out pin does not count. Every configuration's `uses` commit is its locked verifier commit.
 
-## Complete a capability-verifier workflow bump
+## Updating the verifier
 
-Renovate opens a pull request that moves the walk-hallway `uses` commit in `.github/workflows/verify.yml`. The four `verifications/*.lock.json` files have to move in that same pull request. Hosted Mend Renovate does not run `postUpgradeTasks` here: `allowedCommands` is a self-hosted admin option, and this repository's Mend app has no allowlist, so the generator does not run inside Renovate. CI fails the workflow-only pull request and names the command below.
+Renovate groups the verifier workflow and devcontainer hallway image when both are available. Either feed can arrive alone (including digest-only updates); grouping is not version equality or lock generation. Both proposal types carry maintainer instructions. Hosted Mend Renovate cannot run this repository's generator: [`postUpgradeTasks`](https://docs.renovatebot.com/configuration-options/#postupgradetasks) requires administrator [`allowedCommands`](https://docs.renovatebot.com/self-hosted-configuration/#allowedcommands). No self-hosted runner, privileged PR workflow, approval bot or settings change is introduced here.
 
-Check out the Renovate branch and regenerate the locks:
+The maintainer completing the dependency PR owns release selection and generated evidence. Check out its exact head, inspect the diff first, and select one published capability-verifier `vX.Y.Z` release. For an image-only proposal, confirm the corresponding verifier release exists; do not treat an image tag or a changed digest as release approval. For a workflow proposal, confirm the SHA belongs to that release. If the two feeds disagree, keep the PR blocked until a maintainer chooses a coherent release.
 
 ```sh
-python3 tools/lock.py --update
-git add verifications/*.lock.json .github/requirements/lock-check-git.txt .github/requirements/lock-check.in
-git commit -m "chore: refresh verification locks for the pinned verifier"
+python3 tools/update_verifier.py --tag vX.Y.Z
+# Review git diff before staging the generated files.
+git add .github/workflows/verify.yml .devcontainer/devcontainer.json README.md \
+  verifications/*.lock.json .github/requirements/lock-check-git.txt .github/requirements/lock-check.in
+git commit -m "chore: coordinate verifier release and locked evidence"
 ```
 
-A `fix:` prefix is the other conventional-commit form that fits this change. `--update` reads each job's walk-hallway commit, resolves its `vX.Y.Z` tag and the hallway image digest, and writes those fields into every lock. It also points `.github/requirements/lock-check-git.txt` at that same commit and, when `lock-check.in` pins the verifier, moves that pin too. The scenario-evaluator pin is refreshed from the dependency that verifier release declares. Robot pins stay as committed. Review the diff and commit the files the command writes.
+Replace `vX.Y.Z` with the reviewed release. Use a `fix:` or `chore:` commit prefix. The command resolves its unique tag/commit, stages changes in a temporary directory, and uses the existing `python3 tools/lock.py --update` implementation to resolve the registry digest and scenario evaluator from that release's declaration. It updates all workflow calls, four locks, checker git requirements, devcontainer image and README image example. Resolution/validation errors leave the checkout untouched. Robot, reporter, runner, specs and definition bytes remain unchanged; historical definition comments need not be rewritten. No release hashes are handwritten. Direct `python3 tools/lock.py --update` remains available for lock-only repair after a workflow change, but does not coordinate image/example changes.
+
+Before merge, the maintainer must review release provenance and the complete diff, verify unrelated pins stayed unchanged, and obtain independent review on the exact candidate SHA. Require fresh-resolution and consistency checks plus all four configuration pipelines. If new verifier dependencies require a hashed requirements recompile, follow `.github/requirements/lock-check.in`; this helper does not resolve the whole Python environment. Missing releases, unavailable registries and install incompatibilities are blockers, not reasons to weaken checks. CI success and robot capability verdicts must be reported separately. No automatic approval or merge is enabled. Existing standalone Renovate branches may need maintainer reconciliation after this policy lands; do not merge #57's incomplete image-only head.
 
 ## Published reports
 
