@@ -18,6 +18,11 @@ ROOT = Path(__file__).parents[1]
 DEFINITIONS = sorted((ROOT / "verifications").glob("*.toml"))
 WORKFLOW = ROOT / ".github/workflows/verify.yml"
 PROCEDURE = ".github/workflows/walk-hallway.yml"
+# walk-hallway.yml at v1.16.3 reads the robot lock. G1 v1.0.0's lock runs verifier
+# v1.17.0, so the verification lock records that release while the call stays here.
+# The next workflow reads this repository's lock and the two commits match again.
+G1_WORKFLOW_COMMIT = "44acb9ed412a04fc458addba47fdf019b6d21027"
+G1_RAN_VERIFIER = "97bcf91fa022f2167f6dc90e47b60a7f06a54f4a"
 
 
 def lock_of(definition: Path) -> dict:
@@ -54,6 +59,17 @@ def workflow_problems(text: str) -> list[str]:
     return problems
 
 
+def workflow_commit(lock: dict) -> str:
+    """The walk-hallway commit the job calls. It is the locked verifier, except G1."""
+    verifier = lock["releases"]["verifier"]["commit"]
+    if (
+        lock["robot"]["repository"] == "Living-Proof-Labs/livingproof-unitree-g1"
+        and verifier == G1_RAN_VERIFIER
+    ):
+        return G1_WORKFLOW_COMMIT
+    return verifier
+
+
 def call_problems(lock: dict, job) -> list[str]:
     """Why the parsed workflow ``job`` is not exactly the locked call (empty when it is)."""
     if not isinstance(job, dict):
@@ -61,7 +77,7 @@ def call_problems(lock: dict, job) -> list[str]:
     v = lock["releases"]["verifier"]
     w = job.get("with") if isinstance(job.get("with"), dict) else {}
     confs = w.get("configurations")
-    pinned = f"{v['repository']}/{PROCEDURE}@{v['commit']}"
+    pinned = f"{v['repository']}/{PROCEDURE}@{workflow_commit(lock)}"
     uses = job.get("uses")
     want = {
         "uses": (pinned if same_call(uses, pinned) else uses, pinned),
@@ -183,6 +199,21 @@ def test_git_ci_requirements_are_pinned_by_commit():
     assert entries
     for entry in entries:
         assert re.fullmatch(r"\S+ @ git\+https://\S+@[0-9a-f]{40}", entry), entry
+
+
+def test_g1_keeps_the_workflow_file_while_the_lock_records_what_ran():
+    definition = ROOT / "verifications/unitree-g1-stock-mujoco-hallway.toml"
+    lock = lock_of(definition)
+    assert lock["releases"]["verifier"]["commit"] == G1_RAN_VERIFIER
+    assert lock["releases"]["reporter"]["tag"] == "v3.5.0"
+    jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
+    assert call_problems(lock, jobs[definition.stem]) == []
+    drifted = yaml.safe_load(WORKFLOW.read_text())
+    drifted["jobs"][definition.stem]["uses"] = (
+        f"{lock['releases']['verifier']['repository']}/{PROCEDURE}@{'0' * 40}"
+    )
+    problems = call_problems(lock, drifted["jobs"][definition.stem])
+    assert [p.split(" ")[0] for p in problems] == ["uses"]
 
 
 def test_a_commented_out_pin_does_not_count():

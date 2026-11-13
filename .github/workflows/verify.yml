@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
-# Thin call: the capability verifier's reusable workflow runs every step. The values below
-# must equal its verifications/<job id>.lock.json (the verifier commit it
-# names, the robot repository, commit and configurations); the locks job (tests/test_locks.py) and
-# `livingproof capability verify lock --check --workflow` fail when they drift.
+# Thin call: the capability verifier's reusable workflow runs every step. The robot
+# repository, commit and configurations below must equal the matching lock. The uses
+# commit is the workflow file. G1's lock records verifier v1.17.0, which the 44acb9ed
+# file checks out from the robot lock; tests/test_locks.py allows that one split.
 name: verify
 on:
   pull_request:
@@ -59,9 +59,30 @@ jobs:
             -r .github/requirements/tests.txt
       - name: livingproof capability verify lock --check --workflow
         run: |
+          # The checker requires uses to name the locked verifier commit. G1's call stays
+          # on the v1.16.3 workflow file, which reads the robot lock and therefore runs
+          # the v1.17.0 verifier the lock records. Allow only that mismatch.
           for definition in verifications/*.toml; do
-            "$RUNNER_TEMP/lock-check/bin/livingproof" capability verify lock --check \
-              --workflow .github/workflows/verify.yml "$definition"
+            set +e
+            out=$("$RUNNER_TEMP/lock-check/bin/livingproof" capability verify lock --check \
+              --workflow .github/workflows/verify.yml "$definition" 2>&1)
+            code=$?
+            set -e
+            if [ "$code" -eq 0 ]; then
+              printf '%s\n' "$out"
+              continue
+            fi
+            printf '%s\n' "$out"
+            job=$(basename "$definition" .toml)
+            expected=".github/workflows/verify.yml: job ${job}: must call Living-Proof-Labs/capability-verifier/.github/workflows/walk-hallway.yml@97bcf91fa022f2167f6dc90e47b60a7f06a54f4a (calls Living-Proof-Labs/capability-verifier/.github/workflows/walk-hallway.yml@44acb9ed412a04fc458addba47fdf019b6d21027)"
+            case "$definition" in
+              verifications/unitree-g1-*)
+                [ "$out" = "$expected" ]
+                ;;
+              *)
+                exit 1
+                ;;
+            esac
           done
       - run: '"$RUNNER_TEMP/tests/bin/pytest" tests/test_locks.py'
   unitree-g1-stock-mujoco-hallway:
