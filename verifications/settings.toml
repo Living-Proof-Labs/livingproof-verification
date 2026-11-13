@@ -1,0 +1,8 @@
+# SPDX-License-Identifier: Apache-2.0
+# Releases this repository chooses. tools/lock.py resolves the tag to a commit
+# and the image tag to a ghcr digest. Those values are not copied from a robot
+# verification.lock.json.
+[reporter]
+repository = "Living-Proof-Labs/livingproof-capability-report"
+tag = "v3.5.0"
+image = "ghcr.io/living-proof-labs/livingproof-capability-report"
