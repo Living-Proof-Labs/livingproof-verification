@@ -12,5 +12,16 @@
     "pip-compile",
     "custom.regex",
     "devcontainer"
+  ],
+  "packageRules": [
+    {
+      "description": "A capability-verifier workflow bump has to regenerate verifications/*.lock.json in the same PR. Hosted Mend Renovate does not run postUpgradeTasks without a self-hosted allowedCommands allowlist, which this app does not grant.",
+      "matchManagers": ["github-actions"],
+      "matchFileNames": [".github/workflows/verify.yml"],
+      "matchPackageNames": ["Living-Proof-Labs/capability-verifier"],
+      "prBodyNotes": [
+        "Hosted Mend Renovate does not run the lock generator on this repository (`allowedCommands` is self-hosted only, and this app has no allowlist). Check out this branch, run `python3 tools/lock.py --update`, and commit the result with a `fix:` or `chore:` prefix. That rewrites tag, commit and digest in all four `verifications/*.lock.json` files from this workflow pin. Do not hand-edit those fields."
+      ]
+    }
   ]
 }

@@ -68,6 +68,20 @@ python3 tools/lock.py verifications/unitree-g1-stock-mujoco-hallway.toml
 
 Then update the call in `.github/workflows/verify.yml` to the new robot commit and, when the lock names a new verifier, to that verifier commit. `tests/test_locks.py` (the `locks` CI job, which every verification job waits for) and `lock --check --workflow` fail until `uses`, `verification-lock` and the locked verifier and reporter agree. Both parse the workflow YAML, so a commented-out pin does not count. Every configuration's `uses` commit is its locked verifier commit.
 
+## Complete a capability-verifier workflow bump
+
+Renovate opens a pull request that moves the walk-hallway `uses` commit in `.github/workflows/verify.yml`. The four `verifications/*.lock.json` files have to move in that same pull request. Hosted Mend Renovate does not run `postUpgradeTasks` here: `allowedCommands` is a self-hosted admin option, and this repository's Mend app has no allowlist, so the generator does not run inside Renovate. CI fails the workflow-only pull request and names the command below.
+
+Check out the Renovate branch and regenerate the locks:
+
+```sh
+python3 tools/lock.py --update
+git add verifications/*.lock.json .github/requirements/lock-check-git.txt
+git commit -m "chore: refresh verification locks for the pinned verifier"
+```
+
+A `fix:` prefix is the other conventional-commit form that fits this change. `--update` reads each job's walk-hallway commit, resolves its `vX.Y.Z` tag and the hallway image digest, and writes those fields into every lock. It also points `.github/requirements/lock-check-git.txt` at that same commit. Robot pins and the scenario-evaluator pin stay as committed. Review the diff and commit the files the command writes.
+
 ## Published reports
 
 On every push to `main`, after the verification jobs pass, the `site` job lays this run's
