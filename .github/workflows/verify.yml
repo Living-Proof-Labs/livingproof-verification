@@ -63,8 +63,11 @@ jobs:
           for definition in verifications/*.toml; do
             # settings.toml names the reporter. It is not a verification definition.
             [ "$(basename "$definition")" = settings.toml ] && continue
+            # The verifier's own message stays. This names the fix, because a failing
+            # check stops the job before pytest.
             "$RUNNER_TEMP/lock-check/bin/livingproof" capability verify lock --check \
-              --workflow .github/workflows/verify.yml "$definition"
+              --workflow .github/workflows/verify.yml "$definition" \
+              || { echo "::error::run python3 tools/lock.py --update and commit the lock diff with a fix: or chore: prefix"; exit 1; }
           done
       - run: '"$RUNNER_TEMP/tests/bin/pytest" tests/test_locks.py'
   unitree-g1-stock-mujoco-hallway:

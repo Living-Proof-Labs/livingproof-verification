@@ -567,6 +567,23 @@ def test_a_released_tag_bump_then_update_passes_the_lock_checks(tmp_path):
     assert release_drift(root, tmp_path / "work") == []
 
 
+def test_the_lock_check_step_names_the_update_command_when_it_fails():
+    """The locks job's livingproof check fails before pytest, so that step names the command."""
+    text = WORKFLOW.read_text()
+    step = next(
+        item
+        for item in yaml.safe_load(text)["jobs"]["locks"]["steps"]
+        if item.get("name") == "livingproof capability verify lock --check --workflow"
+    )
+    script = step["run"]
+    _kept, separator, failure = script.partition("||")
+    assert separator == "||"
+    assert lock_tool.UPDATE_COMMAND in failure
+    assert "::error::" in failure
+    assert "exit 1" in failure
+    assert "capability verify lock --check" in script
+
+
 def test_the_maintainer_command_is_documented():
     readme = (ROOT / "README.md").read_text()
     renovate = json.loads((ROOT / "renovate.json").read_text())
