@@ -1,19 +1,21 @@
 # SPDX-License-Identifier: Apache-2.0
 """Assemble the GitHub Pages site from a run's capability-report artifacts.
 
-Layout only: the reports are copied exactly as the reporter rendered them (their
-SHA256SUMS are checked), and the verifier's grade and trial counts are read from
-report.json, never recomputed. Per verification and configuration:
+The verifier's grade and trial counts are read from report.json, never recomputed.
+The public run page is the reporter's HTML: this module asks the pinned reporter to
+render it with this site's evidence paths, retention and a link to the run history.
+SHA256SUMS are checked against the reporter's own files. Per verification and
+configuration:
 
-    <robot>/<variant>/runs/<run-id>/   report.{html,json,md,txt}, SHA256SUMS, run.json,
-                                       index.html (provenance, evidence + the report);
-                                       report.html.orig, the reporter's report.html, when
-                                       report.html's evidence links were pointed at the
-                                       site copies (SHA256SUMS lists the reporter's bytes)
-    <robot>/<variant>/runs/<run-id>/evidence/<artifact>/
+    <robot>/<variant>/runs/<run-id>/   the styled report as index.html;
+                                       report.{json,md,txt}, SHA256SUMS, run.json;
+                                       report.html, or report.html.orig when the
+                                       reporter's HTML is kept only so SHA256SUMS verifies
+    <robot>/<variant>/runs/<run-id>/evidence/<name>/
                                        site copies of the run's linked evidence (MCAP,
-                                       videos), with sha256 in run.json
-    <robot>/<variant>/latest/          a copy of the newest run folder
+                                       videos), with sha256 in run.json. Copies older
+                                       than the retention setting are removed on publish.
+    <robot>/<variant>/latest/          a redirect to the newest run, and nothing else
     <robot>/<variant>/index.html       run history
     index.html                         every robot/variant with grade and counts
 
@@ -24,6 +26,7 @@ drops those runs.
 """
 
 import argparse
+from datetime import datetime, timedelta, timezone
 import hashlib
 import html
 import http.client
@@ -34,8 +37,11 @@ from pathlib import Path, PurePosixPath
 import random
 import re
 import shutil
+import subprocess
 import tarfile
+import tempfile
 import time
+import tomllib
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -51,17 +57,34 @@ REPORT_FILES = ("report.html", "report.json", "report.md", "report.txt")
 # are limited to 1 GB; past this per-run budget an artifact is listed but not copied.
 MAX_RUN_EVIDENCE_BYTES = 25_000_000
 ORIGINAL_HTML = "report.html.orig"  # served as a download, not as a page
-# The reporter's evidence links: Actions artifact pages (GitHub sign-in, then expiry).
+SETTINGS = ROOT / "verifications" / "settings.toml"
+# Reporter anchors this site must not publish. The public page is re-rendered instead.
 ARTIFACT_LINK = re.compile(
     r"<a href=(['\"])(https://github\.com/[^'\"<>]+/actions/runs/[0-9]+/artifacts/([0-9]+))\1>"
     r"(.*?)</a>",
     re.S,
 )
-# Any other reporter anchor to Actions (v3.0.3's Evidence "CI run" link), shown as text (#23).
 ACTIONS_ANCHOR = re.compile(
     r"<a\s[^>]*?href=(['\"])([^'\"<>]*/actions/[^'\"<>]*)\1[^>]*>(.*?)</a>", re.S | re.I
 )
-ACTIONS_RUN = re.compile(r"/actions/runs/([0-9]+)(?:/attempts/[0-9]+)?/?$")
+ACTIONS_URL = re.compile(r"https://github\.com/\S*?/actions/\S*", re.I)
+ARTIFACT_WORD = re.compile(r"artifacts?", re.I)
+# Copied evidence. Report pages and run.json are not under this suffix set.
+MEDIA_SUFFIXES = {
+    ".mcap",
+    ".mp4",
+    ".webm",
+    ".mov",
+    ".mkv",
+    ".avi",
+    ".jpg",
+    ".jpeg",
+    ".png",
+    ".gif",
+    ".webp",
+}
+SITE_PATH = re.compile(r"[A-Za-z0-9._~!$&'()*+,;=@%/-]{1,240}")
+HISTORY_LABEL = "Run history"
 # Evidence 2.0.0 stores a trial index in the reporter's seed field.
 # livingproof-capability-report v3.3.0 writes "trial N". Older reporters write "seed N".
 # Rewrite only a leading "seed ", so a report that already says "trial N" is not labelled twice.
@@ -663,8 +686,7 @@ STYLE = """body{font-family:system-ui,sans-serif;margin:2rem auto;max-width:72re
 color:#1b1f24}table{border-collapse:collapse}td,th{border:1px solid #d0d7de;padding:.35rem .6rem;
 text-align:left}.PASS{color:#1a7f37;font-weight:600}.FAIL{color:#cf222e;font-weight:600}
 dl{display:grid;grid-template-columns:max-content 1fr;gap:.2rem 1rem}dt{font-weight:600}
-iframe{width:100%;height:80vh;border:1px solid #d0d7de}code{font-size:.9em}
-.expired{color:#6e7781}.note{background:#fff8c5;padding:.5rem .8rem;border:1px solid #d4a72c}"""
+code{font-size:.9em}"""
 
 
 def page(title: str, body: str, up: str = "") -> str:
@@ -682,7 +704,7 @@ def a(url: str, text: str) -> str:
 
 
 def ci_run(run: dict) -> str:
-    """The CI run as provenance text; Actions pages need a GitHub sign-in (#23)."""
+    """The run id as text. The public page does not link to the run."""
     return f"CI run {html.escape(run['id'])}"
 
 
@@ -744,208 +766,369 @@ def display_label(label: str, trial: bool) -> str:
     return label
 
 
-def evidence_section(record: dict, now: str, trial: bool = False) -> str:
-    """Site copies first; the original Actions artifact is a link only before it expires."""
-    items = record.get("evidence")
-    if items is None:
-        return (
-            "<h2>Evidence</h2>"
-            '<p class="note">Evidence for this run was not copied to this site. The report '
-            "names its GitHub Actions artifacts only as secondary references: they need a "
-            "GitHub sign-in and, once expired, are unavailable here; the report's "
-            "assessments and SHA256SUMS above are unchanged.</p>"
-        )
-    rows = []
-    for e in items:
-        what = html.escape(e["label"])
-        if "seed" in e:
-            what = display_label(
-                f"seed {e['seed']} ({html.escape(str(e.get('status', '')))}): {what}",
-                trial,
-            )
-        art = e["artifact"]
-        name = f"Actions artifact {html.escape(art['id'])}"
-        if art.get("name"):
-            name += f" <code>{html.escape(art['name'])}</code>"
-        if art.get("digest"):
-            name += f" · <code>{html.escape(art['digest'])}</code>"
-        expires = art.get("expires_at")
-        if expires and expires <= now:
-            original = f'<span class="expired">{name}: expired {html.escape(expires)}, no longer available</span>'
-        elif expires:
-            original = (
-                f"{name} (maintainers only, GitHub sign-in required; "
-                f"available until {html.escape(expires)})"
-            )
-        else:
-            original = f'<span class="expired">{name}: expiry unknown</span>'
-        if e["preserved"]:
-            listing = listing_path(e)
-            copies = (
-                a(listing, f"all {len(e['files'])} files") + "<br>" if listing else ""
-            ) + "<br>".join(
-                a(f["path"], f["path"].rsplit("/", 1)[1])
-                + f" · {f['bytes']} bytes · sha256 <code>{html.escape(f['sha256'])}</code>"
-                for f in e["files"]
-            )
-        else:
-            copies = (
-                f'<span class="expired">not preserved: {html.escape(e.get("reason", ""))}</span>'
-            )
-        rows.append(f"<tr><td>{what}</td><td>{copies}</td><td>{original}</td></tr>")
-    return (
-        "<h2>Evidence</h2><table><tr><th>Evidence</th><th>Copy on this site</th>"
-        f"<th>Original</th></tr>{''.join(rows)}</table>"
-        f'<p class="note">{ACTIONS_NOTE}; use the copies on this site.</p>'
-    )
+def retention_days(path: Path | None = None) -> int:
+    """How long copied evidence stays. The number lives only in settings.toml."""
+    path = path or SETTINGS
+    try:
+        document = tomllib.loads(Path(path).read_text())
+    except (OSError, tomllib.TOMLDecodeError) as error:
+        raise SiteError(f"{path}: cannot read the retention setting ({error})") from error
+    site = document.get("site") if isinstance(document, dict) else None
+    value = site.get("evidence_retention_days") if isinstance(site, dict) else None
+    if type(value) is not int or value < 1:
+        raise SiteError(f"{path}: site.evidence_retention_days must be a positive integer")
+    return value
 
 
-def listing_path(e: dict) -> str | None:
-    """Where a preserved artifact with several files is listed: ``evidence/<name>.html``."""
-    name = e["artifact"].get("name")
-    if not (e.get("preserved") and len(e.get("files") or []) > 1 and name):
+def _stamp(value: str) -> datetime:
+    try:
+        return datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    except ValueError as error:
+        raise SiteError(f"Unexpected time {value!r}") from error
+
+
+def evidence_expired(created: str, now: str, days: int) -> bool:
+    """True once a run is at least `days` old. Report pages are not affected."""
+    return _stamp(now) - _stamp(created) >= timedelta(days=days)
+
+
+def prune_expired_evidence(site: Path, now: str, days: int) -> list[str]:
+    """Remove copied MCAP, video and media under runs older than the setting.
+
+    Report pages and run.json stay. Runs that never received copies are untouched.
+    """
+    removed = []
+    if not now:
+        return removed
+    for record_path in sorted(site.glob("*/*/runs/*/run.json")):
+        record = json.loads(record_path.read_text())
+        created = (record.get("run") or {}).get("created")
+        if not isinstance(created, str) or not evidence_expired(created, now, days):
+            continue
+        evidence = record_path.parent / "evidence"
+        if not evidence.is_dir():
+            continue
+        for path in sorted(evidence.rglob("*")):
+            if not path.is_file() or path.is_symlink():
+                continue
+            if path.suffix.lower() in MEDIA_SUFFIXES or path.name == "media.json":
+                path.unlink()
+                removed.append(str(path.relative_to(site)))
+    return removed
+
+
+def site_path(value: object) -> str | None:
+    """A relative path of a file this site copied, or None when it must not be published."""
+    if not isinstance(value, str) or not SITE_PATH.fullmatch(value):
+        return None
+    if (
+        "://" in value
+        or value.startswith(("/", "\\"))
+        or ".." in value.split("/")
+        or ":" in value
+        or "/actions/" in value.lower()
+        or ARTIFACT_WORD.search(value)
+    ):
+        return None
+    return value
+
+
+def _plain_label(value: object) -> str:
+    text = value if isinstance(value, str) else ""
+    cleaned = ARTIFACT_WORD.sub("", text).strip(" .:-")
+    if not cleaned or re.search(r"[\[\]()|`<>\n]", cleaned) or len(cleaned) > 80:
+        return "evidence"
+    return cleaned
+
+
+def listing_path(record: dict) -> str | None:
+    """``evidence/<name>.html`` when one link covers several copied files."""
+    name = (record.get("artifact") or {}).get("name")
+    if not (record.get("preserved") and len(record.get("files") or []) > 1 and name):
         return None
     return f"evidence/{name}.html"
 
 
-def write_listing(folder: Path, e: dict, up: str) -> None:
-    """A page linking every file of one preserved artifact (e.g. all 20 trial MCAPs).
-    ``up`` leads from ``folder`` to the site root, so the page links back to the reports index."""
-    path = listing_path(e)
-    if path is None:
+def link_path(record: dict, *, expired: bool) -> str | None:
+    """Where a live copy is published, or None when the page must not point at it."""
+    if expired or not record.get("preserved"):
+        return None
+    listing = listing_path(record)
+    if listing and site_path(listing):
+        return listing
+    paths = [
+        site_path(item.get("path")) for item in record.get("files") or [] if isinstance(item, dict)
+    ]
+    kept = [path for path in paths if path]
+    if len(kept) == 1:
+        return kept[0]
+    return None
+
+
+def evidence_links_document(records: list[dict] | None, *, expired: bool) -> dict:
+    """Links for the reporter: relative site paths only.
+
+    A GitHub Actions address, including a plain ``actions/runs/<id>`` URL, is never
+    copied into the document. There is no ``run`` field. Pruned copies are
+    ``expired: true`` and have no path, so the page cannot offer a broken link.
+    """
+    links = []
+    for record in records or []:
+        if not isinstance(record, dict):
+            continue
+        kind = record.get("kind")
+        if kind not in {"video", "mcap", "log", "note"}:
+            continue
+        entry = {"label": _plain_label(record.get("label")), "kind": kind}
+        if type(record.get("seed")) is int and record.get("status") in {"PASS", "FAIL"}:
+            entry["seed"] = record["seed"]
+            entry["status"] = record["status"]
+        if expired or not record.get("preserved") or not record.get("files"):
+            # Never copied: leave the run alone. Pruned: the reporter's kept-for state.
+            if record.get("preserved"):
+                entry["expired"] = True
+                links.append(entry)
+            continue
+        target = link_path(record, expired=False)
+        if target is None:
+            for item in record.get("files") or []:
+                path = site_path(item.get("path")) if isinstance(item, dict) else None
+                if path:
+                    links.append(entry | {"path": path, "expired": False})
+            continue
+        entry["path"] = target
+        entry["expired"] = False
+        links.append(entry)
+    document = {"links": links}
+    blob = json.dumps(document)
+    if "run" in document or "://" in blob or "/actions/" in blob or ARTIFACT_WORD.search(blob):
+        raise SiteError("refusing to pass a non-site evidence link to the reporter")
+    return document
+
+
+def write_listing(folder: Path, record: dict, up: str) -> None:
+    """One page linking every copied file of a multi-file record (for example every trial)."""
+    path = listing_path(record)
+    if path is None or not site_path(path):
         return
     prefix = path.removesuffix(".html").removeprefix("evidence/") + "/"
     rows = "".join(
         "<tr><td>"
-        + a(f["path"].removeprefix("evidence/"), f["path"].removeprefix(f"evidence/{prefix}"))
-        + f"</td><td>{f['bytes']}</td><td><code>{html.escape(f['sha256'])}</code></td></tr>"
-        for f in e["files"]
+        + a(item["path"].removeprefix("evidence/"), item["path"].removeprefix(f"evidence/{prefix}"))
+        + f"</td><td>{item['bytes']}</td><td><code>{html.escape(item['sha256'])}</code></td></tr>"
+        for item in record["files"]
     )
+    title = _plain_label(record.get("label"))
     body = (
-        f"<p>All {len(e['files'])} files of Actions artifact "
-        f"<code>{html.escape(e['artifact']['name'])}</code>, copied to this site. "
-        f"{a('../index.html', 'Back to the run')} · {a('../report.html', 'report')}</p>"
+        f"<p>All {len(record['files'])} files copied to this site. "
+        f"{a('../index.html', 'Back to the report')}</p>"
         f"<table><tr><th>File</th><th>Bytes</th><th>sha256</th></tr>{rows}</table>"
     )
-    title = e.get("label") or e["artifact"]["name"]
     (folder / path).write_text(page(title, body, up=f"../{up}index.html"))
 
 
-def original_reference(artifact: dict, now: str) -> str:
-    """The Actions artifact as a secondary reference, as text: never a link (#23).
-
-    Logged-out evaluators get 404 from Actions pages, so the id and expiry are kept for
-    maintainers but nothing on the site points there.
-    """
-    name = f"Actions artifact {html.escape(artifact['id'])}"
-    expires = artifact.get("expires_at")
-    if expires and expires <= now:
-        return f"original {name} expired {html.escape(expires)}"
-    if expires:
-        return f"original {name}, maintainers only (GitHub sign-in), expires {html.escape(expires)}"
-    return f"original {name}: expiry unknown"
-
-
-def publish_report_html(folder: Path, record: dict, now: str, trial: bool = False) -> None:
-    """Point report.html's evidence links at this site's copies.
-
-    The reporter links evidence to Actions artifacts, which need a GitHub sign-in and
-    expire. The published report.html links the site copy first and keeps the Actions
-    artifact as a secondary reference labelled with its expiry. The reporter's bytes stay
-    as report.html.orig (what SHA256SUMS lists); report.json, .md, .txt and SHA256SUMS are
-    never changed. Any other reporter anchor to Actions (the Evidence "CI run" link) becomes
-    text. Rebuilt from the original on every render, so expiry labels stay current.
-    """
-    published, original = folder / "report.html", folder / ORIGINAL_HTML
-    source = original if original.is_file() else published
-    text = source.read_text()
-    if not (ARTIFACT_LINK.search(text) or ACTIONS_ANCHOR.search(text)):
+def drop_listing_pages(folder: Path) -> None:
+    evidence = folder / "evidence"
+    if not evidence.is_dir():
         return
-    if not original.is_file():
-        shutil.copyfile(published, original)
-    by_id = {e["artifact"]["id"]: e for e in record.get("evidence") or []}
+    for path in evidence.glob("*.html"):
+        path.unlink()
+
+
+def html_is_dirty(text: str) -> bool:
+    return ARTIFACT_WORD.search(text) is not None or ACTIONS_HREF.search(text) is not None
+
+
+def original_html(folder: Path) -> str:
+    parked = folder / ORIGINAL_HTML
+    if parked.is_file():
+        return parked.read_text()
+    return (folder / "report.html").read_text()
+
+
+def park_original(folder: Path, public: str) -> None:
+    """Keep the reporter's bytes for SHA256SUMS. A dirty report.html is not a public page."""
+    report = folder / "report.html"
+    parked = folder / ORIGINAL_HTML
+    if parked.is_file():
+        if report.is_file():
+            report.unlink()
+        return
+    if not report.is_file():
+        return
+    original = report.read_text()
+    if original == public:
+        return
+    if html_is_dirty(original):
+        parked.write_text(original)
+        report.unlink()
+
+
+def scrub_reporter_html(text: str, record: dict, *, trial: bool, expired: bool) -> str:
+    """Point a stored report at site copies. Used when the file is not a re-renderable report."""
+    by_id = {
+        entry["artifact"]["id"]: entry
+        for entry in record.get("evidence") or []
+        if isinstance(entry, dict) and isinstance(entry.get("artifact"), dict)
+    }
+
+    def shown(label: str) -> str:
+        # Anchor text may contain parentheses ("trial 1 (PASS): video"). Only the
+        # reporter's link labels are restricted; this text is the visible page.
+        cleaned = ARTIFACT_WORD.sub("", label).strip()
+        return cleaned or "evidence"
 
     def replace(match: re.Match) -> str:
-        url, artifact_id, label = match.group(2), match.group(3), match.group(4)
-        label = display_label(label, trial)
-        e = by_id.get(artifact_id)
-        artifact = e["artifact"] if e else {"id": artifact_id, "url": url}
-        if e and listing_path(e):
-            # One link that opens every file: the label promises all of them.
-            primary = (
-                f"<a href='{html.escape(listing_path(e))}'>{label}</a> ({len(e['files'])} files)"
-            )
-        elif e and e["preserved"] and e["files"]:
-            first, *rest = e["files"]
-            primary = f"<a href='{html.escape(first['path'])}'>{label}</a>" + "".join(
-                f" · <a href='{html.escape(f['path'])}'>{html.escape(f['path'].rsplit('/', 1)[1])}</a>"
-                for f in rest
-            )
-        else:
-            reason = e.get("reason", "") if e else "no copy recorded for this run"
-            primary = f"{label} (not on this site: {html.escape(reason)})"
-        return f"{primary} <small>({original_reference(artifact, now)})</small>"
+        label = shown(display_label(match.group(4), trial))
+        entry = by_id.get(match.group(3))
+        target = None if entry is None else link_path(entry, expired=expired)
+        if target:
+            return f"<a href='{html.escape(target)}'>{html.escape(label)}</a>"
+        return html.escape(label)
 
-    def as_text(match: re.Match) -> str:
-        run = ACTIONS_RUN.search(match.group(2))
-        what = f" {run.group(1)}" if run else ""
-        return f"{match.group(3)}{what} <small>(maintainers only, GitHub sign-in required)</small>"
+    def unwrap(match: re.Match) -> str:
+        return html.escape(shown(match.group(3)))
 
-    published.write_text(ACTIONS_ANCHOR.sub(as_text, ARTIFACT_LINK.sub(replace, text)))
+    text = ARTIFACT_LINK.sub(replace, text)
+    text = ACTIONS_ANCHOR.sub(unwrap, text)
+    text = ACTIONS_URL.sub("", text)
+    return ARTIFACT_WORD.sub("", text)
 
 
-def run_page(record: dict, label: str, up: str, now: str = "", trial: bool = False) -> str:
-    """`up` is the relative path from the page's folder to <robot>/<variant>/."""
-    p = record
-    rows = [
-        ("Outcome", outcome_cells(p)),
-        (
-            "CI run",
-            ci_run(p["run"]) + f" · {html.escape(p['run']['created'])} · maintainers only",
-        ),
-        (
-            "livingproof-verification",
-            a(p["commit"]["url"], p["commit"]["sha"][:12])
-            + " · "
-            + a(
-                p["commit"]["url"].replace("/commit/", "/blob/") + "/" + p["definition"],
-                p["definition"],
-            ),
-        ),
-        (
-            "Robot",
-            a(p["robot"]["url"], f"{p['robot']['repository']} @ {p['robot']['commit'][:12]}")
-            + f" · configuration "
-            f"<code>{html.escape(p['robot']['configuration'])}</code>",
-        ),
-    ]
-    for name, release in p["releases"].items():
-        text = f"{release['repository'].rsplit('/', 1)[1]} {release['tag']}"
-        extra = f" · <code>{html.escape(release['digest'])}</code>" if "digest" in release else ""
-        rows.append(
-            (
-                name.capitalize(),
-                a(release["url"], text) + f" · <code>{release['commit'][:12]}</code>{extra}",
-            )
-        )
-    details = "".join(f"<dt>{html.escape(k)}</dt><dd>{v}</dd>" for k, v in rows)
-    files = " · ".join(a(n, n) for n in (*REPORT_FILES, "SHA256SUMS", "run.json"))
-    if p.get("original_html"):
-        files += (
-            ". report.html links evidence to the copies on this site; the reporter's "
-            f"report.html, as SHA256SUMS lists it, is {a(ORIGINAL_HTML, ORIGINAL_HTML)}"
-        )
-    body = (
-        f"<dl>{details}</dl><p>Rendered by the reporter: {files}. "
-        f'<a href="{up}index.html">Run history</a>.</p>'
-        + evidence_section(p, now, trial=trial)
-        + '<iframe src="report.html" title="Capability report"></iframe>'
+def report_is_renderable(report: object) -> bool:
+    """A saved reporter document the pinned reporter can render again."""
+    if not isinstance(report, dict):
+        return False
+    return (
+        report.get("report_version") == "1.0.0"
+        and isinstance(report.get("source_bundle"), dict)
+        and isinstance(report.get("source_bundle_sha256"), str)
+        and isinstance(report.get("decisions"), list)
+        and isinstance(report.get("summaries"), list)
+        and bool(report["summaries"])
     )
-    title = f"{p['robot']['repository'].rsplit('/', 1)[1]} · {p['variant']} · {label}"
-    return page(title, body, up=f"{up}../../index.html")
+
+
+def reporter_bin() -> str:
+    found = shutil.which("livingproof-capability-report")
+    if not found:
+        raise SiteError(
+            "livingproof-capability-report is not on PATH; the public page is rendered "
+            "by the pinned reporter"
+        )
+    return found
+
+
+def render_with_reporter(
+    report: dict,
+    links: dict,
+    *,
+    history_href: str,
+    history_label: str,
+    retention: int | None,
+) -> str:
+    """Render the public page. Evidence links are the caller's relative paths only.
+
+    v3.6.0 accepts ``--evidence-links`` on a bundle manifest, and refuses it on a saved
+    report. Re-rendering the bundle also demands the observation files, which the site
+    does not keep. The links document is the same object that flag merges; it is set on
+    a copy of the saved report, and history plus retention are passed as flags.
+    """
+    if set(links) - {"links"} or any(
+        set(entry) - {"label", "kind", "seed", "status", "path", "expired", "poster", "why"}
+        for entry in links.get("links", [])
+    ):
+        raise SiteError("refusing to pass a non-site evidence link to the reporter")
+    with tempfile.TemporaryDirectory() as tmp:
+        folder = Path(tmp)
+        source = folder / "report.json"
+        public = dict(report)
+        public["evidence_links"] = links
+        source.write_text(json.dumps(public))
+        destination = folder / "index.html"
+        command = [
+            reporter_bin(),
+            "render",
+            str(source),
+            "--format",
+            "html",
+            "-o",
+            str(destination),
+            "--history-href",
+            history_href,
+            "--history-label",
+            history_label,
+        ]
+        if links.get("links"):
+            if retention is None:
+                raise SiteError("evidence retention is required to render evidence")
+            command.extend(["--evidence-retention", str(retention)])
+        try:
+            subprocess.run(command, check=True, capture_output=True, text=True)
+        except subprocess.CalledProcessError as error:
+            detail = (error.stderr or error.stdout or "").strip()
+            raise SiteError(f"reporter render failed: {detail}") from error
+        return destination.read_text()
+
+
+def publish_run_page(folder: Path, record: dict, *, now: str, days: int, trial: bool) -> None:
+    """The run directory's index is the styled report, not a frame around it."""
+    created = (record.get("run") or {}).get("created", "")
+    expired = bool(now) and bool(created) and evidence_expired(created, now, days)
+    drop_listing_pages(folder)
+    if not expired:
+        for entry in record.get("evidence") or []:
+            write_listing(folder, entry, up="../../../../")
+    links = evidence_links_document(record.get("evidence"), expired=expired)
+    report = read_report(folder / "report.json")
+    if report_is_renderable(report):
+        public = render_with_reporter(
+            report,
+            links,
+            history_href="../../index.html",
+            history_label=HISTORY_LABEL,
+            retention=days if links["links"] else None,
+        )
+    else:
+        public = scrub_reporter_html(original_html(folder), record, trial=trial, expired=expired)
+    if html_is_dirty(public):
+        raise SiteError(
+            f"{folder / 'index.html'}: public page still names an artifact or links to /actions/"
+        )
+    park_original(folder, public)
+    (folder / "index.html").write_text(public)
+
+
+def redirect_page(target: str, title: str = "Latest report") -> str:
+    """A static redirect. GitHub Pages has no server redirect for a directory."""
+    safe = html.escape(target, quote=True)
+    shown = html.escape(title)
+    return (
+        '<!doctype html>\n<html lang="en"><head><meta charset="utf-8">'
+        f'<meta http-equiv="refresh" content="0; url={safe}">'
+        f'<link rel="canonical" href="{safe}">'
+        f"<title>{shown}</title></head><body>"
+        f'<p><a href="{safe}">{shown}</a></p>'
+        "</body></html>\n"
+    )
+
+
+def public_page_problems(site: Path) -> list[str]:
+    """HTML this build emits that names an artifact or links to ``/actions/``."""
+    problems = []
+    for page_path in sorted(site.rglob("*.html")):
+        text = page_path.read_text(errors="replace")
+        relative = str(page_path.relative_to(site))
+        if ARTIFACT_WORD.search(text):
+            problems.append(f"{relative} mentions an artifact")
+        if ACTIONS_HREF.search(text):
+            problems.append(f"{relative} links to /actions/")
+    return problems
 
 
 def render(site: Path, now: str = ""):
+    days = retention_days()
+    prune_expired_evidence(site, now, days)
     history = runs(site)
     rows = []
     for (robot, variant), records in sorted(history.items()):
@@ -953,56 +1136,51 @@ def render(site: Path, now: str = ""):
         latest = base / "latest"
         if latest.exists():
             shutil.rmtree(latest)
-        trials = {}
-        for record in records:
-            folder = base / "runs" / record["folder"]
-            trials[record["folder"]] = trial_model(read_report(folder / "report.json"))
-            for e in record.get("evidence") or []:
-                write_listing(folder, e, up="../../../../")
-            publish_report_html(folder, record, now, trial=trials[record["folder"]])
-            record["original_html"] = (folder / ORIGINAL_HTML).is_file()
+        trials = {
+            record["folder"]: trial_model(
+                read_report(base / "runs" / record["folder"] / "report.json")
+            )
+            for record in records
+        }
         newest = records[0]
-        shutil.copytree(base / "runs" / newest["folder"], latest)
-        for e in newest.get("evidence") or []:
-            write_listing(latest, e, up="../../../")
+        latest.mkdir(parents=True)
+        (latest / "index.html").write_text(redirect_page(f"../runs/{newest['folder']}/"))
         for record in records:
-            (base / "runs" / record["folder"] / "index.html").write_text(
-                run_page(
-                    record,
-                    f"run {record['run']['id']}",
-                    up="../../",
-                    now=now,
-                    trial=trials[record["folder"]],
-                )
-            )
-        (latest / "index.html").write_text(
-            run_page(
-                newest,
-                f"latest (run {newest['run']['id']})",
-                up="../",
+            publish_run_page(
+                base / "runs" / record["folder"],
+                record,
                 now=now,
-                trial=trials[newest["folder"]],
+                days=days,
+                trial=trials[record["folder"]],
             )
-        )
         items = "".join(
-            f"<tr><td>{a('runs/' + r['folder'] + '/', r['run']['id'])}</td>"
-            f"<td>{ci_run(r['run'])}</td>"
-            f"<td>{html.escape(r['run']['created'])}</td><td>{outcome_cells(r)}</td>"
-            f"<td>{a(r['commit']['url'], r['commit']['sha'][:12])}</td></tr>"
-            for r in records
+            f"<tr><td>{a('runs/' + record['folder'] + '/', record['run']['id'])}</td>"
+            f"<td>{ci_run(record['run'])}</td>"
+            f"<td>{html.escape(record['run']['created'])}</td><td>{outcome_cells(record)}</td>"
+            f"<td>{a(record['commit']['url'], record['commit']['sha'][:12])}</td>"
+            f"<td>{a('runs/' + record['folder'] + '/SHA256SUMS', 'SHA256SUMS')}</td></tr>"
+            for record in records
+        )
+        releases = " · ".join(
+            f"{html.escape(name)} {a(release['url'], release['tag'])}"
+            for name, release in newest["releases"].items()
+        )
+        robot_line = a(
+            newest["robot"]["url"],
+            f"{newest['robot']['repository']} @ {newest['robot']['commit'][:12]}",
         )
         (base / "index.html").write_text(
             page(
                 f"{robot} · {variant} · run history",
-                f"<p>{a('latest/', 'Latest report')}</p><table><tr><th>Run</th><th>CI</th><th>Created</th>"
-                f"<th>Outcome</th><th>Commit</th></tr>{items}</table>",
+                f"<p>{a('latest/', 'Latest report')}</p><p>{releases}</p><p>{robot_line}</p>"
+                f"<table><tr><th>Run</th><th>CI</th><th>Created</th>"
+                f"<th>Outcome</th><th>Commit</th><th>Checksums</th></tr>{items}</table>",
                 up="../../index.html",
             )
         )
         rows.append(
             f"<tr><td>{html.escape(robot)}</td><td>{html.escape(variant)}</td>"
-            f"<td>{outcome_cells(newest)}<br>"
-            f"{ci_run(newest['run'])}</td>"
+            f"<td>{outcome_cells(newest)}<br>{ci_run(newest['run'])}</td>"
             f"<td>{a(f'{robot}/{variant}/latest/', 'latest')} · "
             f"{a(f'{robot}/{variant}/', f'history ({len(records)} run{"s" * (len(records) != 1)})')}</td></tr>"
         )
@@ -1010,8 +1188,8 @@ def render(site: Path, now: str = ""):
         "<p>The latest capability report for each robot and variant, generated only by CI "
         "on <code>main</code> of "
         '<a href="https://github.com/Living-Proof-Labs/livingproof-verification">'
-        "livingproof-verification</a>. The capability verifier grades; the reporter renders; "
-        "this site only lays the reports out.</p>"
+        "livingproof-verification</a>. The capability verifier grades; the reporter renders "
+        "the run page; this site lays the reports out and keeps the evidence copies.</p>"
         "<table><tr><th>Robot</th><th>Variant</th><th>Latest outcome</th><th>Reports</th></tr>"
         + "".join(rows)
         + "</table>"
@@ -1029,8 +1207,8 @@ def build(
 ):
     added = [add_run(site, reports, t, run, evidence, artifacts) for t in targets(verifications)]
     render(site, now=run["created"])
-    if linked := actions_links(site):
-        raise SiteError(f"pages still link to GitHub Actions (#23): {', '.join(linked)}")
+    if problems := public_page_problems(site):
+        raise SiteError("pages still link to GitHub Actions (#23): " + ", ".join(problems))
     (site / MARKER).write_text(
         json.dumps(
             {"runs": sum(len(r) for r in runs(site).values()), "updated": run["created"]},
