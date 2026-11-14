@@ -2,7 +2,7 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "description": "Use the released organization preset while retaining development-container coverage.",
   "extends": [
-    "github>Living-Proof-Labs/collaboration-guidelines:renovate-preset#v7.10.8"
+    "github>Living-Proof-Labs/collaboration-guidelines:renovate-preset#v9.2.0"
   ],
   "enabledManagers": [
     "github-actions",
