@@ -2,6 +2,8 @@
 """Assemble the GitHub Pages site from a run's capability-report artifacts.
 
 The verifier's grade and trial counts are read from report.json, never recomputed.
+A compared run keeps those counts null and carries ``reproducibility.statement``
+(or the stored finding, when no statement was recorded) onto the history record.
 The public run page is the reporter's HTML: this module asks the pinned reporter to
 render it with this site's evidence paths, retention and a link to the run history.
 The incoming SHA256SUMS are checked, then Actions URLs are removed from the
@@ -17,7 +19,8 @@ verification and configuration:
                                        than the retention setting are removed on publish.
     <robot>/<variant>/latest/          a redirect to the newest run, and nothing else
     <robot>/<variant>/index.html       run history
-    index.html                         every robot/variant with grade and counts
+    index.html                         every robot/variant with grade and counts,
+                                       or the stored statement for compared repeats
 
 Earlier runs come from the previous Pages artifact (`restore`), so history survives
 without committing anything to git. If that artifact is listed but the download
@@ -482,8 +485,38 @@ def read_report(path: Path) -> object:
         raise SiteError(f"{path}: not valid JSON ({error.msg} at line {error.lineno})") from None
 
 
+def _stored_text(value: object) -> str | None:
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return None
+
+
+def reproducibility_statement(summary: dict) -> str | None:
+    """``reproducibility.statement`` for a compared run. Nothing is filled in."""
+    block = summary.get("reproducibility")
+    if not isinstance(block, dict) or block.get("compared") is not True:
+        return None
+    return _stored_text(block.get("statement"))
+
+
+def reproducibility_finding(summary: dict) -> str | None:
+    """Finding detail stored on a compared run, or None."""
+    block = summary.get("reproducibility")
+    if not isinstance(block, dict) or block.get("compared") is not True:
+        return None
+    finding = block.get("finding")
+    if isinstance(finding, dict):
+        return _stored_text(finding.get("detail"))
+    return _stored_text(finding)
+
+
 def outcome(report: dict, where: str = "report.json") -> list[dict]:
-    """The verifier's grade and counts as the reporter recorded them (no regrading)."""
+    """The verifier's grade and counts as the reporter recorded them (no regrading).
+
+    Compared repeats keep null ``k``, ``n`` and ``required_passes``. The stored
+    statement is copied onto the history record; a finding is copied only when
+    that statement is absent.
+    """
     if not isinstance(report, dict):
         raise SiteError(f"{where}: expected a JSON object, found {type(report).__name__}")
     version = report.get("report_version")
@@ -503,8 +536,9 @@ def outcome(report: dict, where: str = "report.json") -> list[dict]:
             missing.append("system.id")
         if missing:
             raise SiteError(f"{where}: summaries[{index}] lacks {', '.join(missing)}")
-    return [
-        {
+    rows = []
+    for s in summaries:
+        row = {
             "capability": s["capability"],
             "system": s["system"]["id"],
             "grade": s["grade"],
@@ -512,8 +546,15 @@ def outcome(report: dict, where: str = "report.json") -> list[dict]:
             "trials": s["n"],
             "required": s["required_passes"],
         }
-        for s in summaries
-    ]
+        statement = reproducibility_statement(s)
+        if statement is not None:
+            row["statement"] = statement
+        else:
+            finding = reproducibility_finding(s)
+            if finding is not None:
+                row["finding"] = finding
+        rows.append(row)
+    return rows
 
 
 def provenance(target: dict, run: dict) -> dict:
@@ -685,6 +726,7 @@ def runs(site: Path) -> dict:
 STYLE = """body{font-family:system-ui,sans-serif;margin:2rem auto;max-width:72rem;padding:0 1rem;
 color:#1b1f24}table{border-collapse:collapse}td,th{border:1px solid #d0d7de;padding:.35rem .6rem;
 text-align:left}.PASS{color:#1a7f37;font-weight:600}.FAIL{color:#cf222e;font-weight:600}
+.INSUFFICIENT_EVIDENCE{color:#9a6700;font-weight:600}
 dl{display:grid;grid-template-columns:max-content 1fr;gap:.2rem 1rem}dt{font-weight:600}
 code{font-size:.9em}"""
 
@@ -720,11 +762,29 @@ def actions_links(site: Path) -> list[str]:
     )
 
 
+# History written before statements existed stores null counts and no statement key.
+# Show this instead of formatting those nulls as None/None.
+COUNTS_NOT_STORED = "counts not stored"
+
+
+def outcome_detail(item: dict) -> str:
+    """Text beside the grade. Real counts stay; null counts are not a fraction."""
+    statement = _stored_text(item.get("statement"))
+    if statement is not None:
+        return html.escape(statement)
+    passed, trials = item.get("passed"), item.get("trials")
+    if passed is not None and trials is not None:
+        return f"{passed}/{trials} passed ({item['required']} needed)"
+    finding = _stored_text(item.get("finding"))
+    if finding is not None:
+        return html.escape(finding)
+    return COUNTS_NOT_STORED
+
+
 def outcome_cells(record: dict) -> str:
     return "<br>".join(
         f'<span class="{html.escape(o["grade"])}">{html.escape(o["grade"])}</span> '
-        f"{o['passed']}/{o['trials']} passed ({o['required']} needed) · "
-        f"{html.escape(o['capability'])}"
+        f"{outcome_detail(o)} · {html.escape(o['capability'])}"
         for o in record["outcome"]
     )
 
@@ -1214,6 +1274,44 @@ def public_page_problems(site: Path) -> list[str]:
     return problems
 
 
+def remember_stored_wording(folder: Path, record: dict) -> None:
+    """Copy a dropped statement or finding from report.json onto the history record.
+
+    Publishes before this fix stored null counts and left the statement in the
+    report file. Counts are not filled in. A record with neither is left alone.
+    """
+    outcomes = record.get("outcome")
+    report_path = folder / "report.json"
+    if not isinstance(outcomes, list) or not report_path.is_file():
+        return
+    report = read_report(report_path)
+    summaries = report.get("summaries") if isinstance(report, dict) else None
+    if not isinstance(summaries, list) or len(summaries) != len(outcomes):
+        return
+    changed = False
+    for item, summary in zip(outcomes, summaries):
+        if not isinstance(item, dict) or not isinstance(summary, dict):
+            continue
+        if _stored_text(item.get("statement")) or _stored_text(item.get("finding")):
+            continue
+        if item.get("passed") is not None and item.get("trials") is not None:
+            continue
+        statement = reproducibility_statement(summary)
+        if statement is not None:
+            item["statement"] = statement
+            changed = True
+            continue
+        finding = reproducibility_finding(summary)
+        if finding is not None:
+            item["finding"] = finding
+            changed = True
+    if not changed:
+        return
+    stored = json.loads((folder / "run.json").read_text())
+    stored["outcome"] = outcomes
+    (folder / "run.json").write_text(json.dumps(stored, indent=2) + "\n")
+
+
 def render(site: Path, now: str = ""):
     days = retention_days()
     prune_expired_evidence(site, now, days)
@@ -1234,6 +1332,7 @@ def render(site: Path, now: str = ""):
         latest.mkdir(parents=True)
         (latest / "index.html").write_text(redirect_page(f"../runs/{newest['folder']}/"))
         for record in records:
+            remember_stored_wording(base / "runs" / record["folder"], record)
             publish_run_page(
                 base / "runs" / record["folder"],
                 record,
