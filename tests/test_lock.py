@@ -352,7 +352,50 @@ def _v2(definition: Path, repo: Path) -> dict:
     }
 
 
+def _write_definition(tmp_path: Path, **robot) -> Path:
+    """A definition under ``verifications/``, so a workflow beside the project is found."""
+    values = {"repository": "Org/robot", "ref": "main", "configurations": ["stock"], **robot}
+    path = tmp_path / "proj" / "verifications" / "g1-stock.toml"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        f'format = "{lock_tool.DEFINITION_FORMAT}"\n'
+        'id = "g1-stock"\n'
+        'procedure = "walk-hallway"\n'
+        "[robot]\n"
+        f'repository = "{values["repository"]}"\n'
+        f'ref = "{values["ref"]}"\n'
+        f"configurations = {json.dumps(values['configurations'])}\n"
+    )
+    return path
+
+
+def _write_settings(definition: Path, *, tag: str = "v3.5.0") -> Path:
+    """``settings.toml`` beside the definition, naming the reporter release."""
+    path = definition.parent / "settings.toml"
+    path.write_text(
+        "[reporter]\n"
+        'repository = "Living-Proof-Labs/livingproof-capability-report"\n'
+        f'tag = "{tag}"\n'
+        'image = "ghcr.io/living-proof-labs/livingproof-capability-report"\n'
+    )
+    return path
+
+
+def _write_workflow(tmp_path: Path, commit: str, *, tag: str = "v9.9.9") -> Path:
+    """The walk-hallway call for the ``g1-stock`` job, at the project root."""
+    workflow = tmp_path / "proj" / ".github" / "workflows" / "verify.yml"
+    workflow.parent.mkdir(parents=True, exist_ok=True)
+    workflow.write_text(
+        "jobs:\n"
+        "  g1-stock:\n"
+        "    uses: Living-Proof-Labs/capability-verifier/.github/workflows/"
+        f"walk-hallway.yml@{commit}  # {tag}\n"
+    )
+    return workflow
+
+
 def test_a_thin_robot_keeps_owned_fields_and_refreshes_the_tree(tmp_path, monkeypatch, capsys):
+    """Scenario, plan, world, specs and runner stay. Reporter and evaluator do not."""
     base = tmp_path / "git"
     repo = _robot(base, publish_lock=False)
     _use(monkeypatch, base)
@@ -360,22 +403,44 @@ def test_a_thin_robot_keeps_owned_fields_and_refreshes_the_tree(tmp_path, monkey
     existing = _v2(definition, repo)
     kept = json.loads(json.dumps(existing["releases"]))
     lock_tool.lock_path(definition).write_text(json.dumps(existing))
+    _write_settings(definition, tag="v3.5.0")
     stock = repo / "configurations" / "stock.json"
     stock.write_text(_configuration("stock", "1.1.0") + "\n")
     head = _commit(repo)
+    digest = "sha256:" + "ef" * 32
+    monkeypatch.setattr(
+        lock_tool,
+        "resolve_tag",
+        lambda repository, tag: "7" * 40
+        if repository.endswith("capability-report")
+        else EVALUATOR_COMMIT,
+    )
+    monkeypatch.setattr(lock_tool, "image_digest", lambda image, tag: digest)
+    monkeypatch.setattr(
+        lock_tool,
+        "_verifier_pyproject",
+        lambda repository, commit, work: VERIFIER_WITH_EVALUATOR,
+    )
     code = lock_tool.main([str(definition), "--work", str(tmp_path / "work")])
     assert code == 0
     text = capsys.readouterr().out
     assert "thin robot Org/robot@" in text
     assert "no verification.lock.json" in text
-    assert "kept releases, scenario, plan, world and evaluators" in text
+    assert "kept scenario, plan, world and the specs and runner" in text
     assert "Review it before committing." in text
     written = json.loads(lock_tool.lock_path(definition).read_text())
     assert written["format"] == lock_tool.FORMAT_V2
-    assert written["releases"] == kept
+    assert written["releases"]["specs"] == kept["specs"]
+    assert written["releases"]["runner"] == kept["runner"]
     assert written["plan"] == existing["plan"]
     assert written["world"] == existing["world"]
-    assert written["evaluators"] == existing["evaluators"]
+    assert written["scenario"] == existing["scenario"]
+    assert written["releases"]["reporter"]["tag"] == "v3.5.0"
+    assert written["releases"]["reporter"]["commit"] == "7" * 40
+    assert written["releases"]["reporter"]["digest"] == digest
+    assert written["releases"]["reporter"]["tag"] != kept["reporter"]["tag"]
+    assert written["evaluators"]["livingproof-evaluator-scenario"]["tag"] == "v1.2.3"
+    assert written["evaluators"] != existing["evaluators"]
     assert written["robot"]["commit"] == head
     assert written["robot"]["adapter"] == "lpl_g1.adapter:ROBOT"
     stock_entry = next(entry for entry in written["configurations"] if entry["name"] == "stock")
@@ -561,3 +626,131 @@ def test_resolve_tag_uses_the_peeled_commit(tmp_path, monkeypatch):
     )
     with pytest.raises(lock_tool.LockError, match="has no tag v9.9.9"):
         lock_tool.resolve_tag("Living-Proof-Labs/livingproof-evaluator-scenario", "v9.9.9")
+
+
+def test_settings_replace_the_reporter_on_a_thin_robot(tmp_path, monkeypatch):
+    """(a) A thin robot still takes the reporter from settings.toml."""
+    base = tmp_path / "git"
+    repo = _robot(base, publish_lock=False)
+    _use(monkeypatch, base)
+    definition = _write_definition(tmp_path)
+    existing = _v2(definition, repo)
+    assert existing["releases"]["reporter"]["tag"] == "v1.2.3"
+    lock_tool.lock_path(definition).write_text(json.dumps(existing))
+    _write_settings(definition, tag="v3.5.0")
+    digest = "sha256:" + "ef" * 32
+    seen = {}
+
+    def resolve(repository, tag):
+        seen.setdefault("resolved", []).append((repository, tag))
+        if repository.endswith("capability-report"):
+            return "7" * 40
+        return EVALUATOR_COMMIT
+
+    def digester(image, tag):
+        seen["image"] = image
+        seen["tag"] = tag
+        return digest
+
+    lock, notes = lock_tool.generate(
+        definition,
+        tmp_path / "work",
+        resolve=resolve,
+        verifier_pyproject=VERIFIER_WITH_EVALUATOR,
+        digester=digester,
+    )
+    assert ("Living-Proof-Labs/livingproof-capability-report", "v3.5.0") in seen["resolved"]
+    assert lock["releases"]["reporter"] == {
+        "repository": "Living-Proof-Labs/livingproof-capability-report",
+        "tag": "v3.5.0",
+        "commit": "7" * 40,
+        "image": "ghcr.io/living-proof-labs/livingproof-capability-report",
+        "digest": digest,
+    }
+    assert lock["releases"]["reporter"]["tag"] != "v1.2.3"
+    assert lock["plan"] == existing["plan"]
+    assert lock["world"] == existing["world"]
+    assert lock["scenario"] == existing["scenario"]
+    assert any("thin robot" in note for note in notes)
+
+
+def test_workflow_and_evaluator_are_applied_on_a_thin_robot(tmp_path, monkeypatch):
+    """(a) A thin robot still takes the verifier from the workflow call
+    and the evaluator from that verifier release."""
+    base = tmp_path / "git"
+    repo = _robot(base, publish_lock=False)
+    _use(monkeypatch, base)
+    definition = _write_definition(tmp_path)
+    existing = _v2(definition, repo)
+    lock_tool.lock_path(definition).write_text(json.dumps(existing))
+    _write_settings(definition)
+    called = "9" * 40
+    _write_workflow(tmp_path, called, tag="v9.9.9")
+    digest = "sha256:" + "cd" * 32
+
+    def tag_of(repository, commit):
+        assert repository == "Living-Proof-Labs/capability-verifier"
+        assert commit == called
+        return "v9.9.9"
+
+    def resolve(repository, tag):
+        if repository.endswith("capability-report"):
+            return "7" * 40
+        assert repository == "Living-Proof-Labs/livingproof-evaluator-scenario"
+        assert tag == "v1.2.3"
+        return "a" * 40
+
+    def digester(image, tag):
+        return digest
+
+    lock, notes = lock_tool.generate(
+        definition,
+        tmp_path / "work",
+        resolve=resolve,
+        verifier_pyproject=VERIFIER_WITH_EVALUATOR,
+        tag_of=tag_of,
+        digester=digester,
+    )
+    assert lock["releases"]["verifier"] == {
+        "repository": "Living-Proof-Labs/capability-verifier",
+        "tag": "v9.9.9",
+        "commit": called,
+        "image": lock_tool.VERIFIER_IMAGE,
+        "digest": digest,
+    }
+    assert lock["evaluators"]["livingproof-evaluator-scenario"]["commit"] == "a" * 40
+    assert lock["evaluators"]["livingproof-evaluator-scenario"]["tag"] == "v1.2.3"
+    assert lock["evaluators"] != existing["evaluators"]
+
+
+def test_missing_settings_toml_is_an_error(tmp_path, monkeypatch):
+    """(b) A missing settings.toml fails with a clear error, it does not
+    copy the reporter from the robot lock or the existing 0.2.0."""
+    base = tmp_path / "git"
+    _robot(base, publish_lock=True)
+    _use(monkeypatch, base)
+    definition = _definition(tmp_path)
+    assert not (definition.parent / "settings.toml").exists()
+    with pytest.raises(lock_tool.LockError, match="settings.toml") as caught:
+        lock_tool.generate(
+            definition,
+            tmp_path / "work",
+            resolve=lambda repository, tag: EVALUATOR_COMMIT,
+            verifier_pyproject=VERIFIER_WITH_EVALUATOR,
+        )
+    message = str(caught.value)
+    assert "settings.toml" in message
+    assert "FileNotFoundError" not in message
+
+
+def test_resolve_tag_timeout_is_a_lock_error(monkeypatch):
+    """(c') git TimeoutExpired ends in LockError, not a traceback."""
+
+    def boom(*args, **kwargs):
+        raise subprocess.TimeoutExpired(cmd="git", timeout=60)
+
+    monkeypatch.setattr(subprocess, "run", boom)
+    with pytest.raises(lock_tool.LockError, match="timed out|timeout") as caught:
+        lock_tool.resolve_tag("Living-Proof-Labs/livingproof-capability-report", "v3.7.0")
+    assert type(caught.value) is lock_tool.LockError
+    assert not isinstance(caught.value, subprocess.TimeoutExpired)
