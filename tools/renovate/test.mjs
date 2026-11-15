@@ -201,9 +201,13 @@ test('a manager that does not name the reporter sees nothing in the real file', 
 });
 
 test('the organization preset still governs the reporter and the locks stay disabled', async () => {
-  assert.deepEqual(config.extends, [
-    'github>Living-Proof-Labs/collaboration-guidelines:renovate-preset#v7.10.8',
-  ]);
+  // One organization preset, pinned to a full release tag. Renovate moves the tag,
+  // so the test checks the shape rather than a version.
+  assert.equal(config.extends.length, 1);
+  assert.match(
+    config.extends[0],
+    /^github>Living-Proof-Labs\/collaboration-guidelines:renovate-preset#v\d+\.\d+\.\d+$/,
+  );
   assert.equal(config.automerge, false);
   assert.equal(config.platformAutomerge, false);
   assert.equal('ignorePaths' in config, false);
