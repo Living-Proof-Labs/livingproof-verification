@@ -5,7 +5,9 @@ import hashlib
 import importlib.util
 import json
 from pathlib import Path
+import re
 import subprocess
+import urllib.request
 
 import pytest
 
@@ -772,3 +774,194 @@ def test_resolve_tag_timeout_is_a_lock_error(monkeypatch):
         lock_tool.tag_of_commit("Living-Proof-Labs/capability-verifier", "a" * 40)
     assert type(listed.value) is lock_tool.LockError
     assert not isinstance(listed.value, subprocess.TimeoutExpired)
+
+
+# Review checks for #69: thin-robot caller pins, a missing settings.toml and git or
+# registry timeouts (bounded retry, then LockError).
+
+LS_REMOTE = "7" * 40 + "\trefs/tags/v3.7.0\n"
+
+
+def _thin(tmp_path, monkeypatch):
+    base = tmp_path / "git"
+    repo = _robot(base, publish_lock=False)
+    _use(monkeypatch, base)
+    definition = _write_definition(tmp_path)
+    existing = _v2(definition, repo)
+    lock_tool.lock_path(definition).write_text(json.dumps(existing))
+    return definition, existing
+
+
+def _thin_resolve(repository, tag):
+    return "7" * 40 if repository.endswith("capability-report") else EVALUATOR_COMMIT
+
+
+def _thin_digest(image, tag):
+    return "sha256:" + "ef" * 32
+
+
+def _thin_generate(definition, tmp_path, **kwargs):
+    kwargs.setdefault("resolve", _thin_resolve)
+    kwargs.setdefault("verifier_pyproject", VERIFIER_WITH_EVALUATOR)
+    kwargs.setdefault("digester", _thin_digest)
+    return lock_tool.generate(definition, tmp_path / "work", **kwargs)
+
+
+def _git_calls(monkeypatch, outcomes):
+    """Patch subprocess.run with a queue of outcomes; return the list of calls."""
+    calls = []
+
+    def run(args, **kwargs):
+        calls.append(args)
+        outcome = outcomes.pop(0)
+        if isinstance(outcome, BaseException):
+            raise outcome
+        return subprocess.CompletedProcess(args, 0, stdout=outcome, stderr="")
+
+    monkeypatch.setattr(subprocess, "run", run)
+    return calls
+
+
+def _no_sleep(monkeypatch):
+    pauses = []
+    monkeypatch.setattr(lock_tool.time, "sleep", lambda seconds: pauses.append(seconds))
+    return pauses
+
+
+def _timeout():
+    return subprocess.TimeoutExpired(cmd="git", timeout=lock_tool.GIT_REMOTE_TIMEOUT)
+
+
+def test_a_thin_robot_without_settings_toml_is_an_error(tmp_path, monkeypatch):
+    """(b) on the thin path: no fallback to the existing 0.2.0 reporter either."""
+    definition, existing = _thin(tmp_path, monkeypatch)
+    assert existing["releases"]["reporter"]["tag"] == "v1.2.3"
+    assert not (definition.parent / "settings.toml").exists()
+    with pytest.raises(lock_tool.LockError, match="settings.toml is required"):
+        _thin_generate(definition, tmp_path)
+
+
+def test_the_cli_reports_a_missing_settings_toml_without_a_traceback(tmp_path, monkeypatch, capsys):
+    """(b) the command exits 1 with the LockError text, not a Python traceback."""
+    definition, _ = _thin(tmp_path, monkeypatch)
+    with pytest.raises(SystemExit) as caught:
+        lock_tool.main([str(definition), "--work", str(tmp_path / "work")])
+    assert isinstance(caught.value, lock_tool.LockError)
+    assert "settings.toml is required" in str(caught.value.code)
+    assert "Traceback" not in capsys.readouterr().err
+
+
+def test_a_thin_robot_lock_regenerates_identically(tmp_path, monkeypatch):
+    """Determinism: two runs on the same inputs give byte-identical JSON."""
+    definition, _ = _thin(tmp_path, monkeypatch)
+    _write_settings(definition, tag="v3.5.0")
+    _write_workflow(tmp_path, "9" * 40, tag="v9.9.9")
+    tag_of = lambda repository, commit: "v9.9.9"  # noqa: E731
+    first, _ = _thin_generate(definition, tmp_path, tag_of=tag_of)
+    second, _ = _thin_generate(definition, tmp_path, tag_of=tag_of)
+    assert json.dumps(first, sort_keys=True) == json.dumps(second, sort_keys=True)
+
+
+def test_a_thin_robot_settings_edit_moves_only_the_reporter(tmp_path, monkeypatch):
+    """Changing settings.toml changes releases.reporter and nothing else in the lock."""
+    definition, _ = _thin(tmp_path, monkeypatch)
+    _write_settings(definition, tag="v3.5.0")
+    before, _ = _thin_generate(definition, tmp_path)
+    _write_settings(definition, tag="v3.6.0")
+    after, _ = _thin_generate(definition, tmp_path)
+    assert after["releases"]["reporter"]["tag"] == "v3.6.0"
+    for key in set(before) | set(after):
+        if key != "releases":
+            assert before.get(key) == after.get(key), key
+    for key in set(before["releases"]) | set(after["releases"]):
+        if key != "reporter":
+            assert before["releases"].get(key) == after["releases"].get(key), key
+
+
+def test_a_thin_robot_without_a_workflow_call_keeps_the_existing_verifier(tmp_path, monkeypatch):
+    """Pins current behaviour: no verify.yml job means the verifier stays as locked."""
+    definition, existing = _thin(tmp_path, monkeypatch)
+    _write_settings(definition)
+    lock, _ = _thin_generate(definition, tmp_path)
+    assert lock["releases"]["verifier"] == existing["releases"]["verifier"]
+
+
+def test_resolve_tag_retries_a_timeout_and_then_succeeds(monkeypatch):
+    """(c) bounded retry: one timeout, then the second attempt's answer is used."""
+    pauses = _no_sleep(monkeypatch)
+    calls = _git_calls(monkeypatch, [_timeout(), LS_REMOTE])
+    commit = lock_tool.resolve_tag("Living-Proof-Labs/livingproof-capability-report", "v3.7.0")
+    assert commit == "7" * 40
+    assert len(calls) == 2
+    assert pauses == [lock_tool.GIT_REMOTE_PAUSE]
+
+
+def test_resolve_tag_gives_up_after_the_configured_attempts(monkeypatch):
+    """(c') exactly GIT_REMOTE_ATTEMPTS tries, then LockError naming them."""
+    pauses = _no_sleep(monkeypatch)
+    attempts = lock_tool.GIT_REMOTE_ATTEMPTS
+    calls = _git_calls(monkeypatch, [_timeout() for _ in range(attempts + 2)])
+    with pytest.raises(lock_tool.LockError, match=f"timed out after {attempts} attempts"):
+        lock_tool.resolve_tag("Living-Proof-Labs/livingproof-capability-report", "v3.7.0")
+    assert len(calls) == attempts
+    assert len(pauses) == attempts - 1
+
+
+def test_tag_of_commit_retries_a_timeout_and_then_succeeds(monkeypatch):
+    _no_sleep(monkeypatch)
+    commit = "9" * 40
+    calls = _git_calls(monkeypatch, [_timeout(), f"{commit}\trefs/tags/v9.9.9\n"])
+    assert lock_tool.tag_of_commit("Living-Proof-Labs/capability-verifier", commit) == "v9.9.9"
+    assert len(calls) == 2
+
+
+def test_a_git_failure_is_not_retried(monkeypatch):
+    """Only timeouts are retried. A non-zero exit fails at once with git's last line."""
+    pauses = _no_sleep(monkeypatch)
+    failed = subprocess.CalledProcessError(
+        128, ["git"], stderr="fatal: unable to access: Could not resolve host\n"
+    )
+    calls = _git_calls(monkeypatch, [failed, LS_REMOTE])
+    with pytest.raises(lock_tool.LockError, match=r"exit 128\): fatal: unable to access"):
+        lock_tool.resolve_tag("Living-Proof-Labs/livingproof-capability-report", "v3.7.0")
+    assert len(calls) == 1
+    assert pauses == []
+
+
+def test_every_git_remote_call_has_the_timeout(monkeypatch):
+    seen = []
+
+    def run(args, **kwargs):
+        seen.append(kwargs.get("timeout"))
+        return subprocess.CompletedProcess(args, 0, stdout=LS_REMOTE, stderr="")
+
+    monkeypatch.setattr(subprocess, "run", run)
+    lock_tool.resolve_tag("Living-Proof-Labs/livingproof-capability-report", "v3.7.0")
+    assert seen == [lock_tool.GIT_REMOTE_TIMEOUT]
+
+
+def test_a_registry_timeout_is_a_lock_error(monkeypatch):
+    """README: 'A registry timeout ... is LockError as well.' socket timeouts are OSError."""
+
+    def stall(*args, **kwargs):
+        raise TimeoutError("timed out")
+
+    monkeypatch.setattr(urllib.request, "urlopen", stall)
+    with pytest.raises(lock_tool.LockError, match="cannot read the registry digest") as caught:
+        lock_tool.image_digest("ghcr.io/living-proof-labs/livingproof-capability-report", "3.7.0")
+    assert type(caught.value) is lock_tool.LockError
+
+
+def test_the_readme_retry_policy_matches_the_code():
+    """Docs-vs-code: the README numbers are the constants, and the policy words are there."""
+    words = {1: "once", 2: "twice", 3: "three times", 4: "four times", 5: "five times"}
+    readme = (ROOT / "README.md").read_text()
+    paragraph = next(p for p in readme.split("\n\n") if "The `locks` job needs the network" in p)
+    assert f"retry a timeout {words[lock_tool.GIT_REMOTE_ATTEMPTS]}" in paragraph
+    assert f"({lock_tool.GIT_REMOTE_TIMEOUT} seconds each" in paragraph
+    pause = lock_tool.GIT_REMOTE_PAUSE
+    assert re.search(
+        rf"\b{'one' if pause == 1 else pause} second{'s' if pause != 1 else ''} apart", paragraph
+    )
+    for phrase in ("not cached", "fails closed", "no cache"):
+        assert phrase in paragraph, phrase
