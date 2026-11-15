@@ -186,6 +186,297 @@ def test_index_and_history_show_ci_runs_as_text(tmp_path):
     local_links_resolve(site)
 
 
+def write_compared_reports(directory: Path, grade: str, statement: str) -> None:
+    directory.mkdir(parents=True)
+    report = {
+        "report_version": "1.0.0",
+        "summaries": [
+            {
+                "capability": "walk-hallway",
+                "system": {"id": "unitree-g1/stock"},
+                "grade": grade,
+                "k": None,
+                "n": None,
+                "required_passes": None,
+                "wilson95": [None, None],
+                "reproducibility": {
+                    "compared": True,
+                    "identical": True,
+                    "repeats": 3,
+                    "finding": None,
+                    "agreeing": 3,
+                    "statement": statement,
+                },
+            }
+        ],
+    }
+    (directory / "report.json").write_text(json.dumps(report))
+    for name in ("report.html", "report.md", "report.txt"):
+        (directory / name).write_text(f"{name} {statement}\n")
+    restamp(directory)
+
+
+def reports_for_compared(tmp_path: Path, name: str, grade: str, statement: str) -> Path:
+    reports = tmp_path / name
+    for target in site_tool.targets():
+        write_compared_reports(reports / target["artifact"], grade, statement)
+    return reports
+
+
+def test_history_uses_the_reproducibility_statement_when_counts_are_null(tmp_path):
+    """Compared repeats are one outcome plus the stored statement, not None/None."""
+    statement = "3 of 3 repeats agree"
+    site = tmp_path / "site"
+    site_tool.build(
+        site,
+        reports_for_compared(tmp_path, "compared", "PASS", statement),
+        run("100", "2026-11-15T01:15:48Z"),
+    )
+    home = (site / "index.html").read_text()
+    history = (site / "unitree-g1/stock-mujoco-hallway/index.html").read_text()
+    for page in (home, history):
+        assert "None/None passed (None needed)" not in page
+        assert statement in page
+        assert '<span class="PASS">PASS</span>' in page
+
+
+# A restored run.json from before this display fix has null counts and no statement.
+# The history and index lines say this instead of None/None. Nothing is invented.
+LEGACY_COUNTS = "counts not stored"
+DISAGREEING_FINDING = (
+    "Identical trials disagreed on trajectory hash or outcome. "
+    "This is a test-system reproducibility finding, not a robot FAIL."
+)
+
+
+def write_summary_reports(directory: Path, summary: dict) -> None:
+    directory.mkdir(parents=True)
+    (directory / "report.json").write_text(
+        json.dumps({"report_version": "1.0.0", "summaries": [summary]})
+    )
+    for name in ("report.html", "report.md", "report.txt"):
+        (directory / name).write_text(f"{name}\n")
+    restamp(directory)
+
+
+def reports_for_summary(tmp_path: Path, name: str, summary: dict) -> Path:
+    reports = tmp_path / name
+    for target in site_tool.targets():
+        write_summary_reports(reports / target["artifact"], summary)
+    return reports
+
+
+def history_and_index(site: Path) -> tuple[str, str]:
+    history = (site / "unitree-g1/stock-mujoco-hallway/index.html").read_text()
+    return history, (site / "index.html").read_text()
+
+
+def test_agreeing_repeats_preserve_the_statement_and_leave_counts_null(tmp_path):
+    """An agreeing FAIL keeps the stored statement. k, n and required_passes stay null."""
+    statement = "3 of 3 repeats agree"
+    site = tmp_path / "site"
+    site_tool.build(
+        site,
+        reports_for_compared(tmp_path, "agree", "FAIL", statement),
+        run("100", "2026-11-15T01:15:48Z"),
+    )
+    history, index = history_and_index(site)
+    for page in (history, index):
+        assert statement in page
+        assert "None/None passed (None needed)" not in page
+        assert " passed (" not in page
+        assert '<span class="FAIL">FAIL</span>' in page
+    for target in site_tool.targets():
+        folder = site / target["robot"] / target["variant"] / "runs" / "100"
+        record = json.loads((folder / "run.json").read_text())
+        item = record["outcome"][0]
+        assert item["statement"] == statement
+        assert item["passed"] is None and item["trials"] is None and item["required"] is None
+        summary = json.loads((folder / "report.json").read_text())["summaries"][0]
+        assert summary["k"] is None and summary["n"] is None
+        assert summary["required_passes"] is None
+        assert summary["reproducibility"]["statement"] == statement
+
+
+def test_restored_history_reads_the_statement_from_report_json(tmp_path):
+    """An older run.json dropped the statement. report.json still has it.
+
+    Re-rendering copies that statement onto the history record and both pages.
+    k, n and required_passes stay null.
+    """
+    statement = "3 of 3 repeats agree"
+    site = tmp_path / "site"
+    site_tool.build(
+        site,
+        reports_for_compared(tmp_path, "restored", "FAIL", statement),
+        run("100", "2026-11-15T01:15:48Z"),
+    )
+    for path in site.glob("*/*/runs/*/run.json"):
+        record = json.loads(path.read_text())
+        for item in record["outcome"]:
+            item.pop("statement", None)
+            item.pop("finding", None)
+        path.write_text(json.dumps(record, indent=2) + "\n")
+        assert "statement" not in json.loads(path.read_text())["outcome"][0]
+    site_tool.render(site, now="2026-11-15T01:15:48Z")
+    history, index = history_and_index(site)
+    for page in (history, index):
+        assert statement in page
+        assert "None/None" not in page
+        assert "counts not stored" not in page
+        assert '<span class="FAIL">FAIL</span>' in page
+    item = json.loads((site / "unitree-g1/stock-mujoco-hallway/runs/100/run.json").read_text())[
+        "outcome"
+    ][0]
+    assert item["statement"] == statement
+    assert item["passed"] is None and item["trials"] is None and item["required"] is None
+
+
+def test_disagreeing_repeats_show_the_finding_and_keep_null_counts(tmp_path):
+    """No statement is stored. The line shows the finding, not a made-up passed/total."""
+    summary = {
+        "capability": "walk-hallway",
+        "system": {"id": "unitree-g1/stock"},
+        "grade": "INSUFFICIENT_EVIDENCE",
+        "k": None,
+        "n": None,
+        "required_passes": None,
+        "wilson95": [None, None],
+        "reproducibility": {
+            "compared": True,
+            "identical": False,
+            "repeats": 3,
+            "finding": {
+                "kind": "test-system",
+                "name": "reproducibility",
+                "detail": DISAGREEING_FINDING,
+            },
+        },
+    }
+    site = tmp_path / "site"
+    site_tool.build(
+        site,
+        reports_for_summary(tmp_path, "disagree", summary),
+        run("100", "2026-11-15T01:15:48Z"),
+    )
+    history, index = history_and_index(site)
+    for page in (history, index):
+        assert DISAGREEING_FINDING in page
+        assert "None/None passed (None needed)" not in page
+        assert "repeats agree" not in page
+        assert " passed (" not in page
+        assert '<span class="INSUFFICIENT_EVIDENCE">INSUFFICIENT_EVIDENCE</span>' in page
+    folder = site / "unitree-g1/stock-mujoco-hallway/runs/100"
+    item = json.loads((folder / "run.json").read_text())["outcome"][0]
+    assert item["grade"] == "INSUFFICIENT_EVIDENCE"
+    assert item["passed"] is None and item["trials"] is None and item["required"] is None
+    assert "statement" not in item
+    assert item["finding"] == DISAGREEING_FINDING
+    stored = json.loads((folder / "report.json").read_text())["summaries"][0]
+    assert stored["k"] is None and stored["n"] is None and stored["required_passes"] is None
+    assert "statement" not in stored["reproducibility"]
+    record = json.loads((folder / "run.json").read_text())
+    record["outcome"][0].pop("finding", None)
+    (folder / "run.json").write_text(json.dumps(record, indent=2) + "\n")
+    site_tool.render(site, now="2026-11-15T01:15:48Z")
+    history, index = history_and_index(site)
+    assert DISAGREEING_FINDING in history and DISAGREEING_FINDING in index
+    restored = json.loads((folder / "run.json").read_text())["outcome"][0]
+    assert restored["finding"] == DISAGREEING_FINDING
+    assert restored["passed"] is None and "statement" not in restored
+
+
+def test_legacy_null_counts_without_a_statement_say_counts_not_stored(tmp_path):
+    """A record with null counts and no statement must not crash or show None/None.
+
+    Fallback, on the history and index lines: ``counts not stored``.
+    """
+    summary = {
+        "capability": "walk-hallway",
+        "system": {"id": "unitree-g1/stock"},
+        "grade": "PASS",
+        "k": None,
+        "n": None,
+        "required_passes": None,
+    }
+    site = tmp_path / "site"
+    site_tool.build(
+        site,
+        reports_for_summary(tmp_path, "legacy", summary),
+        run("100", "2026-11-15T01:15:48Z"),
+    )
+    for path in site.glob("*/*/runs/*/run.json"):
+        record = json.loads(path.read_text())
+        for item in record["outcome"]:
+            item["passed"] = None
+            item["trials"] = None
+            item["required"] = None
+            item.pop("statement", None)
+            item.pop("finding", None)
+        path.write_text(json.dumps(record, indent=2) + "\n")
+    site_tool.render(site, now="2026-11-15T01:15:48Z")
+    history, index = history_and_index(site)
+    for page in (history, index):
+        assert LEGACY_COUNTS in page
+        assert "None/None passed (None needed)" not in page
+        assert "None/None" not in page
+        assert '<span class="PASS">PASS</span>' in page
+        assert " passed (" not in page
+    item = json.loads((site / "unitree-g1/stock-mujoco-hallway/runs/100/run.json").read_text())[
+        "outcome"
+    ][0]
+    assert "statement" not in item and "finding" not in item
+    assert item["passed"] is None and item["trials"] is None and item["required"] is None
+
+
+def test_seeded_and_single_trial_counts_still_render(tmp_path):
+    """Seeded and single-trial reports keep the stored k, n and required_passes."""
+    single = {
+        "capability": "walk-hallway",
+        "system": {"id": "unitree-g1/stock"},
+        "grade": "PASS",
+        "k": 1,
+        "n": 1,
+        "required_passes": 1,
+    }
+    seeded = {
+        "capability": "walk-hallway",
+        "system": {"id": "unitree-g1/stock"},
+        "grade": "FAIL",
+        "k": 2,
+        "n": 3,
+        "required_passes": 3,
+    }
+    site = tmp_path / "site"
+    site_tool.build(
+        site,
+        reports_for_summary(tmp_path, "single", single),
+        run("100", "2026-11-15T01:00:00Z"),
+    )
+    site_tool.build(
+        site,
+        reports_for_summary(tmp_path, "seeded", seeded),
+        run("200", "2026-11-15T02:00:00Z"),
+    )
+    history, index = history_and_index(site)
+    assert "1/1 passed (1 needed)" in history
+    assert "2/3 passed (3 needed)" in history
+    assert "2/3 passed (3 needed)" in index
+    assert "counts not stored" not in history and "None/None" not in history
+    single_run = json.loads(
+        (site / "unitree-g1/stock-mujoco-hallway/runs/100/run.json").read_text()
+    )
+    seeded_run = json.loads(
+        (site / "unitree-g1/stock-mujoco-hallway/runs/200/run.json").read_text()
+    )
+    assert (single_run["outcome"][0]["passed"], single_run["outcome"][0]["trials"]) == (1, 1)
+    assert single_run["outcome"][0]["required"] == 1
+    assert "statement" not in single_run["outcome"][0]
+    assert (seeded_run["outcome"][0]["passed"], seeded_run["outcome"][0]["trials"]) == (2, 3)
+    assert seeded_run["outcome"][0]["required"] == 3
+    assert "statement" not in seeded_run["outcome"][0]
+
+
 def test_reports_are_copied_unchanged_and_checked(tmp_path):
     reports = reports_for(tmp_path, "one", 12, "FAIL")
     artifact = reports / "unitree-g1-stock-mujoco-hallway-capability-report-stock"
