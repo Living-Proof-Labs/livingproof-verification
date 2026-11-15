@@ -7,10 +7,12 @@ must pass that definition's lock as `verification-lock`.
 
 Release pins are checked by resolving them again. `tools/lock.py` takes the reporter tag
 from `verifications/settings.toml` and the verifier commit from the workflow call, then
-resolves commits with git and image digests with ghcr. The committed lock must match that
-resolution. Editing a tag, commit or digest in the file fails the diff. A workflow-only
-verifier bump names `python3 tools/lock.py --update`. The full check is
-`livingproof capability verify lock --check --workflow .github/workflows/verify.yml`."""
+resolves commits with git and image digests with ghcr. That is true whether or not the
+robot publishes `verification.lock.json`, so a reporter edit is drift for a thin robot
+too. The committed lock must match that resolution. Editing a tag, commit or digest in
+the file fails the diff. A workflow-only verifier bump names `python3 tools/lock.py --update`.
+The full check is `livingproof capability verify lock --check --workflow
+.github/workflows/verify.yml`."""
 
 import hashlib
 import importlib.util
@@ -852,6 +854,30 @@ def test_the_lock_check_step_names_the_update_command_when_it_fails():
     assert "::error::" in failure
     assert "exit 1" in failure
     assert "capability verify lock --check" in script
+
+
+def test_a_thin_robot_reporter_edit_is_release_drift(tmp_path, monkeypatch):
+    """A settings.toml reporter edit is drift even when the robot publishes no lock."""
+    spec = importlib.util.spec_from_file_location("lock_cases", ROOT / "tests" / "test_lock.py")
+    cases = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(cases)
+    base = tmp_path / "git"
+    repo = cases._robot(base, publish_lock=False)
+    monkeypatch.setenv("LIVINGPROOF_GIT_BASE", f"file://{base}")
+    definition = cases._write_definition(tmp_path)
+    existing = cases._v2(definition, repo)
+    assert existing["releases"]["reporter"]["tag"] == "v1.2.3"
+    lock_tool.lock_path(definition).write_text(json.dumps(existing))
+    cases._write_settings(definition, tag="v3.5.0")
+    monkeypatch.setattr(lock_tool, "resolve_tag", lambda repository, tag: "7" * 40)
+    monkeypatch.setattr(lock_tool, "image_digest", lambda image, tag: "sha256:" + "ef" * 32)
+    monkeypatch.setattr(
+        lock_tool,
+        "_verifier_pyproject",
+        lambda repository, commit, work: cases.VERIFIER_WITH_EVALUATOR,
+    )
+    problems = release_drift(tmp_path / "proj", tmp_path / "work")
+    assert any("releases.reporter.tag" in item and "v3.5.0" in item for item in problems), problems
 
 
 def test_the_maintainer_command_is_documented():

@@ -154,9 +154,16 @@ def _resolve(repository: str, tag: str) -> str:
     return EVALUATOR_COMMIT
 
 
+def _digest(image: str, tag: str) -> str:
+    return "sha256:" + "ab" * 32
+
+
 def _generate(tmp_path, definition, **kwargs):
+    if not (definition.parent / "settings.toml").exists():
+        _write_settings(definition, tag="v1.2.3")
     kwargs.setdefault("resolve", _resolve)
     kwargs.setdefault("verifier_pyproject", VERIFIER_WITH_EVALUATOR)
+    kwargs.setdefault("digester", _digest)
     return lock_tool.generate(definition, tmp_path / "work", **kwargs)
 
 
@@ -301,11 +308,19 @@ def test_the_evaluator_commit_is_resolved_from_the_verifier_checkout(tmp_path, m
     _commit(repo)
 
     def resolve(repository, tag):
+        if repository.endswith("capability-report"):
+            return "d" * 40
         assert repository == "Living-Proof-Labs/livingproof-evaluator-scenario"
         assert tag == "v1.2.3"
         return "a" * 40
 
-    lock, notes = lock_tool.generate(definition, tmp_path / "work", resolve=resolve)
+    _write_settings(definition)
+    lock, notes = lock_tool.generate(
+        definition,
+        tmp_path / "work",
+        resolve=resolve,
+        digester=_digest,
+    )
     assert notes == []
     assert lock["evaluators"]["livingproof-evaluator-scenario"]["commit"] == "a" * 40
 
@@ -485,8 +500,10 @@ def test_main_writes_the_lock_and_asks_for_review(tmp_path, monkeypatch, capsys)
     _robot(base)
     _use(monkeypatch, base)
     definition = _definition(tmp_path)
-    # The CLI resolves the evaluator tag. Stub it the same way the other tests do.
+    _write_settings(definition)
+    # The CLI resolves the evaluator tag and the reporter digest. Stub both.
     monkeypatch.setattr(lock_tool, "resolve_tag", _resolve)
+    monkeypatch.setattr(lock_tool, "image_digest", _digest)
     monkeypatch.setattr(
         lock_tool,
         "_verifier_pyproject",
@@ -516,6 +533,7 @@ def test_the_workflow_call_replaces_the_robot_verifier(tmp_path, monkeypatch):
         'ref = "main"\n'
         'configurations = ["stock"]\n'
     )
+    _write_settings(definition, tag="v1.2.3")
     called = "9" * 40
     workflow = tmp_path / "proj" / ".github" / "workflows" / "verify.yml"
     workflow.parent.mkdir(parents=True)
@@ -536,8 +554,7 @@ def test_the_workflow_call_replaces_the_robot_verifier(tmp_path, monkeypatch):
         return "v9.9.9"
 
     def digester(image, tag):
-        seen["image"] = image
-        seen["tag"] = tag
+        seen.setdefault("digests", []).append((image, tag))
         return digest
 
     lock, notes = lock_tool.generate(
@@ -548,12 +565,9 @@ def test_the_workflow_call_replaces_the_robot_verifier(tmp_path, monkeypatch):
         tag_of=tag_of,
         digester=digester,
     )
-    assert seen == {
-        "repository": "Living-Proof-Labs/capability-verifier",
-        "commit": called,
-        "image": lock_tool.VERIFIER_IMAGE,
-        "tag": "9.9.9",
-    }
+    assert seen["repository"] == "Living-Proof-Labs/capability-verifier"
+    assert seen["commit"] == called
+    assert (lock_tool.VERIFIER_IMAGE, "9.9.9") in seen["digests"]
     assert lock["releases"]["verifier"] == {
         "repository": "Living-Proof-Labs/capability-verifier",
         "tag": "v9.9.9",
@@ -754,3 +768,7 @@ def test_resolve_tag_timeout_is_a_lock_error(monkeypatch):
         lock_tool.resolve_tag("Living-Proof-Labs/livingproof-capability-report", "v3.7.0")
     assert type(caught.value) is lock_tool.LockError
     assert not isinstance(caught.value, subprocess.TimeoutExpired)
+    with pytest.raises(lock_tool.LockError, match="timed out|timeout") as listed:
+        lock_tool.tag_of_commit("Living-Proof-Labs/capability-verifier", "a" * 40)
+    assert type(listed.value) is lock_tool.LockError
+    assert not isinstance(listed.value, subprocess.TimeoutExpired)
