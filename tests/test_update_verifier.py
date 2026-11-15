@@ -19,6 +19,8 @@ def checkout(tmp_path):
     for name in (".github", ".devcontainer", "verifications"):
         shutil.copytree(ROOT / name, tmp_path / name)
     shutil.copyfile(ROOT / "README.md", tmp_path / "README.md")
+    (tmp_path / "tests").mkdir()
+    shutil.copyfile(ROOT / "tests/test_site.py", tmp_path / "tests/test_site.py")
     return tmp_path
 
 
@@ -108,6 +110,34 @@ def test_existing_guard_rejects_image_only_drift(checkout, monkeypatch, mutation
     dev.write_text(json.dumps(data))
     with pytest.raises(AssertionError):
         guard.test_walk_hallway_pin_locks_and_hallway_image_agree()
+
+
+def test_published_history_pin_follows_the_resolved_release(checkout, monkeypatch):
+    """The site test's verifier expectation moves with the release; the reporter pin does not."""
+    resolve(monkeypatch)
+    destination = checkout / "tests/test_site.py"
+    destination.parent.mkdir(exist_ok=True)
+    shutil.copyfile(ROOT / "tests/test_site.py", destination)
+    before = destination.read_text()
+    assert 'assert verifier["tag"] == "v9.9.9"' not in before
+    assert 'assert reporter_tag == "v3.7.0"' in before
+    updater.update(checkout, "v9.9.9")
+    text = destination.read_text()
+    assert 'assert verifier["tag"] == "v9.9.9"' in text
+    assert f'assert verifier["commit"] == "{"a" * 40}"' in text
+    assert 'assert reporter_tag == "v3.7.0"' in text
+    assert updater.update(checkout, "v9.9.9") == []
+
+
+def test_a_missing_history_pin_leaves_the_checkout_untouched(checkout, monkeypatch):
+    resolve(monkeypatch)
+    destination = checkout / "tests/test_site.py"
+    destination.parent.mkdir(exist_ok=True)
+    destination.write_text("no published-history verifier pin\n")
+    before = snapshot(checkout)
+    with pytest.raises(updater.lock.LockError, match="published-history"):
+        updater.update(checkout, "v9.9.9")
+    assert snapshot(checkout) == before
 
 
 def test_renovate_policy_covers_image_and_workflow_without_automerge():

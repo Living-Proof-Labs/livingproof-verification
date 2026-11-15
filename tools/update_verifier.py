@@ -18,6 +18,13 @@ CALL = re.compile(
     + r"@)[0-9a-f]{40}[ \t]+# v\d+\.\d+\.\d+[ \t]*$"
 )
 IMAGE = re.compile(re.escape(lock.VERIFIER_IMAGE) + r":\d+\.\d+\.\d+@sha256:[0-9a-f]{64}")
+HISTORY_EXPECTATION = Path("tests/test_site.py")
+# The published-history test names the locked verifier release. One pair, so the
+# next bump cannot leave a second stale pin or drop the assertion.
+HISTORY_PIN = re.compile(
+    r'(?m)^(?P<indent>[ \t]*)assert verifier\["tag"\] == "v\d+\.\d+\.\d+"\n'
+    r'(?P=indent)assert verifier\["commit"\] == "[0-9a-f]{40}"$'
+)
 
 
 def update(root: Path, tag: str) -> list[Path]:
@@ -31,6 +38,7 @@ def update(root: Path, tag: str) -> list[Path]:
         Path("README.md"),
         Path(".github/requirements/lock-check-git.txt"),
         Path(".github/requirements/lock-check.in"),
+        HISTORY_EXPECTATION,
     ]
     paths += [p.relative_to(root) for p in lock.definition_paths(root)]
     paths += [
@@ -64,6 +72,19 @@ def update(root: Path, tag: str) -> list[Path]:
             target.write_text(text)
         if json.loads((stage / paths[1]).read_text())["image"] != pinned:
             raise lock.LockError("devcontainer image did not match the resolved release")
+        expectation = stage / HISTORY_EXPECTATION
+        rewritten, count = HISTORY_PIN.subn(
+            lambda match: (
+                f'{match["indent"]}assert verifier["tag"] == "{tag}"\n'
+                f'{match["indent"]}assert verifier["commit"] == "{commit}"'
+            ),
+            expectation.read_text(),
+        )
+        if count != 1:
+            raise lock.LockError(
+                f"{HISTORY_EXPECTATION}: expected exactly one published-history verifier pin"
+            )
+        expectation.write_text(rewritten)
         changed = [p for p in paths if (stage / p).read_bytes() != original[p]]
         if any((root / p).read_bytes() != original[p] for p in paths):
             raise lock.LockError("checkout changed during resolution; retry on a stable branch")
