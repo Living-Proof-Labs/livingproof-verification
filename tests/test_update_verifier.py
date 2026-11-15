@@ -112,7 +112,12 @@ def test_existing_guard_rejects_image_only_drift(checkout, monkeypatch, mutation
 
 def test_renovate_policy_covers_image_and_workflow_without_automerge():
     config = json.loads((ROOT / "renovate.json").read_text())
-    (rule,) = config["packageRules"]
+    (rule,) = [
+        item
+        for item in config["packageRules"]
+        if set(item.get("matchPackageNames", []))
+        == {updater.REPOSITORY, updater.lock.VERIFIER_IMAGE}
+    ]
     assert set(rule["matchManagers"]) == {"github-actions", "devcontainer"}
     assert set(rule["matchPackageNames"]) == {updater.REPOSITORY, updater.lock.VERIFIER_IMAGE}
     assert rule["automerge"] is False
