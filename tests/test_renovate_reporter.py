@@ -22,9 +22,13 @@ def _config():
 
 def test_reporter_manager_is_targeted_and_automerge_stays_off():
     renovate = _config()
-    assert renovate["extends"] == [
-        "github>Living-Proof-Labs/collaboration-guidelines:renovate-preset#v7.10.8"
-    ]
+    # One organization preset, pinned to a full release tag. Renovate moves the
+    # tag, so the test checks the shape rather than a version.
+    assert len(renovate["extends"]) == 1
+    assert re.fullmatch(
+        r"github>Living-Proof-Labs/collaboration-guidelines:renovate-preset#v\d+\.\d+\.\d+",
+        renovate["extends"][0],
+    )
     assert renovate["automerge"] is False
     assert renovate["platformAutomerge"] is False
     assert "ignoreUnstable" not in renovate
