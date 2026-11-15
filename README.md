@@ -86,6 +86,21 @@ Replace `vX.Y.Z` with the reviewed release. Use a `fix:` or `chore:` commit pref
 
 Before merge, required checks must pass on the exact head revision, and the engineering lead records verification evidence (passed, failed, blocked, and not run separately, tied to that SHA). Release provenance is checked by `python3 tools/update_verifier.py --tag vX.Y.Z`, which resolves a unique published tag to its commit and digest, and by `python3 tools/lock.py --check --workflow` plus the locks job, which fail until workflow pins, verification locks, and the locked verifier and reporter agree. Unrelated pins stay unchanged because the generator does not rewrite robot, reporter, runner, specs, or definition bytes. Require those fresh-resolution and consistency checks plus all four configuration pipelines. If new verifier dependencies require a hashed requirements recompile, follow `.github/requirements/lock-check.in`; this helper does not resolve the whole Python environment. Missing releases, unavailable registries and install incompatibilities are blockers, not reasons to weaken checks. CI success and robot capability verdicts must be reported separately. Automerge stays off; a human approval is not a merge gate. The engineering lead may merge once those required checks pass and the evidence is recorded.
 
+## Updating the reporter
+
+Renovate proposes a new `Living-Proof-Labs/livingproof-capability-report` release by editing the tag in `verifications/settings.toml` only. The organization preset still applies: the release is reviewed, automerge stays off, and this repository does not widen the preset's schedule, rate limits or stability filter. The four `verifications/*.lock.json` files are generator output. Renovate does not edit them, and it does not edit robot, verifier or evaluator pins.
+
+Hosted Mend Renovate cannot run the lock generator. Check out the proposal's exact head and regenerate all four locks with the existing generator:
+
+```sh
+python3 tools/lock.py verifications/booster-t1-stock-mujoco-hallway.toml
+python3 tools/lock.py verifications/unitree-g1-playground-mujoco-hallway.toml
+python3 tools/lock.py verifications/unitree-g1-stock-mujoco-hallway.toml
+python3 tools/lock.py verifications/unitree-go1-playground-mujoco-hallway.toml
+```
+
+Never hand-edit hashes, commits or digests. `python3 tools/lock.py --update` refreshes the verifier and scenario evaluator and leaves the reporter pin as committed, so it does not complete a reporter proposal. Review the diff before staging. The generator writes the reporter tag, commit and digest from `verifications/settings.toml`. Robot, verifier and evaluator pins stay as they are when their sources have not changed; if the diff moves one of those, stop and reconcile it instead of editing a hash by hand. Record that release's published wheel sha256 in `tools/install_reporter.py` the same way the existing tags are recorded. That is the wheel hash, not a lock hash; the checks job refuses a tag with no hash. Commit with a `fix:` or `chore:` prefix. Automerge stays off.
+
 ## Published reports
 
 On every push to `main`, after the verification jobs pass, the `site` job lays this run's
@@ -156,7 +171,8 @@ actionlint
 Pull requests run the same checks in `.github/workflows/checks.yml` (tools installed by sha256
 from `.github/requirements/`), plus a site build from fixture reports
 (`tools/site_fixture.py`) whose links must resolve. That job has `contents: read` only and
-deploys nothing.
+deploys nothing. The `renovate` job runs `tools/renovate/run.sh`: `renovate-config-validator --strict`
+and the reporter extraction test against the real `verifications/settings.toml`.
 
 ## License
 

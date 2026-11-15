@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
-# Lightweight pull request checks: lint, format, tests, workflow lint and a site build from
-# fixture reports. Read-only: no deploy, no Pages permissions, no artifacts published.
+# Lightweight pull request checks: lint, format, tests, workflow lint, a site build from
+# fixture reports, and the Renovate reporter extraction test. Read-only: no deploy, no Pages
+# permissions, no artifacts published.
 name: checks
 on:
   pull_request:
@@ -55,3 +56,25 @@ jobs:
             --run-id "$RUN_ID" --commit "$COMMIT" \
             --created "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           python3 tools/site_fixture.py check "$RUNNER_TEMP/site"
+  renovate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    env:
+      NODE_VERSION: 24.22.3
+      # sha256 of node-v24.22.3-linux-x64.tar.xz (nodejs.org SHASUMS256.txt).
+      NODE_SHA256: 4f2b175a6d53a5c617a80dba2676238a0688cef28c6da4eba35c7d844e66fcfb
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Install Node.js
+        run: |
+          archive="node-v${NODE_VERSION}-linux-x64.tar.xz"
+          curl -fsSL -o "$RUNNER_TEMP/$archive" "https://nodejs.org/dist/v${NODE_VERSION}/$archive"
+          echo "$NODE_SHA256  $RUNNER_TEMP/$archive" | sha256sum -c -
+          tar -xJf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/node-v${NODE_VERSION}-linux-x64/bin" >> "$GITHUB_PATH"
+      - name: Validate Renovate and extract the reporter pin
+        run: tools/renovate/run.sh
