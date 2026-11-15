@@ -12,3 +12,8 @@ livingproof-capability-report v3.0.3 in CI run 41703287431 (verify on 8df8e90), 
 
 Its Evidence section carries the reporter's `CI run` anchor and three download anchors.
 The published pages must not keep those hrefs or that wording (lpv #23 and #48).
+
+`repeats/` is the compared-repeat, seeded and single-trial bundles from
+livingproof-capability-report v3.7.0 (`tests/fixtures/repeats` at tag `v3.7.0`,
+commit `5f4114c2b78759a0ea4eb18584c0a232459ea90a`). `tests/test_repeat_report.py`
+renders them with the reporter pinned in `verifications/settings.toml`.
