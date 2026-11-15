@@ -11,6 +11,7 @@ import re
 import shutil
 import subprocess
 import tarfile
+import tomllib
 import urllib.error
 import urllib.request
 import zipfile
@@ -132,6 +133,37 @@ def test_second_run_updates_latest_and_keeps_the_first(tmp_path):
         assert link in history
     assert "/actions/" not in latest and "artifact" not in latest.lower()
     local_links_resolve(site)
+
+
+def test_published_history_names_the_verifier_and_reporter_releases(tmp_path):
+    """The public history and run.json name both pinned releases (issue 62)."""
+    settings = tomllib.loads((ROOT / "verifications/settings.toml").read_text())
+    reporter_tag = settings["reporter"]["tag"]
+    assert reporter_tag == "v3.7.0"
+    site = tmp_path / "site"
+    site_tool.build(
+        site, reports_for(tmp_path, "one", 12, "PASS"), run("100", "2026-11-02T06:00:00Z")
+    )
+    for target in site_tool.targets():
+        lock = json.loads((ROOT / "verifications" / f"{target['id']}.lock.json").read_text())
+        verifier = lock["releases"]["verifier"]
+        reporter = lock["releases"]["reporter"]
+        assert verifier["tag"] == "v1.20.2"
+        assert verifier["commit"] == "8daf09c3adcdfa14c438b964c04ac525491eb974"
+        assert reporter["tag"] == reporter_tag
+        assert reporter["repository"] == settings["reporter"]["repository"]
+        history = (site / target["robot"] / target["variant"] / "index.html").read_text()
+        record = json.loads(
+            (site / target["robot"] / target["variant"] / "runs/100/run.json").read_text()
+        )
+        for release in (verifier, reporter):
+            link = f"{release['repository']}/releases/tag/{release['tag']}"
+            assert link in history
+            assert f">{release['tag']}</a>" in history
+        assert record["releases"]["verifier"]["tag"] == verifier["tag"]
+        assert record["releases"]["reporter"]["tag"] == reporter["tag"]
+        assert record["releases"]["verifier"]["commit"] == verifier["commit"]
+        assert record["releases"]["reporter"]["commit"] == reporter["commit"]
 
 
 def test_index_and_history_show_ci_runs_as_text(tmp_path):

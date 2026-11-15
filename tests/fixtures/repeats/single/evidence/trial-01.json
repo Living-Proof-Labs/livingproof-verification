@@ -1,0 +1,1 @@
+{"format":"livingproof-hallway-observation/2.0.0","end":"crossed_exit","duration_s":12.0,"exit_time":12.0,"max_abs_lateral":{"value":0.21,"time":7.3},"min_base_height":{"value":0.71,"time":3.0},"wall_contacts":[],"trace":{"columns":["t","x","y","z","wall_distance"],"samples":[[0.0,-2.5,0.0,0.75,0.3],[9.8,1.0,0.21,0.74,0.041],[10.1,1.2,0.62,0.73,0.05],[12.0,3.0,0.1,0.74,0.2]]}}

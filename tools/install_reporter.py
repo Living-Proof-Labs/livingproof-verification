@@ -23,6 +23,7 @@ SETTINGS = ROOT / "verifications" / "settings.toml"
 # livingproof-capability-report release wheels, keyed by version (the tag without v).
 REPORTER_WHEELS = {
     "3.6.0": "c600c502f6e8722c358264cf9f104bba759188334e6329821b463fbaab862824",
+    "3.7.0": "e02bd0c8f553a8da0745ea2f6312bb27c59aeef9dcdc7a16673fd9aba77c3d5c",
 }
 COMMON_VERSION = "1.0.0"
 COMMON_SHA256 = "8b7795748b54eeb89610f3716245f45db48ac0474465a5abbf974e7075c1476c"
