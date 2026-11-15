@@ -20,7 +20,7 @@ The recommended path is the devcontainer (`.devcontainer/devcontainer.json`): th
 
 ```sh
 docker run --rm -u $(id -u):$(id -g) -v $PWD:/work \
-  ghcr.io/living-proof-labs/capability-verifier-hallway:1.20.2@sha256:e75612c3b520724c965941145b6d5f9db14a306e12ad8012df8b503537dc9ff0 \
+  ghcr.io/living-proof-labs/capability-verifier-hallway:1.20.5@sha256:81be46a57633b08f8b1f88a7cbeb316f458a3998b2fef2577df5322fac0d5321 \
   capability verify run --reporter source verifications/unitree-g1-stock-mujoco-hallway.toml
 ```
 
@@ -64,7 +64,9 @@ Edit a definition, re-lock it, and review the lock diff:
 python3 tools/lock.py verifications/unitree-g1-stock-mujoco-hallway.toml
 ```
 
-`lock` writes `livingproof-verification-lock/0.2.0`. While the robot still publishes `verification.lock.json`, plan, world and the specs and runner releases are copied from that file. The reporter tag, repository and image come from `verifications/settings.toml`; the commit and digest are resolved from that tag. The verifier pin is the walk-hallway commit that definition's job calls, and the scenario-evaluator pin is read from that verifier release (recorded as `livingproof-evaluator-scenario` `v1.0.0` when that release does not declare one). A thin robot publishes the adapter and configurations only. `lock` then keeps releases, plan, world and the evaluator pin from the existing `0.2.0` and refreshes the commit, adapter and configuration sha256s. With neither source it exits with that explanation. A `0.1.0` lock beside the definition stays readable. The published locks are `0.2.0`; the locks job accepts both.
+`lock` writes `livingproof-verification-lock/0.2.0`. While the robot still publishes `verification.lock.json`, plan, world and the specs and runner releases are copied from that file. A thin robot publishes the adapter and configurations only. `lock` then keeps scenario, plan, world and the specs and runner releases from the existing `0.2.0`, and refreshes the commit, adapter and configuration sha256s. With neither source it exits with that explanation. In both cases the reporter tag, repository and image come from `verifications/settings.toml`. A missing `settings.toml` is an error: the reporter is not copied from a robot lock or from an existing `0.2.0`. The commit and digest are resolved from that tag. The verifier pin is the walk-hallway commit that definition's job calls, and the scenario-evaluator pin is read from that verifier release (recorded as `livingproof-evaluator-scenario` `v1.0.0` when that release does not declare one). A `0.1.0` lock beside the definition stays readable. The published locks are `0.2.0`; the locks job accepts both.
+
+The `locks` job needs the network. On every run it resolves tags, commits and image digests from git and GHCR, and `tests/test_locks.py` compares that fresh resolution to the committed locks. Those lookups are not cached: a cache would let a stale reporter, verifier or digest pass the review. Git tag lookups retry a timeout three times (60 seconds each, one second apart) and then raise `LockError`. A registry timeout or an unreachable host is `LockError` as well. The job fails closed either way. A GitHub or GHCR outage blocks CI after the retries are exhausted. That is the chosen tradeoff: bounded retry, then fail closed, and no cache. Missing releases and install incompatibilities stay blockers, not reasons to weaken the check.
 
 Then update the call in `.github/workflows/verify.yml` to the new robot commit and, when the lock names a new verifier, to that verifier commit. `tests/test_locks.py` (the `locks` CI job, which every verification job waits for) and `lock --check --workflow` fail until `uses`, `verification-lock` and the locked verifier and reporter agree. Both parse the workflow YAML, so a commented-out pin does not count. Every configuration's `uses` commit is its locked verifier commit.
 
@@ -78,13 +80,29 @@ The engineering lead (Rivet) completing the dependency PR owns release selection
 python3 tools/update_verifier.py --tag vX.Y.Z
 # Review git diff before staging the generated files.
 git add .github/workflows/verify.yml .devcontainer/devcontainer.json README.md \
-  verifications/*.lock.json .github/requirements/lock-check-git.txt .github/requirements/lock-check.in
+  verifications/*.lock.json .github/requirements/lock-check-git.txt .github/requirements/lock-check.in \
+  tests/test_site.py
 git commit -m "chore: coordinate verifier release and locked evidence"
 ```
 
-Replace `vX.Y.Z` with the reviewed release. Use a `fix:` or `chore:` commit prefix. The command resolves its unique tag/commit, stages changes in a temporary directory, and uses the existing `python3 tools/lock.py --update` implementation to resolve the registry digest and scenario evaluator from that release's declaration. It updates all workflow calls, four locks, checker git requirements, devcontainer image and README image example. Resolution/validation errors leave the checkout untouched. Robot, reporter, runner, specs and definition bytes remain unchanged; historical definition comments need not be rewritten. No release hashes are handwritten. Direct `python3 tools/lock.py --update` remains available for lock-only repair after a workflow change, but does not coordinate image/example changes.
+Replace `vX.Y.Z` with the reviewed release. Use a `fix:` or `chore:` commit prefix. The command resolves its unique tag/commit, stages changes in a temporary directory, and uses the existing `python3 tools/lock.py --update` implementation to resolve the registry digest and scenario evaluator from that release's declaration. It updates all workflow calls, four locks, checker git requirements, devcontainer image, README image example, and the published-history verifier expectation in `tests/test_site.py`. Resolution/validation errors leave the checkout untouched. Robot, reporter, runner, specs and definition bytes remain unchanged; historical definition comments need not be rewritten. No release hashes are handwritten. Direct `python3 tools/lock.py --update` remains available for lock-only repair after a workflow change, but does not coordinate image/example changes.
 
 Before merge, required checks must pass on the exact head revision, and the engineering lead records verification evidence (passed, failed, blocked, and not run separately, tied to that SHA). Release provenance is checked by `python3 tools/update_verifier.py --tag vX.Y.Z`, which resolves a unique published tag to its commit and digest, and by `python3 tools/lock.py --check --workflow` plus the locks job, which fail until workflow pins, verification locks, and the locked verifier and reporter agree. Unrelated pins stay unchanged because the generator does not rewrite robot, reporter, runner, specs, or definition bytes. Require those fresh-resolution and consistency checks plus all four configuration pipelines. If new verifier dependencies require a hashed requirements recompile, follow `.github/requirements/lock-check.in`; this helper does not resolve the whole Python environment. Missing releases, unavailable registries and install incompatibilities are blockers, not reasons to weaken checks. CI success and robot capability verdicts must be reported separately. Automerge stays off; a human approval is not a merge gate. The engineering lead may merge once those required checks pass and the evidence is recorded.
+
+## Updating the reporter
+
+Renovate proposes a new `Living-Proof-Labs/livingproof-capability-report` release by editing the tag in `verifications/settings.toml` only. The organization preset still applies: the release is reviewed, automerge stays off, and this repository does not widen the preset's schedule, rate limits or stability filter. The four `verifications/*.lock.json` files are generator output. Renovate does not edit them, and it does not edit robot, verifier or evaluator pins.
+
+Hosted Mend Renovate cannot run the lock generator. Check out the proposal's exact head and regenerate all four locks with the existing generator:
+
+```sh
+python3 tools/lock.py verifications/booster-t1-stock-mujoco-hallway.toml
+python3 tools/lock.py verifications/unitree-g1-playground-mujoco-hallway.toml
+python3 tools/lock.py verifications/unitree-g1-stock-mujoco-hallway.toml
+python3 tools/lock.py verifications/unitree-go1-playground-mujoco-hallway.toml
+```
+
+Never hand-edit hashes, commits or digests. `python3 tools/lock.py --update` refreshes the verifier and scenario evaluator and leaves the reporter pin as committed, so it does not complete a reporter proposal. Review the diff before staging. The generator writes the reporter tag, commit and digest from `verifications/settings.toml`. Robot, verifier and evaluator pins stay as they are when their sources have not changed; if the diff moves one of those, stop and reconcile it instead of editing a hash by hand. Record that release's published wheel sha256 in `tools/install_reporter.py` the same way the existing tags are recorded. That is the wheel hash, not a lock hash; the checks job refuses a tag with no hash. Commit with a `fix:` or `chore:` prefix. Automerge stays off.
 
 ## Published reports
 
@@ -156,7 +174,8 @@ actionlint
 Pull requests run the same checks in `.github/workflows/checks.yml` (tools installed by sha256
 from `.github/requirements/`), plus a site build from fixture reports
 (`tools/site_fixture.py`) whose links must resolve. That job has `contents: read` only and
-deploys nothing.
+deploys nothing. The `renovate` job runs `tools/renovate/run.sh`: `renovate-config-validator --strict`
+and the reporter extraction test against the real `verifications/settings.toml`.
 
 ## License
 

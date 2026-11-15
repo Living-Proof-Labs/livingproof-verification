@@ -19,15 +19,19 @@ locks stay readable: this command loads one when it is still beside the definiti
 the capability-verifier checker accepts both formats during the migration.
 
 A robot that still publishes ``verification.lock.json`` supplies scenario, plan, world
-and the specs and runner releases. The reporter tag, repository and image come from
-``verifications/settings.toml`` in this repository; the commit and digest are resolved
-from that tag. The verifier pin is the walk-hallway commit that definition's job calls
-in ``.github/workflows/verify.yml``, with that tag's hallway image digest. The
-scenario-evaluator pin is read from that verifier release. A thin robot publishes the
-adapter and configurations only. ``lock`` then keeps those owned fields from the
-existing ``0.2.0`` and refreshes the commit, adapter and configuration sha256s. With
+and the specs and runner releases. A thin robot publishes the adapter and configurations
+only. ``lock`` then keeps scenario, plan, world and the specs and runner releases from
+the existing ``0.2.0`` and refreshes the commit, adapter and configuration sha256s. With
 neither source it exits with that explanation. It does not raise ``FileNotFoundError``
 for a missing robot lock.
+
+Either way, the reporter tag, repository and image come from ``verifications/settings.toml``
+in this repository. A missing file is a ``LockError``; the reporter is not copied from a
+robot lock or an existing ``0.2.0``. The commit and digest are resolved from that tag.
+The verifier pin is the walk-hallway commit that definition's job calls in
+``.github/workflows/verify.yml``, with that tag's hallway image digest. The
+scenario-evaluator pin is read from that verifier release. Git tag lookups retry a
+timeout, then raise ``LockError``. Resolutions are not cached.
 """
 
 from __future__ import annotations
@@ -39,6 +43,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import time
 import tomllib
 import urllib.error
 import urllib.request
@@ -67,6 +72,11 @@ EVALUATOR_DEP = re.compile(
 )
 PROCEDURE = ".github/workflows/walk-hallway.yml"
 VERIFIER_IMAGE = "ghcr.io/living-proof-labs/capability-verifier-hallway"
+# The locks job resolves tags from git on every run and does not cache them.
+# A timeout is retried, then raised as LockError so CI fails closed.
+GIT_REMOTE_ATTEMPTS = 3
+GIT_REMOTE_TIMEOUT = 60
+GIT_REMOTE_PAUSE = 1
 # One command for a maintainer finishing a capability-verifier workflow bump.
 UPDATE_COMMAND = "python3 tools/lock.py --update"
 UPDATE_HINT = f"run `{UPDATE_COMMAND}` and commit the lock diff with a fix: or chore: prefix"
@@ -115,29 +125,50 @@ def checkout(repository: str, ref: str, dest: Path) -> str:
     return git("rev-parse", "HEAD", cwd=dest)
 
 
+def _git_output(args: list[str], *, failure: str) -> str:
+    """Stdout of one git command.
+
+    A ``TimeoutExpired`` is retried a bounded number of times and then raised as
+    ``LockError``. A missing git or a non-zero exit is ``LockError`` immediately.
+    """
+    for attempt in range(1, GIT_REMOTE_ATTEMPTS + 1):
+        try:
+            done = subprocess.run(
+                ["git", *args],
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=GIT_REMOTE_TIMEOUT,
+            )
+        except FileNotFoundError:
+            raise LockError("git is required to lock a definition") from None
+        except subprocess.CalledProcessError as exc:
+            detail = (exc.stderr or "").strip().splitlines()
+            tail = f": {detail[-1]}" if detail else ""
+            raise LockError(f"{failure} (exit {exc.returncode}){tail}") from None
+        except subprocess.TimeoutExpired:
+            if attempt == GIT_REMOTE_ATTEMPTS:
+                raise LockError(
+                    f"{failure} timed out after {GIT_REMOTE_ATTEMPTS} attempts "
+                    f"({GIT_REMOTE_TIMEOUT}s each)"
+                ) from None
+            time.sleep(GIT_REMOTE_PAUSE)
+            continue
+        return done.stdout
+    raise LockError(f"{failure} timed out")
+
+
 def resolve_tag(repository: str, tag: str) -> str:
     """The commit ``tag`` points at. A missing tag is an error, never a guessed commit."""
     if not TAG.fullmatch(tag):
         raise LockError(f"{repository} tag {tag!r} is not a vX.Y.Z release")
     url = f"{git_base()}/{repository}.git"
-    try:
-        done = subprocess.run(
-            ["git", "ls-remote", "--tags", url, f"refs/tags/{tag}", f"refs/tags/{tag}^{{}}"],
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
-    except FileNotFoundError:
-        raise LockError("git is required to lock a definition") from None
-    except subprocess.CalledProcessError as exc:
-        detail = (exc.stderr or "").strip().splitlines()
-        tail = f": {detail[-1]}" if detail else ""
-        raise LockError(
-            f"cannot resolve {repository} {tag} (exit {exc.returncode}){tail}"
-        ) from None
+    done_stdout = _git_output(
+        ["ls-remote", "--tags", url, f"refs/tags/{tag}", f"refs/tags/{tag}^{{}}"],
+        failure=f"cannot resolve {repository} {tag}",
+    )
     refs = {}
-    for line in done.stdout.splitlines():
+    for line in done_stdout.splitlines():
         commit, _, name = line.partition("\t")
         if name:
             refs[name] = commit
@@ -180,23 +211,13 @@ def tag_of_commit(repository: str, commit: str) -> str:
     if not SHA.fullmatch(commit):
         raise LockError(f"{repository} commit {commit!r} is not a full sha")
     url = f"{git_base()}/{repository}.git"
-    try:
-        done = subprocess.run(
-            ["git", "ls-remote", "--tags", url],
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
-    except FileNotFoundError:
-        raise LockError("git is required to lock a definition") from None
-    except subprocess.CalledProcessError as exc:
-        detail = (exc.stderr or "").strip().splitlines()
-        tail = f": {detail[-1]}" if detail else ""
-        raise LockError(f"cannot list tags of {repository} (exit {exc.returncode}){tail}") from None
+    listed = _git_output(
+        ["ls-remote", "--tags", url],
+        failure=f"cannot list tags of {repository}",
+    )
     lightweight: dict[str, str] = {}
     peeled: dict[str, str] = {}
-    for line in done.stdout.splitlines():
+    for line in listed.splitlines():
         sha, _, name = line.partition("\t")
         if name.endswith("^{}"):
             peeled[name.removeprefix("refs/tags/")[:-3]] = sha
@@ -274,10 +295,15 @@ def called_verifier(
     }
 
 
-def settings_path(definition: Path) -> Path | None:
-    """``settings.toml`` beside the definition, when this repository names the reporter."""
+def settings_path(definition: Path) -> Path:
+    """``settings.toml`` beside the definition. The reporter is never taken from a robot."""
     path = definition.parent / "settings.toml"
-    return path if path.is_file() else None
+    if path.is_file():
+        return path
+    raise LockError(
+        f"{definition.name}: settings.toml is required to name the reporter. "
+        "It is not copied from a robot verification.lock.json or an existing 0.2.0 lock."
+    )
 
 
 def load_reporter_setting(path: Path) -> dict:
@@ -681,6 +707,49 @@ def _owned_from_existing(existing: dict | None, definition: Path, where: str) ->
     }
 
 
+def _apply_caller_pins(
+    owned: dict,
+    definition: Path,
+    definition_id: str,
+    work: Path,
+    notes: list[str],
+    *,
+    resolve,
+    verifier_pyproject: str | None,
+    tag_of,
+    digester,
+) -> dict:
+    """Reporter from settings, verifier from the workflow call, evaluator from that release.
+
+    Scenario, plan, world and the specs and runner releases stay as ``owned`` recorded them.
+    A missing ``settings.toml`` is a ``LockError`` for a thin robot and for one that still
+    publishes a lock.
+    """
+    releases = dict(owned["releases"])
+    workflow = _workflow_path(definition)
+    if workflow is not None:
+        called = called_verifier(workflow, definition_id, tag_of=tag_of, digester=digester)
+        if called is not None:
+            releases["verifier"] = called
+    releases["reporter"] = reporter_pin(
+        load_reporter_setting(settings_path(definition)),
+        resolve,
+        digester or image_digest,
+    )
+    evaluator, note = _evaluator_pin(
+        releases,
+        work,
+        resolve=resolve,
+        verifier_pyproject=verifier_pyproject,
+    )
+    if note:
+        notes.append(note)
+    updated = dict(owned)
+    updated["releases"] = releases
+    updated["evaluators"] = {EVALUATOR: evaluator}
+    return updated
+
+
 def generate(
     definition: Path,
     work: Path,
@@ -709,34 +778,23 @@ def generate(
         except json.JSONDecodeError as exc:
             raise LockError(f"{where}: {ROBOT_LOCK} is not valid JSON ({exc})") from None
         owned = _owned_from_robot(robot_lock, where)
-        workflow = _workflow_path(definition)
-        if workflow is not None:
-            called = called_verifier(workflow, document["id"], tag_of=tag_of, digester=digester)
-            if called is not None:
-                releases = dict(owned["releases"])
-                releases["verifier"] = called
-                owned["releases"] = releases
-        settings = settings_path(definition)
-        if settings is not None:
-            releases = dict(owned["releases"])
-            releases["reporter"] = reporter_pin(
-                load_reporter_setting(settings), resolve, digester or image_digest
-            )
-            owned["releases"] = releases
-        evaluator, note = _evaluator_pin(
-            owned["releases"],
-            work,
-            resolve=resolve,
-            verifier_pyproject=verifier_pyproject,
-        )
-        if note:
-            notes.append(note)
-        evaluators = {EVALUATOR: evaluator}
         thin = False
     else:
         owned = _owned_from_existing(existing, definition, where)
-        evaluators = owned["evaluators"]
         thin = True
+    # Same caller pins for a thin robot and for one that still publishes a lock.
+    owned = _apply_caller_pins(
+        owned,
+        definition,
+        document["id"],
+        work,
+        notes,
+        resolve=resolve,
+        verifier_pyproject=verifier_pyproject,
+        tag_of=tag_of,
+        digester=digester,
+    )
+    evaluators = owned["evaluators"]
     lock = {
         "format": FORMAT_V2,
         "definition": {"path": definition.name, "sha256": sha256(definition.read_bytes())},
@@ -763,7 +821,8 @@ def generate(
     if thin:
         notes.insert(
             0,
-            "thin robot: kept releases, scenario, plan, world and evaluators from the existing lock",
+            "thin robot: kept scenario, plan, world and the specs and runner "
+            "releases from the existing lock",
         )
     return lock, notes
 
@@ -996,8 +1055,8 @@ def main(argv: list[str] | None = None) -> int:
     if thin:
         print(
             f"wrote {path} for thin robot {robot['repository']}@{robot['commit'][:12]} "
-            f"(no {ROBOT_LOCK}); kept releases, scenario, plan, world and evaluators "
-            "from the existing lock. Review it before committing."
+            f"(no {ROBOT_LOCK}); kept scenario, plan, world and the specs and runner "
+            "releases from the existing lock. Review it before committing."
         )
     else:
         print(f"wrote {path}; Review it before committing.")
