@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // The official Renovate regex manager, with RE2, against the real settings file.
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readdirSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -33,10 +34,12 @@ GlobalConfig.set({ localDir: work, cacheDir: join(work, 'cache') });
 const read = (file) => readFileSync(file, 'utf8');
 const SETTINGS = 'verifications/settings.toml';
 const REPORTER = 'Living-Proof-Labs/livingproof-capability-report';
-const CURRENT = 'v3.7.0';
-const PROPOSED = 'v3.8.0';
 const config = JSON.parse(read('renovate.json'));
 const settings = read(SETTINGS);
+// Read the pin from the real file. A reporter bump must not require editing this test.
+const CURRENT = settings.match(/^\[reporter\][\s\S]*?^tag = "(v\d+\.\d+\.\d+)"$/m)[1];
+const [major, minor] = CURRENT.slice(1).split('.').map(Number);
+const PROPOSED = `v${major}.${minor + 1}.0`;
 const locks = readdirSync('verifications')
   .filter((name) => name.endsWith('.lock.json'))
   .sort()
@@ -107,13 +110,14 @@ test('the real settings file exposes the current reporter pin', () => {
   assert.match(dep.replaceString, new RegExp(`tag = "${CURRENT}"`));
 });
 
-test('an update to the published v3.8.0 release changes only that tag', async () => {
+test('an update to the next release changes only that tag', async () => {
   const manager = reporterManager(config);
   const lockBytes = new Map(locks.map((path) => [path, read(path)]));
   const output = await replace(settings, manager, PROPOSED);
-  assert.deepEqual(changedLines(settings, output), [
-    { line: 7, from: `tag = "${CURRENT}"`, to: `tag = "${PROPOSED}"` },
-  ]);
+  assert.deepEqual(
+    changedLines(settings, output).map((change) => [change.from, change.to]),
+    [[`tag = "${CURRENT}"`, `tag = "${PROPOSED}"`]],
+  );
   assert.match(output, new RegExp(`^repository = "${REPORTER}"$`, 'm'));
   assert.match(output, /^image = "ghcr.io\/living-proof-labs\/livingproof-capability-report"$/m);
   assert.match(output, /^evidence_retention_days = 7$/m);
@@ -246,7 +250,9 @@ test('the organization preset still governs the reporter and the locks stay disa
   const allowed = new RegExp(reporter.allowedVersions.slice(1, -1));
   assert.equal(allowed.test(CURRENT), true);
   assert.equal(allowed.test(PROPOSED), true);
-  assert.equal(allowed.test('v3.8.0-rc.1'), false);
+  for (const tag of ['v3.8.0-rc.1', '3.9.0', 'v3.9', 'v3.9.0+build', 'latest']) {
+    assert.equal(allowed.test(tag), false, tag);
+  }
   assert.match(reporter.prBodyNotes[0], /python3 tools\/lock\.py verifications\/<definition>\.toml/);
   assert.match(reporter.prBodyNotes[0], /Never hand-edit/);
 
@@ -284,4 +290,35 @@ test('the organization preset still governs the reporter and the locks stay disa
   assert.equal(verifier.groupName, 'capability verifier and evidence');
   assert.equal(verifier.automerge, false);
   assert.deepEqual(verifier.schedule, ['at any time']);
+});
+
+test('two bumps in a row still find the one pin', async () => {
+  const manager = reporterManager(config);
+  const once = await replace(settings, manager, PROPOSED);
+  const twice = await replace(once, manager, `v${major}.${minor + 2}.0`);
+  const extracted = extractPackageFile(twice, SETTINGS, manager);
+  assert.equal(extracted.deps.length, 1);
+  assert.equal(extracted.deps[0].currentValue, `v${major}.${minor + 2}.0`);
+});
+
+test('excludeCommitPaths covers exactly the four locks among tracked files', () => {
+  const tracked = execFileSync('git', ['ls-files'], { encoding: 'utf8' }).trim().split('\n');
+  const matchers = config.excludeCommitPaths.map((pattern) => minimatch(pattern, { dot: true }));
+  const excluded = tracked.filter((file) => matchers.some((matcher) => matcher.match(file)));
+  assert.deepEqual(excluded.sort(), [...locks].sort());
+});
+
+test('no tracked file other than settings.toml yields a reporter dependency', () => {
+  const manager = reporterManager(config);
+  const tracked = execFileSync('git', ['ls-files'], { encoding: 'utf8' }).trim().split('\n');
+  for (const file of tracked) {
+    if (file === SETTINGS) continue;
+    let text;
+    try {
+      text = read(file);
+    } catch {
+      continue;
+    }
+    assert.equal(extractPackageFile(text, file, manager), null, file);
+  }
 });
