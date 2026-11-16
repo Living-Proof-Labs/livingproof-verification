@@ -27,6 +27,10 @@ VERIFIER = "Living-Proof-Labs/capability-verifier"
 # Released tags, resolved once by hand (git ls-remote) and recorded here.
 VERIFIER_RELEASE = ("v1.24.0", "f1ca679eddfa55440f0988e1e4591c0ea85dabac")
 EVALUATOR_RELEASE = ("v1.3.0", "965629ab1e9508cb3090931abbae6a957bf5d294")
+# The first reporter release whose HTML step card writes out corner-turned's list of
+# places (livingproof-capability-report#79, 3453a14). v3.10.1 fails with
+# "float() argument must be a string or a real number, not 'list'".
+REPORTER_RELEASE = ("v3.11.1", "3453a141746bca38adda2a7d66f517afb0c48bf4")
 WORLD = {
     "id": "hallway-corner",
     "version": "0.1.0",
@@ -195,6 +199,15 @@ def test_every_definition_pins_one_verifier_release():
         "livingproof-evaluator-scenario @ git+https://github.com/Living-Proof-Labs/"
         f"livingproof-evaluator-scenario.git@{EVALUATOR_RELEASE[1]}"
     ) in tools
+
+
+def test_every_lock_pins_a_reporter_that_renders_walk_corner_places():
+    """Each report job renders HTML from its lock's reporter, so all seven need #79's fix."""
+    settings = tomllib.loads((ROOT / "verifications/settings.toml").read_text())
+    assert settings["reporter"]["tag"] == REPORTER_RELEASE[0]
+    for name in [*CORNER, *HALLWAY]:
+        reporter = _lock(name)["releases"]["reporter"]
+        assert (reporter["tag"], reporter["commit"]) == REPORTER_RELEASE, name
 
 
 # ------------------------------------------------------------ walk-hallway unchanged
