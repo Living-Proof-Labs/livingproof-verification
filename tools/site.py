@@ -473,6 +473,60 @@ def check_reports(directory: Path):
             raise SiteError(f"{directory}: missing {name}")
         if listed[name] != hashlib.sha256(path.read_bytes()).hexdigest():
             raise SiteError(f"{path}: does not match SHA256SUMS")
+    check_evaluators(read_report(directory / "report.json"), directory / "report.json")
+
+
+def _text(value: object) -> bool:
+    return isinstance(value, str) and bool(value.strip())
+
+
+def check_evaluators(report: object, where: Path) -> None:
+    """Refuse a report whose assessed trials lack an evaluator result or its descriptor.
+
+    Every trial in ``source_bundle.results`` needs at least one evaluator result, and
+    each result's ``descriptor`` needs a ``title`` and a ``purpose``. Without them the
+    page shows a placeholder evaluator ("No evaluator descriptor was stored"). A report
+    whose every summary is ``UNSUPPORTED`` and that assessed no trial (scenario not
+    declared) has nothing to describe and is published as "not supported".
+    """
+    if not isinstance(report, dict):
+        return  # outcome() names a report.json that is not an object
+    bundle = report.get("source_bundle")
+    results = bundle.get("results") if isinstance(bundle, dict) else None
+    summaries = report.get("summaries")
+    unsupported = (
+        isinstance(summaries, list)
+        and bool(summaries)
+        and all(isinstance(s, dict) and s.get("grade") == "UNSUPPORTED" for s in summaries)
+    )
+    if not results:
+        if unsupported:
+            return
+        raise SiteError(
+            f"{where}: no assessed trials in source_bundle.results, so no evaluator "
+            "result to show. Only an UNSUPPORTED report with no trials run publishes "
+            "without one."
+        )
+    for index, result in enumerate(results, start=1):
+        trial = result.get("id") if isinstance(result, dict) else None
+        trial = trial if _text(trial) else f"trial {index}"
+        evaluated = result.get("evaluator_results") if isinstance(result, dict) else None
+        if not isinstance(evaluated, list) or not evaluated:
+            raise SiteError(
+                f"{where}: {trial} has no evaluator result. The report would show a "
+                "placeholder evaluator. Append the evaluator results to the bundle "
+                "before rendering the report."
+            )
+        for item in evaluated:
+            evaluator = item.get("evaluator") if isinstance(item, dict) else None
+            name = evaluator.get("id") if isinstance(evaluator, dict) else None
+            name = name if _text(name) else "(no id)"
+            descriptor = item.get("descriptor") if isinstance(item, dict) else None
+            if not isinstance(descriptor, dict):
+                raise SiteError(f"{where}: {trial} evaluator {name} has no descriptor")
+            for field in ("title", "purpose"):
+                if not _text(descriptor.get(field)):
+                    raise SiteError(f"{where}: {trial} evaluator {name} descriptor has no {field}")
 
 
 REPORT_VERSIONS = {"1.0.0"}  # report.json shapes this site knows how to read
