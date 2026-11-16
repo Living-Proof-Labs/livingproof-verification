@@ -2,6 +2,9 @@
 """Assemble the GitHub Pages site from a run's capability-report artifacts.
 
 The verifier's grade and trial counts are read from report.json, never recomputed.
+A scenario that requires ``scenario_supported`` and is not in the pinned robot
+manifest is published as not supported: the trial grade is not shown, and it is
+never a failure. The incoming report checksum is still checked before that.
 A compared run keeps those counts null and carries ``reproducibility.statement``
 (or the stored finding, when no statement was recorded) onto the history record.
 The public run page is the reporter's HTML: this module asks the pinned reporter to
@@ -33,6 +36,7 @@ from datetime import datetime, timedelta, timezone
 import hashlib
 import html
 import http.client
+import importlib.util
 import io
 import json
 import os
@@ -592,6 +596,9 @@ def add_run(
     run: dict,
     evidence: Path | None = None,
     artifacts: list[dict] | None = None,
+    *,
+    manifest: dict | None = None,
+    apply_support: bool = False,
 ) -> Path:
     source = reports / target["artifact"]
     if not source.is_dir():
@@ -605,11 +612,15 @@ def add_run(
     folder.mkdir(parents=True)
     for name in (*REPORT_FILES, "SHA256SUMS"):
         shutil.copyfile(source / name, folder / name)
+    # Checksums above were the verifier's report. A not-supported scenario replaces
+    # the copy only after that check; the published checksums are rewritten later.
+    if apply_support:
+        _scenario_support().apply_published(folder, target["lock"], manifest)
     record = {
         "robot": target["robot"],
         "variant": target["variant"],
         "verification": target["id"],
-        "outcome": outcome(read_report(source / "report.json"), str(source / "report.json")),
+        "outcome": outcome(read_report(folder / "report.json"), str(folder / "report.json")),
         **provenance(target, run),
     }
     if evidence is not None:
@@ -727,6 +738,7 @@ STYLE = """body{font-family:system-ui,sans-serif;margin:2rem auto;max-width:72re
 color:#1b1f24}table{border-collapse:collapse}td,th{border:1px solid #d0d7de;padding:.35rem .6rem;
 text-align:left}.PASS{color:#1a7f37;font-weight:600}.FAIL{color:#cf222e;font-weight:600}
 .INSUFFICIENT_EVIDENCE{color:#9a6700;font-weight:600}
+.UNSUPPORTED{color:#57606a;font-weight:600}
 dl{display:grid;grid-template-columns:max-content 1fr;gap:.2rem 1rem}dt{font-weight:600}
 code{font-size:.9em}"""
 
@@ -767,8 +779,17 @@ def actions_links(site: Path) -> list[str]:
 COUNTS_NOT_STORED = "counts not stored"
 
 
+def grade_label(grade: str) -> str:
+    """The words a reader sees. ``UNSUPPORTED`` is not a failure."""
+    if grade == "UNSUPPORTED":
+        return "not supported"
+    return grade
+
+
 def outcome_detail(item: dict) -> str:
     """Text beside the grade. Real counts stay; null counts are not a fraction."""
+    if item.get("grade") == "UNSUPPORTED":
+        return "no trials run"
     statement = _stored_text(item.get("statement"))
     if statement is not None:
         return html.escape(statement)
@@ -783,7 +804,7 @@ def outcome_detail(item: dict) -> str:
 
 def outcome_cells(record: dict) -> str:
     return "<br>".join(
-        f'<span class="{html.escape(o["grade"])}">{html.escape(o["grade"])}</span> '
+        f'<span class="{html.escape(o["grade"])}">{html.escape(grade_label(o["grade"]))}</span> '
         f"{outcome_detail(o)} · {html.escape(o['capability'])}"
         for o in record["outcome"]
     )
@@ -1384,6 +1405,20 @@ def render(site: Path, now: str = ""):
     (site / "index.html").write_text(page("Living Proof verification reports", body))
 
 
+def _scenario_support():
+    """The sibling module. Loaded by path so ``python3 tools/site.py`` and tests agree."""
+    if _scenario_support.module is None:
+        path = Path(__file__).with_name("scenario_support.py")
+        spec = importlib.util.spec_from_file_location("scenario_support", path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        _scenario_support.module = module
+    return _scenario_support.module
+
+
+_scenario_support.module = None
+
+
 def build(
     site: Path,
     reports: Path,
@@ -1391,8 +1426,32 @@ def build(
     verifications: Path = ROOT / "verifications",
     evidence: Path | None = None,
     artifacts: list[dict] | None = None,
+    manifests: dict | None = None,
 ):
-    added = [add_run(site, reports, t, run, evidence, artifacts) for t in targets(verifications)]
+    """Lay out ``reports``. ``manifests`` maps a robot repository to its manifest, or None.
+
+    None for the argument leaves every report as the verifier wrote it. A dict, including
+    one whose values are None, reads ``scenarios`` and publishes an undeclared scenario
+    as not supported.
+    """
+    added = []
+    for target in targets(verifications):
+        apply = manifests is not None
+        manifest = None
+        if apply:
+            manifest = manifests.get(target["lock"]["robot"]["repository"])
+        added.append(
+            add_run(
+                site,
+                reports,
+                target,
+                run,
+                evidence,
+                artifacts,
+                manifest=manifest,
+                apply_support=apply,
+            )
+        )
     render(site, now=run["created"])
     if problems := public_page_problems(site):
         raise SiteError("pages still link to GitHub Actions (#23): " + ", ".join(problems))
@@ -1454,6 +1513,7 @@ def main(argv=None):
             if args.evidence
             else None
         )
+        manifests = _scenario_support().pinned_manifests([target["lock"] for target in targets()])
         added = build(
             args.site,
             args.reports,
@@ -1466,6 +1526,7 @@ def main(argv=None):
             },
             evidence=args.evidence,
             artifacts=artifacts,
+            manifests=manifests,
         )
         for folder in added:
             print(f"Added {folder.relative_to(args.site)}")
