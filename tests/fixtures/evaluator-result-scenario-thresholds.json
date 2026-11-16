@@ -1,0 +1,1 @@
+{"limits":{"exit_segment":0.75,"fall_height":0.5,"lateral_limit":0.49,"time_limit":27.0},"parameters":{"commit":"23bec516bda29be7b26555286cbf2e8217ac5c81","path":"specs/scenarios/walk-hallway/parameters.json","repository":"Living-Proof-Labs/robot-capability-specs","sha256":"9226aa6bc0e577863bdc210514e7e7c3a7edc32f49c4f7b46aa7249837f08b3d","tag":"v2.2.0"}}
