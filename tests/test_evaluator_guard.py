@@ -148,3 +148,22 @@ def test_unsupported_with_no_trials_still_publishes(tmp_path):
     assert (_publish(tmp_path, report) / "report.json").is_file()
     del report["source_bundle"]
     assert (_publish(tmp_path / "again", report) / "report.json").is_file()
+
+
+def test_already_published_pages_without_evaluators_are_left_in_place(tmp_path):
+    """The guard checks only the incoming report. Restored history is not re-checked."""
+    target = site_tool.targets()[0]
+    historical = tmp_path / "site" / target["robot"] / target["variant"] / "runs" / "50"
+    historical.mkdir(parents=True)
+    old = _report()
+    _without_results(old)
+    (historical / "report.json").write_text(json.dumps(old))
+    (historical / "report.html").write_text("No evaluator descriptor was stored.")
+    published = _publish(tmp_path, _report())
+    assert (published / "report.json").is_file()
+    assert published != historical
+    assert (historical / "report.html").read_text() == "No evaluator descriptor was stored."
+    stored = json.loads((historical / "report.json").read_text())
+    assert "evaluator_results" not in stored["source_bundle"]["results"][-1]
+    with pytest.raises(site_tool.SiteError, match="stock-seed-03 has no evaluator result"):
+        _publish(tmp_path / "resubmit", old)
