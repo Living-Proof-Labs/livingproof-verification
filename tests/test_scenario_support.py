@@ -273,6 +273,45 @@ def test_the_current_hallway_locks_stay_failures_when_no_manifest_is_released(tm
     assert output["declared_scenarios"] is None
 
 
+def test_a_pr_shaped_hallway_manifest_shows_walk_corner_as_not_supported(tmp_path):
+    """The G1, Go1 and T1 manifests declare only walk-hallway (G1#40, Go1#26, T1#31)."""
+    manifest = _manifest("unitree-g1-manifest.json")
+    assert list(manifest) == [
+        "$comment",
+        "format",
+        "robot",
+        "source",
+        "profile",
+        "adapter",
+        "configurations",
+        "assets",
+        "features",
+        "scenarios",
+    ]
+    assert manifest["format"] == "livingproof-robot-manifest/0.1"
+    assert manifest["robot"] == "unitree-g1"
+    assert manifest["scenarios"] == ["walk-hallway"]
+    assert manifest["features"] == {}
+    assert isinstance(manifest["source"], dict) and manifest["source"]["repository"]
+    assert isinstance(manifest["assets"], list) and manifest["assets"]
+    assert support.grade(manifest, "walk-hallway", "FAIL") == "FAIL"
+    verifications = _lock_dir(
+        tmp_path, "walk-corner@0.1.0", "unitree-g1-stock-mujoco-corner.lock.json"
+    )
+    site = _publish(tmp_path, verifications, manifest, "pr-shaped-corner")
+    history, report, page, output = _visible(site, "stock-mujoco-corner")
+    assert output["grade"] == "UNSUPPORTED"
+    assert output["declared_scenarios"] == ["walk-hallway"]
+    assert output["trials"] == []
+    assert output["precondition"] == "scenario_supported"
+    for text in (report, page):
+        assert "not supported" in text
+        assert "FAIL" not in text
+        assert MARKER not in text
+    assert "not supported" in history
+    assert ">FAIL<" not in history
+
+
 def test_pinned_manifest_read_uses_the_commit_and_a_missing_file_names_nothing():
     seen = []
 
@@ -288,7 +327,7 @@ def test_pinned_manifest_read_uses_the_commit_and_a_missing_file_names_nothing()
     assert manifest is None
     assert seen[0][0].endswith(
         "Living-Proof-Labs/livingproof-unitree-g1/"
-        "da7d9504cb5d4deaa509b92a1973490e43888f90/robot-manifest.json"
+        "da7d9504cb5d4deaa509b92a1973490e43888f90/manifest.json"
     )
     assert support.grade(manifest, "walk-hallway", "PASS") == "PASS"
     assert support.grade(manifest, "walk-corner", "FAIL") == "UNSUPPORTED"

@@ -9,9 +9,10 @@ naming ``scenario_supported``. No trial runs, and the result is never a ``FAIL``
 ``walk-corner`` lists that precondition. ``walk-hallway`` does not, so a manifest
 with no list keeps the trial grade.
 
-The spec does not name the path of this file in a robot repository. The pinned
-commit is read at ``robot-manifest.json``. A missing file is a manifest with no
-``scenarios`` list. Fixture manifests cover robots that have not released one.
+The robot repositories publish this file at the repository root as
+``manifest.json`` (livingproof-unitree-g1#40, livingproof-unitree-go1#26,
+livingproof-booster-t1#31). The pinned commit is read there. A missing file is
+a manifest with no ``scenarios`` list.
 """
 
 from __future__ import annotations
@@ -25,7 +26,7 @@ import urllib.request
 
 FORMAT = "livingproof-robot-manifest/0.1"
 OUTPUT_FORMAT = "livingproof-verification-scenario-support/0.1"
-ROBOT_MANIFEST = "robot-manifest.json"
+ROBOT_MANIFEST = "manifest.json"
 # Scenarios whose README lists scenario_supported. v2.3.0: walk-corner does, walk-hallway does not.
 REQUIRES_SCENARIO_SUPPORTED = frozenset({"walk-corner"})
 PRECONDITION = "scenario_supported"
