@@ -148,7 +148,7 @@ def test_published_history_names_the_verifier_and_reporter_releases(tmp_path):
     """The public history and run.json name both pinned releases (issue 62)."""
     settings = tomllib.loads((ROOT / "verifications/settings.toml").read_text())
     reporter_tag = settings["reporter"]["tag"]
-    assert reporter_tag == "v3.10.1"
+    assert reporter_tag == "v3.11.1"
     site = tmp_path / "site"
     site_tool.build(
         site, reports_for(tmp_path, "one", 12, "PASS"), run("100", "2026-11-02T06:00:00Z")
@@ -1711,13 +1711,13 @@ def test_retention_changes_what_is_pruned_and_the_kept_for_text(tmp_path, monkey
     assert (folder / "report.json").is_file() and (folder / "index.html").is_file()
     assert (folder / "report.html").is_file()
     page = _page(site)
-    assert "Evidence kept for 3 days" in page and "Evidence kept for 7 days" not in page
+    # Reporter v3.11.1 (livingproof-capability-report#77) says so once the copies are gone.
+    assert "Evidence expired after 3 days" in page and "Evidence kept for" not in page
     assert f"src='{video}'" not in page and f"href='{video}'" not in page
     assert "artifact" not in page.lower() and "/actions/" not in page
     record = json.loads((folder / "run.json").read_text())
     assert record["evidence"][0]["artifact"]["id"] == "101"
     local_links_resolve(site)
-
 
 
 def test_a_pruned_run_page_says_its_evidence_expired(tmp_path):
