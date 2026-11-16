@@ -1,0 +1,6 @@
+{
+  "$comment": "Duplicate scenario ids. The schema rejects this, so it is not a robot grade.",
+  "format": "livingproof-robot-manifest/0.1",
+  "robot": "unitree-g1",
+  "scenarios": ["walk-corner", "walk-corner"]
+}

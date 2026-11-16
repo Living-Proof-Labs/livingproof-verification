@@ -1,0 +1,6 @@
+{
+  "$comment": "Fixture robot manifest that declares walk-corner. A failed trial stays a failure.",
+  "format": "livingproof-robot-manifest/0.1",
+  "robot": "unitree-g1",
+  "scenarios": ["walk-hallway", "walk-corner"]
+}
