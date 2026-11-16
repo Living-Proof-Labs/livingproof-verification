@@ -1719,6 +1719,45 @@ def test_retention_changes_what_is_pruned_and_the_kept_for_text(tmp_path, monkey
     local_links_resolve(site)
 
 
+
+def test_a_pruned_run_page_says_its_evidence_expired(tmp_path):
+    """Issue 54: once retention prunes a run's copies, its page says so, not "kept for".
+
+    Vera found 40 pruned run pages still reading "Evidence kept for 7 days" (class
+    is-kept) with no file behind them. The number is the same retention setting.
+    """
+    evidence, artifacts = evidence_for(tmp_path)
+    site = tmp_path / "site"
+    site_tool.build(
+        site,
+        _renderable_reports(tmp_path),
+        run("7", "2026-11-01T00:00:00Z"),
+        evidence=evidence,
+        artifacts=artifacts,
+    )
+    folder = site / "unitree-g1/stock-mujoco-hallway/runs/7"
+    assert "Evidence kept for 7 days" in _page(site)
+    assert "Evidence expired" not in _page(site)
+
+    # Eight days on, the default 7 has pruned the copies.
+    assert site_tool.retention_days() == 7
+    site_tool.render(site, now="2026-11-09T00:00:00Z")
+    video = f"evidence/{PREFIX}-video-stock-seed-1-pass/seed-01-pass.mp4"
+    mcap = f"evidence/{PREFIX}-mcap-stock/trials.mcap"
+    assert not (folder / video).exists() and not (folder / mcap).exists()
+    page = _page(site)
+    assert "Evidence expired after 7 days" in page
+    # Each Evidence item is an is-expired entry that carries the wording.
+    expired = re.findall(r"<li class='[^']*\bis-expired\b[^']*'>(?:(?!</li>).)*</li>", page)
+    assert len(expired) == 2
+    assert all("Evidence expired after 7 days" in item for item in expired)
+    assert "Evidence kept for" not in page
+    # The stylesheet still defines li.is-kept; no element on this page carries it.
+    assert not re.search(r"class='[^']*\bis-kept\b", page)
+    assert site_tool.public_page_problems(site) == []
+    local_links_resolve(site)
+
+
 RUN_URL = "https://github.com/Living-Proof-Labs/livingproof-verification/actions/runs/7"
 
 
