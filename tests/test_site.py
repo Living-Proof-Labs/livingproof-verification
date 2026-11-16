@@ -1907,3 +1907,92 @@ def test_checksums_cover_the_scrubbed_report_json_and_the_bundle_digest_stays(tm
         assert "artifact" not in published.read_text().lower()
         assert report["source_bundle_sha256"] == original["bundle_sha"]
         assert bundle_digest(report["source_bundle"]) == report["source_bundle_sha256"]
+
+
+def _rerender(report_json: Path, tmp_path: Path, retention: int) -> subprocess.CompletedProcess:
+    """The pinned reporter renders the published report.json on its own."""
+    return subprocess.run(
+        [
+            site_tool.reporter_bin(),
+            "render",
+            str(report_json),
+            "--format",
+            "html",
+            "-o",
+            str(tmp_path / f"rerendered-{len(list(tmp_path.glob('rerendered-*')))}.html"),
+            "--evidence-retention",
+            str(retention),
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+
+def _published_links(folder: Path) -> list[dict]:
+    return json.loads((folder / "report.json").read_text())["evidence_links"]["links"]
+
+
+def test_published_report_json_links_point_at_site_copies_or_are_expired(tmp_path):
+    """No evidence_links entry is left with neither a url nor a path (#54)."""
+    reports = _renderable_reports(tmp_path)
+    stamp_actions_urls(reports)
+    evidence, artifacts = evidence_for(tmp_path)
+    site = tmp_path / "site"
+    site_tool.build(
+        site,
+        reports,
+        run("7", "2026-11-01T00:00:00Z"),
+        evidence=evidence,
+        artifacts=artifacts,
+    )
+    folder = site / "unitree-g1/stock-mujoco-hallway/runs/7"
+    record = json.loads((folder / "run.json").read_text())
+    page_links = site_tool.evidence_links_document(record["evidence"], expired=False)["links"]
+    links = _published_links(folder)
+    assert "run" not in json.loads((folder / "report.json").read_text())["evidence_links"]
+    copied = [entry for entry in links if "path" in entry]
+    assert copied == page_links and copied
+    for entry in links:
+        assert entry.get("path") or entry.get("expired") is True or entry.get("url"), entry
+        if entry.get("path"):
+            assert (folder / entry["path"]).is_file(), entry
+        if entry.get("url"):
+            assert "/actions/" not in entry["url"] and "artifact" not in entry["url"].lower()
+    assert [entry["url"] for entry in links if "url" in entry] == ["https://example.com/clip"]
+    assert _rerender(folder / "report.json", tmp_path, 7).returncode == 0
+    sums = published_checksums(folder)
+    assert hashlib.sha256((folder / "report.json").read_bytes()).hexdigest() == sums["report.json"]
+
+    # Pruned: the same entries, now expired with no path, exactly as the page has them.
+    site_tool.render(site, now="2026-12-01T00:00:00Z")
+    links = _published_links(folder)
+    expired = site_tool.evidence_links_document(record["evidence"], expired=True)["links"]
+    assert [entry for entry in links if "url" not in entry] == expired and expired
+    assert all(entry["expired"] is True and "path" not in entry for entry in expired)
+    rendered = _rerender(folder / "report.json", tmp_path, 7)
+    assert rendered.returncode == 0, rendered.stderr
+    sums = published_checksums(folder)
+    assert hashlib.sha256((folder / "report.json").read_bytes()).hexdigest() == sums["report.json"]
+
+
+def test_an_already_stripped_report_json_is_repaired_on_the_next_publish(tmp_path):
+    """Older publishes left label-and-kind entries; rendering the site again fixes them."""
+    reports = _renderable_reports(tmp_path)
+    evidence, artifacts = evidence_for(tmp_path)
+    site = tmp_path / "site"
+    site_tool.build(
+        site,
+        reports,
+        run("7", "2026-11-01T00:00:00Z"),
+        evidence=evidence,
+        artifacts=artifacts,
+    )
+    folder = site / "unitree-g1/stock-mujoco-hallway/runs/7"
+    report = json.loads((folder / "report.json").read_text())
+    report["evidence_links"] = {"links": [{"label": "MCAP", "kind": "mcap"}]}
+    (folder / "report.json").write_text(json.dumps(report, indent=2) + "\n")
+    assert _rerender(folder / "report.json", tmp_path, 7).returncode != 0
+    site_tool.render(site, now="2026-11-02T00:00:00Z")
+    links = _published_links(folder)
+    assert links and all(entry.get("path") for entry in links)
+    assert _rerender(folder / "report.json", tmp_path, 7).returncode == 0
