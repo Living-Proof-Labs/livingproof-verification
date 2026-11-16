@@ -148,8 +148,8 @@ def test_published_history_names_the_verifier_and_reporter_releases(tmp_path):
         lock = json.loads((ROOT / "verifications" / f"{target['id']}.lock.json").read_text())
         verifier = lock["releases"]["verifier"]
         reporter = lock["releases"]["reporter"]
-        assert verifier["tag"] == "v1.20.5"
-        assert verifier["commit"] == "d770fd197d4e32249c950ad3420ee31c6fa6c9cf"
+        assert verifier["tag"] == "v1.21.0"
+        assert verifier["commit"] == "17d6a2ba1a0aed197c8ba11b8377e505164c368e"
         assert reporter["tag"] == reporter_tag
         assert reporter["repository"] == settings["reporter"]["repository"]
         history = (site / target["robot"] / target["variant"] / "index.html").read_text()
