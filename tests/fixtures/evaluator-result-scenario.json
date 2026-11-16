@@ -1,0 +1,68 @@
+{
+  "format": "livingproof-evaluator-result/1.1.0",
+  "evaluator": {
+    "id": "livingproof-scenario",
+    "version": "0.1.dev1",
+    "kind": "scenario",
+    "execution": "deterministic",
+    "display_name": "Scenario",
+    "publisher": "Living Proof Labs",
+    "icon": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\"><g stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M6.5 7L10.5 11L17.5 4\"/><rect x=\"4\" y=\"9\" width=\"16\" height=\"11\" rx=\"4\"/></g><g fill=\"currentColor\"><circle cx=\"8.5\" cy=\"14.5\" r=\"1.5\"/><circle cx=\"15.5\" cy=\"14.5\" r=\"1.5\"/></g></svg>"
+  },
+  "inputs": [
+    {
+      "role": "observation",
+      "uri": "trials/trial-01.json",
+      "sha256": "48b6078f3deb763cd1595d727bff52baac95b335de96e57db1402ee6ece9840b"
+    },
+    {
+      "role": "manifest",
+      "uri": "manifest.json",
+      "sha256": "42a3817b31d961f8dc3b404f154f69d21150f33070633e9b9e7d89dcc26d971b"
+    },
+    {
+      "role": "thresholds",
+      "uri": "thresholds.json",
+      "sha256": "b3df271329b1520e5f004a7629d547875b9ee8366279e71e6dbee8c1070250cf"
+    }
+  ],
+  "timestamps": {
+    "started_at": "2026-11-16T08:24:15Z",
+    "completed_at": "2026-11-16T08:24:15Z"
+  },
+  "scenario": {
+    "trial_id": "playground-seed-01",
+    "steps": [
+      {
+        "id": "hallway-exit-reached",
+        "verdict": "PASS",
+        "summary": "exit at 9.60 s <= 27.00 s (17.40 s spare) (trial 1)"
+      },
+      {
+        "id": "hallway-lateral-limit",
+        "verdict": "PASS",
+        "summary": "lateral 0.09 m <= 0.49 m, largest at 5.24 s (trial 1)"
+      },
+      {
+        "id": "hallway-wall-contact",
+        "verdict": "PASS",
+        "summary": "no wall contact; closest 0.250 m at 0.00 s (trial 1)"
+      },
+      {
+        "id": "hallway-fall",
+        "verdict": "PASS",
+        "summary": "base height 0.71 m >= 0.50 m, lowest at 2.90 s (trial 1)"
+      }
+    ]
+  },
+  "descriptor": {
+    "title": "Scenario",
+    "short_title": "Scenario",
+    "icon": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\"><g stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M6.5 7L10.5 11L17.5 4\"/><rect x=\"4\" y=\"9\" width=\"16\" height=\"11\" rx=\"4\"/></g><g fill=\"currentColor\"><circle cx=\"8.5\" cy=\"14.5\" r=\"1.5\"/><circle cx=\"15.5\" cy=\"14.5\" r=\"1.5\"/></g></svg>",
+    "icon_accessible_name": "Scenario",
+    "purpose": "Checks each step of the scenario against the limits in its spec.",
+    "version": "0.1.dev1",
+    "tier": "verdict",
+    "findings": []
+  }
+}

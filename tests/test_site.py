@@ -18,6 +18,7 @@ import zipfile
 
 import pytest
 import yaml
+from evaluated import bundle, evaluator_result
 
 ROOT = Path(__file__).parents[1]
 spec = importlib.util.spec_from_file_location("site_tool", ROOT / "tools/site.py")
@@ -31,6 +32,7 @@ def write_reports(directory: Path, passed: int, grade: str, html: str | None = N
     directory.mkdir(parents=True)
     report = {
         "report_version": "1.0.0",
+        "source_bundle": bundle(),
         "summaries": [
             {
                 "capability": "walk-hallway",
@@ -139,7 +141,7 @@ def test_published_history_names_the_verifier_and_reporter_releases(tmp_path):
     """The public history and run.json name both pinned releases (issue 62)."""
     settings = tomllib.loads((ROOT / "verifications/settings.toml").read_text())
     reporter_tag = settings["reporter"]["tag"]
-    assert reporter_tag == "v3.8.4"
+    assert reporter_tag == "v3.8.7"
     site = tmp_path / "site"
     site_tool.build(
         site, reports_for(tmp_path, "one", 12, "PASS"), run("100", "2026-11-02T06:00:00Z")
@@ -148,8 +150,8 @@ def test_published_history_names_the_verifier_and_reporter_releases(tmp_path):
         lock = json.loads((ROOT / "verifications" / f"{target['id']}.lock.json").read_text())
         verifier = lock["releases"]["verifier"]
         reporter = lock["releases"]["reporter"]
-        assert verifier["tag"] == "v1.22.0"
-        assert verifier["commit"] == "1e1330a5671db081b786767d35013880b26a1720"
+        assert verifier["tag"] == "v1.22.2"
+        assert verifier["commit"] == "00eac4b8f0d69d1cecd7fe1076d0822984438d44"
         assert reporter["tag"] == reporter_tag
         assert reporter["repository"] == settings["reporter"]["repository"]
         history = (site / target["robot"] / target["variant"] / "index.html").read_text()
@@ -190,6 +192,7 @@ def write_compared_reports(directory: Path, grade: str, statement: str) -> None:
     directory.mkdir(parents=True)
     report = {
         "report_version": "1.0.0",
+        "source_bundle": bundle(),
         "summaries": [
             {
                 "capability": "walk-hallway",
@@ -252,7 +255,7 @@ DISAGREEING_FINDING = (
 def write_summary_reports(directory: Path, summary: dict) -> None:
     directory.mkdir(parents=True)
     (directory / "report.json").write_text(
-        json.dumps({"report_version": "1.0.0", "summaries": [summary]})
+        json.dumps({"report_version": "1.0.0", "source_bundle": bundle(), "summaries": [summary]})
     )
     for name in ("report.html", "report.md", "report.txt"):
         (directory / name).write_text(f"{name}\n")
@@ -1074,7 +1077,9 @@ def mark_trial_model(reports: Path, result: dict) -> None:
     for target in site_tool.targets():
         folder = reports / target["artifact"]
         report = json.loads((folder / "report.json").read_text())
-        report["source_bundle"] = {"results": [result]}
+        report["source_bundle"] = {
+            "results": [{**result, "evaluator_results": [evaluator_result()]}]
+        }
         (folder / "report.json").write_text(json.dumps(report))
         restamp(folder)
 
@@ -1554,6 +1559,14 @@ def _renderable_bundle(directory: Path) -> None:
                 ],
                 "provenance": {},
                 "original_result": {"seed": 1, "status": "PASS"},
+                # A published scenario evaluator result (G1 playground, run 43830552305).
+                "evaluator_results": [
+                    json.loads(
+                        (
+                            Path(__file__).parent / "fixtures/evaluator-result-scenario.json"
+                        ).read_text()
+                    )
+                ],
                 "decision": {
                     "status": "PASS",
                     "reason": "walked",
