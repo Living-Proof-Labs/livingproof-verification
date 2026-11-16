@@ -27,6 +27,25 @@ def write(directory: Path) -> list[Path]:
         folder.mkdir(parents=True)
         report = {
             "report_version": "1.0.0",
+            # One assessed trial with its evaluator result: site.py refuses a report
+            # whose trials have none (livingproof-verification#46).
+            "source_bundle": {
+                "results": [
+                    {
+                        "id": "fixture-trial-01",
+                        "evaluator_results": [
+                            {
+                                "format": "livingproof-evaluator-result/1.1.0",
+                                "evaluator": {"id": "fixture-evaluator"},
+                                "descriptor": {
+                                    "title": "Fixture evaluator",
+                                    "purpose": "Stands in for the scenario evaluator.",
+                                },
+                            }
+                        ],
+                    }
+                ]
+            },
             "summaries": [
                 {
                     "capability": "walk-hallway",

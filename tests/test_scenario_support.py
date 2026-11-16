@@ -13,6 +13,7 @@ import json
 from pathlib import Path
 
 import pytest
+from evaluated import bundle
 
 ROOT = Path(__file__).parents[1]
 MARKER = "GRADE FAIL from the planted trial report"
@@ -37,6 +38,8 @@ def _reports_for(directory: Path, verifications: Path, text: str, grade: str) ->
         folder.mkdir(parents=True)
         report = {
             "report_version": "1.0.0",
+            # An UNSUPPORTED report assessed no trial; a graded one carries its evaluator.
+            **({} if grade == "UNSUPPORTED" else {"source_bundle": bundle()}),
             "summaries": [
                 {
                     "capability": "walk-corner" if grade == "UNSUPPORTED" else "walk-hallway",
