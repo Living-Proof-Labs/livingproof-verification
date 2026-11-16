@@ -1,6 +1,0 @@
-{
-  "$comment": "Fixture robot manifest. Declares walk-hallway and not walk-corner. Not a pinned robot file.",
-  "format": "livingproof-robot-manifest/0.1",
-  "robot": "unitree-g1",
-  "scenarios": ["walk-hallway"]
-}

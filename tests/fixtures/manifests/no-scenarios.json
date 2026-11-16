@@ -1,5 +1,0 @@
-{
-  "$comment": "Fixture robot manifest with no scenarios list, as robot-capability-specs v2.3.0 allows.",
-  "format": "livingproof-robot-manifest/0.1",
-  "robot": "unitree-g1"
-}
