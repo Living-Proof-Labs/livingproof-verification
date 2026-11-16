@@ -52,11 +52,18 @@ def write_reports(directory: Path, passed: int, grade: str, html: str | None = N
     restamp(directory)
 
 
+# Grading inputs a real report artifact carries beside the report (capability-verifier
+# v1.21+). The scenario evaluator fixture cites this thresholds.json by sha256 (#65).
+GRADING_INPUTS = ("thresholds.json",)
+THRESHOLDS_FIXTURE = Path(__file__).parent / "fixtures/evaluator-result-scenario-thresholds.json"
+
+
 def restamp(directory: Path) -> None:
     (directory / "SHA256SUMS").write_text(
         "".join(
             f"{hashlib.sha256((directory / n).read_bytes()).hexdigest()}  {n}\n"
-            for n in site_tool.REPORT_FILES
+            for n in (*site_tool.REPORT_FILES, *GRADING_INPUTS)
+            if n in site_tool.REPORT_FILES or (directory / n).exists()
         )
     )
 
@@ -1631,6 +1638,8 @@ def _renderable_bundle(directory: Path) -> None:
     # page is the HTML render; these two stay byte-for-byte with SHA256SUMS.
     (directory / "report.md").write_text("report.md\n")
     (directory / "report.txt").write_text("report.txt\n")
+    # The embedded scenario evaluator result cites thresholds.json; ship the cited bytes.
+    shutil.copyfile(THRESHOLDS_FIXTURE, directory / "thresholds.json")
     restamp(directory)
 
 
@@ -1641,7 +1650,7 @@ def _renderable_reports(tmp_path: Path) -> Path:
     for target in site_tool.targets():
         destination = reports / target["artifact"]
         destination.mkdir(parents=True)
-        for name in (*site_tool.REPORT_FILES, "SHA256SUMS"):
+        for name in (*site_tool.REPORT_FILES, *GRADING_INPUTS, "SHA256SUMS"):
             shutil.copyfile(sample / name, destination / name)
     return reports
 
@@ -1907,3 +1916,23 @@ def test_checksums_cover_the_scrubbed_report_json_and_the_bundle_digest_stays(tm
         assert "artifact" not in published.read_text().lower()
         assert report["source_bundle_sha256"] == original["bundle_sha"]
         assert bundle_digest(report["source_bundle"]) == report["source_bundle_sha256"]
+
+
+def test_renderable_reports_carry_the_thresholds_their_evaluator_results_cite(tmp_path):
+    """The test artifact is complete: each cited thresholds.json is there with its digest (#65)."""
+    reports = _renderable_reports(tmp_path)
+    for target in site_tool.targets():
+        folder = reports / target["artifact"]
+        cited = {
+            item["sha256"]
+            for result in json.loads((folder / "report.json").read_text())["source_bundle"][
+                "results"
+            ]
+            for evaluated in result.get("evaluator_results", [])
+            for item in evaluated.get("inputs", [])
+            if item.get("role") == "thresholds"
+        }
+        assert cited, "the renderable report should cite a thresholds input"
+        digest = hashlib.sha256((folder / "thresholds.json").read_bytes()).hexdigest()
+        assert cited == {digest}
+        assert f"{digest}  thresholds.json" in (folder / "SHA256SUMS").read_text()
