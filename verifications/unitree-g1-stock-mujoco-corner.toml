@@ -1,0 +1,32 @@
+# SPDX-License-Identifier: Apache-2.0
+# Unitree G1 with its stock controller walks around the corner in MuJoCo.
+# walk-corner 0.1.0 on hallway-corner 0.1.0 (robot-capability-specs#40 step 12).
+# ref is livingproof-unitree-g1 v2.2.1, commit 68725986336c38d25a5ea421f895d9d796aed7f1; its uv.lock installs
+# livingproof-sim-mujoco v3.2.1, which the lock records as the runner. The robot is thin, so this
+# definition owns scenario, world, plan and specs. The call is scenario.yml at
+# capability-verifier v1.24.0. Lock it with `python3 tools/lock.py` and review the diff.
+format = "livingproof-verification-definition/0.1.0"
+id = "unitree-g1-stock-mujoco-corner"
+procedure = "scenario"
+scenario = "walk-corner@0.1.0"
+
+[robot]
+repository = "Living-Proof-Labs/livingproof-unitree-g1"
+ref = "v2.2.1"
+configurations = ["stock"]
+
+# The world livingproof-sim-mujoco v3.2.x vendors: livingproof-worlds v1.3.0, not a later
+# worlds tag with the same bytes. The lock records the commit and the world.json sha256.
+[world]
+id = "hallway-corner"
+version = "0.1.0"
+repository = "Living-Proof-Labs/livingproof-worlds"
+tag = "v1.3.0"
+
+# One trial: walk-corner's speed and limits come from its parameter file.
+[plan]
+trials = { count = 1 }
+
+[releases.specs]
+repository = "Living-Proof-Labs/robot-capability-specs"
+tag = "v2.3.0"

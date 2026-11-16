@@ -148,7 +148,7 @@ def test_published_history_names_the_verifier_and_reporter_releases(tmp_path):
     """The public history and run.json name both pinned releases (issue 62)."""
     settings = tomllib.loads((ROOT / "verifications/settings.toml").read_text())
     reporter_tag = settings["reporter"]["tag"]
-    assert reporter_tag == "v3.10.1"
+    assert reporter_tag == "v3.11.1"
     site = tmp_path / "site"
     site_tool.build(
         site, reports_for(tmp_path, "one", 12, "PASS"), run("100", "2026-11-02T06:00:00Z")
@@ -157,8 +157,8 @@ def test_published_history_names_the_verifier_and_reporter_releases(tmp_path):
         lock = json.loads((ROOT / "verifications" / f"{target['id']}.lock.json").read_text())
         verifier = lock["releases"]["verifier"]
         reporter = lock["releases"]["reporter"]
-        assert verifier["tag"] == "v1.23.2"
-        assert verifier["commit"] == "d4f367f5a4ed126d2b17a0f6b8e0d8f03fe8ee46"
+        assert verifier["tag"] == "v1.24.0"
+        assert verifier["commit"] == "f1ca679eddfa55440f0988e1e4591c0ea85dabac"
         assert reporter["tag"] == reporter_tag
         assert reporter["repository"] == settings["reporter"]["repository"]
         history = (site / target["robot"] / target["variant"] / "index.html").read_text()
@@ -978,7 +978,12 @@ def test_restore_rejects_unsafe_archive_paths(tmp_path):
 def test_publishing_runs_only_on_push_to_main_with_scoped_permissions():
     jobs = WORKFLOW["jobs"]
     assert WORKFLOW["permissions"] == {"contents": "read"}
-    verifications = {n for n, j in jobs.items() if "walk-hallway.yml" in str(j.get("uses"))}
+    verifications = {
+        n
+        for n, j in jobs.items()
+        if any(f"/{name}@" in str(j.get("uses")) for name in ("walk-hallway.yml", "scenario.yml"))
+    }
+    assert len(verifications) == 7
     assert set(jobs["site"]["needs"]) == verifications
     for name in ("site", "pages"):
         assert jobs[name]["if"] == (
@@ -1711,7 +1716,8 @@ def test_retention_changes_what_is_pruned_and_the_kept_for_text(tmp_path, monkey
     assert (folder / "report.json").is_file() and (folder / "index.html").is_file()
     assert (folder / "report.html").is_file()
     page = _page(site)
-    assert "Evidence kept for 3 days" in page and "Evidence kept for 7 days" not in page
+    # Reporter v3.11.1 (livingproof-capability-report#77) says so once the copies are gone.
+    assert "Evidence expired after 3 days" in page and "Evidence kept for" not in page
     assert f"src='{video}'" not in page and f"href='{video}'" not in page
     assert "artifact" not in page.lower() and "/actions/" not in page
     record = json.loads((folder / "run.json").read_text())

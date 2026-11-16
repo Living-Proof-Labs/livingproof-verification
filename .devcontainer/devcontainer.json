@@ -1,6 +1,6 @@
 {
   "name": "livingproof-verification (capability-verifier hallway image)",
-  "image": "ghcr.io/living-proof-labs/capability-verifier-hallway:1.23.2@sha256:21a3062a91dea7a5992451ce036041125126c338ba4921046e589b28be6718f7",
+  "image": "ghcr.io/living-proof-labs/capability-verifier-hallway:1.24.0@sha256:931ce2ac77a986e00bd41f035780bb25267a97f85336204815a6da7baec3a5c0",
   "remoteUser": "lpl",
   "updateRemoteUserUID": true,
   "overrideCommand": true,

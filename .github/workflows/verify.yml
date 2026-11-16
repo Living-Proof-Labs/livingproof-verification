@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
-# Thin call: the capability verifier's reusable workflow runs every step. The robot
+# Thin call: the capability verifier's reusable workflow runs every step (walk-hallway.yml
+# for the walk-hallway definitions, scenario.yml for the walk-corner ones). The robot
 # repository, commit and configurations below must equal the matching lock. Every uses
 # commit is the capability-verifier release named in that line's `# vX.Y.Z` comment, and
 # it must equal the locked verifier. verification-lock is this repository's 0.2.0 lock.
@@ -72,7 +73,7 @@ jobs:
       - run: '"$RUNNER_TEMP/tests/bin/pytest" tests/test_locks.py'
   unitree-g1-stock-mujoco-hallway:
     needs: locks
-    uses: Living-Proof-Labs/capability-verifier/.github/workflows/walk-hallway.yml@d4f367f5a4ed126d2b17a0f6b8e0d8f03fe8ee46  # v1.23.2
+    uses: Living-Proof-Labs/capability-verifier/.github/workflows/walk-hallway.yml@f1ca679eddfa55440f0988e1e4591c0ea85dabac  # v1.24.0
     permissions:
       contents: read
       pull-requests: write
@@ -86,7 +87,7 @@ jobs:
       comment: false
   unitree-g1-playground-mujoco-hallway:
     needs: locks
-    uses: Living-Proof-Labs/capability-verifier/.github/workflows/walk-hallway.yml@d4f367f5a4ed126d2b17a0f6b8e0d8f03fe8ee46  # v1.23.2
+    uses: Living-Proof-Labs/capability-verifier/.github/workflows/walk-hallway.yml@f1ca679eddfa55440f0988e1e4591c0ea85dabac  # v1.24.0
     permissions:
       contents: read
       pull-requests: write
@@ -100,7 +101,7 @@ jobs:
       comment: false
   booster-t1-stock-mujoco-hallway:
     needs: locks
-    uses: Living-Proof-Labs/capability-verifier/.github/workflows/walk-hallway.yml@d4f367f5a4ed126d2b17a0f6b8e0d8f03fe8ee46  # v1.23.2
+    uses: Living-Proof-Labs/capability-verifier/.github/workflows/walk-hallway.yml@f1ca679eddfa55440f0988e1e4591c0ea85dabac  # v1.24.0
     permissions:
       contents: read
       pull-requests: write
@@ -114,7 +115,7 @@ jobs:
       comment: false
   unitree-go1-playground-mujoco-hallway:
     needs: locks
-    uses: Living-Proof-Labs/capability-verifier/.github/workflows/walk-hallway.yml@d4f367f5a4ed126d2b17a0f6b8e0d8f03fe8ee46  # v1.23.2
+    uses: Living-Proof-Labs/capability-verifier/.github/workflows/walk-hallway.yml@f1ca679eddfa55440f0988e1e4591c0ea85dabac  # v1.24.0
     permissions:
       contents: read
       pull-requests: write
@@ -126,11 +127,62 @@ jobs:
       artifact-prefix: unitree-go1-playground-mujoco-hallway-
       check: false  # the robot repository's own CI tests the robot
       comment: false
+  # walk-corner (robot-capability-specs#40): scenario.yml runs the scenario and world each
+  # lock names. The walk-hallway jobs above keep walk-hallway.yml, the wrapper around it.
+  unitree-g1-stock-mujoco-corner:
+    needs: locks
+    uses: Living-Proof-Labs/capability-verifier/.github/workflows/scenario.yml@f1ca679eddfa55440f0988e1e4591c0ea85dabac  # v1.24.0
+    permissions:
+      contents: read
+      pull-requests: write
+    with:
+      repository: Living-Proof-Labs/livingproof-unitree-g1
+      ref: 68725986336c38d25a5ea421f895d9d796aed7f1
+      configurations: '["stock"]'
+      verification-lock: verifications/unitree-g1-stock-mujoco-corner.lock.json
+      artifact-prefix: unitree-g1-stock-mujoco-corner-
+      check: false  # the robot repository's own CI tests the robot
+      comment: false
+  booster-t1-stock-mujoco-corner:
+    needs: locks
+    uses: Living-Proof-Labs/capability-verifier/.github/workflows/scenario.yml@f1ca679eddfa55440f0988e1e4591c0ea85dabac  # v1.24.0
+    permissions:
+      contents: read
+      pull-requests: write
+    with:
+      repository: Living-Proof-Labs/livingproof-booster-t1
+      ref: 8e09bb82234742c3ce88aa5fe2e7e02afaf3858a
+      configurations: '["stock"]'
+      verification-lock: verifications/booster-t1-stock-mujoco-corner.lock.json
+      artifact-prefix: booster-t1-stock-mujoco-corner-
+      check: false  # the robot repository's own CI tests the robot
+      comment: false
+  unitree-go1-playground-mujoco-corner:
+    needs: locks
+    uses: Living-Proof-Labs/capability-verifier/.github/workflows/scenario.yml@f1ca679eddfa55440f0988e1e4591c0ea85dabac  # v1.24.0
+    permissions:
+      contents: read
+      pull-requests: write
+    with:
+      repository: Living-Proof-Labs/livingproof-unitree-go1
+      ref: c2fc81f6d5c03206bde4ed858dee2074542bfe5d
+      configurations: '["playground"]'
+      verification-lock: verifications/unitree-go1-playground-mujoco-corner.lock.json
+      artifact-prefix: unitree-go1-playground-mujoco-corner-
+      check: false  # the robot repository's own CI tests the robot
+      comment: false
   # Publishing (push to main only): lay this run's reports out into the Pages site, keeping
   # every earlier run from the previous Pages artifact. Layout and index only (tools/site.py):
   # the verifier graded and the reporter rendered; nothing is committed.
   site:
-    needs: [unitree-g1-stock-mujoco-hallway, unitree-g1-playground-mujoco-hallway, booster-t1-stock-mujoco-hallway, unitree-go1-playground-mujoco-hallway]
+    needs:
+      - unitree-g1-stock-mujoco-hallway
+      - unitree-g1-playground-mujoco-hallway
+      - booster-t1-stock-mujoco-hallway
+      - unitree-go1-playground-mujoco-hallway
+      - unitree-g1-stock-mujoco-corner
+      - booster-t1-stock-mujoco-corner
+      - unitree-go1-playground-mujoco-corner
     if: >-
       github.ref == 'refs/heads/main' && (github.event_name == 'push' ||
       (github.event_name == 'workflow_dispatch' && inputs.reset-history))

@@ -57,7 +57,8 @@ def test_completion_coordinates_both_entry_points(checkout, monkeypatch, entry):
             updater.CALL.sub(lambda m: m["prefix"] + "a" * 40 + "  # v9.9.9", workflow.read_text())
         )
     updater.update(checkout, "v9.9.9")
-    assert workflow.read_text().count("a" * 40 + "  # v9.9.9") == 4
+    calls = workflow.read_text().count("a" * 40 + "  # v9.9.9")
+    assert calls == len(updater.lock.definition_paths(checkout)) == 7
     pin = updater.lock.VERIFIER_IMAGE + ":9.9.9@sha256:" + "b" * 64
     assert json.loads(dev.read_text())["image"] == pin
     assert pin in (checkout / "README.md").read_text()
@@ -120,12 +121,12 @@ def test_published_history_pin_follows_the_resolved_release(checkout, monkeypatc
     shutil.copyfile(ROOT / "tests/test_site.py", destination)
     before = destination.read_text()
     assert 'assert verifier["tag"] == "v9.9.9"' not in before
-    assert 'assert reporter_tag == "v3.10.1"' in before
+    assert 'assert reporter_tag == "v3.11.1"' in before
     updater.update(checkout, "v9.9.9")
     text = destination.read_text()
     assert 'assert verifier["tag"] == "v9.9.9"' in text
     assert f'assert verifier["commit"] == "{"a" * 40}"' in text
-    assert 'assert reporter_tag == "v3.10.1"' in text
+    assert 'assert reporter_tag == "v3.11.1"' in text
     assert updater.update(checkout, "v9.9.9") == []
 
 

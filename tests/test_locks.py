@@ -33,16 +33,25 @@ _spec = importlib.util.spec_from_file_location("lock_tool", ROOT / "tools/lock.p
 lock_tool = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(lock_tool)
 PROCEDURE = ".github/workflows/walk-hallway.yml"
+# Each definition's procedure names the verifier workflow its job calls.
+PROCEDURES = lock_tool.PROCEDURES
 
 
 def lock_of(definition: Path) -> dict:
     return json.loads(definition.with_name(definition.stem + ".lock.json").read_text())
 
 
+def procedure_path(lock: dict) -> str:
+    """The verifier workflow the lock's procedure runs (walk-hallway.yml or scenario.yml)."""
+    return PROCEDURES[lock["procedure"]]
+
+
 def calls_verifier(uses) -> bool:
-    """Any call of walk-hallway.yml: any owner (case-insensitive), a fork or a local copy."""
-    return isinstance(uses, str) and uses.split("@", 1)[0].strip().lower().endswith(
-        "/" + PROCEDURE.lower()
+    """Any call of a verifier procedure workflow (walk-hallway.yml or scenario.yml): any owner
+    (case-insensitive), a fork or a local copy."""
+    return isinstance(uses, str) and any(
+        uses.split("@", 1)[0].strip().lower().endswith("/" + path.lower())
+        for path in PROCEDURES.values()
     )
 
 
@@ -56,7 +65,8 @@ def same_call(uses, pinned: str) -> bool:
 
 
 def workflow_problems(text: str, definitions=None) -> list[str]:
-    """Every job calling walk-hallway.yml must be a definition's job with its exact locked call."""
+    """Every job calling a verifier procedure must be a definition's job with its exact locked
+    call."""
     jobs = yaml.safe_load(text)["jobs"]
     locks = {p.stem: lock_of(p) for p in (DEFINITIONS if definitions is None else definitions)}
     problems = [
@@ -82,7 +92,7 @@ def call_problems(lock: dict, job) -> list[str]:
     v = lock["releases"]["verifier"]
     w = job.get("with") if isinstance(job.get("with"), dict) else {}
     confs = w.get("configurations")
-    pinned = f"{v['repository']}/{PROCEDURE}@{v['commit']}"
+    pinned = f"{v['repository']}/{procedure_path(lock)}@{v['commit']}"
     uses = job.get("uses")
     want = {
         "uses": (pinned if same_call(uses, pinned) else uses, pinned),
@@ -205,8 +215,10 @@ def test_every_verifier_call_is_a_locked_definition_job():
         "living-proof-labs/capability-verifier/.github/workflows/walk-hallway.yml@main",
         "someone-else/capability-verifier/.github/workflows/walk-hallway.yml@main",
         "./.github/workflows/walk-hallway.yml",
+        "living-proof-labs/capability-verifier/.github/workflows/scenario.yml@main",
+        "./.github/workflows/scenario.yml",
     ],
-    ids=["lowercase-owner", "fork", "local"],
+    ids=["lowercase-owner", "fork", "local", "scenario-lowercase-owner", "scenario-local"],
 )
 def test_a_second_call_to_any_walk_hallway_is_refused(uses):
     extra = (
@@ -219,7 +231,7 @@ def test_a_second_call_to_any_walk_hallway_is_refused(uses):
 def test_the_pin_matches_the_owner_case_insensitively():
     lock = lock_of(DEFINITIONS[0])
     v = lock["releases"]["verifier"]
-    pinned = f"{v['repository']}/{PROCEDURE}@{v['commit']}"
+    pinned = f"{v['repository']}/{procedure_path(lock)}@{v['commit']}"
     assert same_call(pinned.lower(), pinned)
     assert not same_call(pinned.split("@")[0] + "@main", pinned)
 
@@ -320,7 +332,9 @@ def test_uses_commit_matches_the_locked_verifier(definition):
     assert_uses_matches_locked_verifier(WORKFLOW.read_text(), lock, definition.stem)
     verifier = lock["releases"]["verifier"]
     drifted = yaml.safe_load(WORKFLOW.read_text())
-    drifted["jobs"][definition.stem]["uses"] = f"{verifier['repository']}/{PROCEDURE}@{'0' * 40}"
+    drifted["jobs"][definition.stem]["uses"] = (
+        f"{verifier['repository']}/{procedure_path(lock)}@{'0' * 40}"
+    )
     problems = call_problems(lock, drifted["jobs"][definition.stem])
     assert [p.split(" ")[0] for p in problems] == ["uses", "run"]
     assert lock_tool.UPDATE_HINT in problems
@@ -340,8 +354,8 @@ def test_a_commented_out_pin_does_not_count():
     text = (
         "jobs:\n"
         f"  {definition.stem}:\n"
-        f"    uses: {v['repository']}/{PROCEDURE}@main\n"
-        f"    # uses: {v['repository']}/{PROCEDURE}@{v['commit']}\n"
+        f"    uses: {v['repository']}/{procedure_path(lock)}@main\n"
+        f"    # uses: {v['repository']}/{procedure_path(lock)}@{v['commit']}\n"
         "    with:\n"
         f"      repository: {lock['robot']['repository']}\n"
         "      ref: main\n"
@@ -774,7 +788,7 @@ _HALLWAY_REF = re.compile(
 
 
 def test_walk_hallway_pin_locks_and_hallway_image_agree():
-    """The uses pin, the four locks' verifier tag and commit, and the hallway image agree."""
+    """The uses pin, every lock's verifier tag and commit, and the hallway image agree."""
     text = WORKFLOW.read_text()
     verifiers = []
     for definition in DEFINITIONS:

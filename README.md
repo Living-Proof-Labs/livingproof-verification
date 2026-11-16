@@ -14,13 +14,15 @@ Scope and acceptance criteria: [Living-Proof-Labs/.github#11](https://github.com
 
 The first definition is `unitree-g1-stock-mujoco-hallway`: Unitree G1 with its stock controller in the MuJoCo hallway, 3 trials.
 
+The walk-corner definitions ([robot-capability-specs#40](https://github.com/Living-Proof-Labs/robot-capability-specs/issues/40)) run walk-corner 0.1.0 on hallway-corner 0.1.0 (livingproof-worlds v1.3.0), one trial each, through the verifier's `scenario.yml`: `unitree-g1-stock-mujoco-corner` (G1 v2.2.1), `booster-t1-stock-mujoco-corner` (T1 v2.2.0) and `unitree-go1-playground-mujoco-corner` (Go1 v2.2.0). The site publishes their reports beside the walk-hallway ones, as their own robot/variant pages.
+
 ## Run a verification locally
 
 The recommended path is the devcontainer (`.devcontainer/devcontainer.json`): the capability verifier's hallway image, pinned by digest, the same image CI's evidence, verify and media jobs use. It has Python 3.12, uv, git, jq, OSMesa, `livingproof` and the verifier, with the locked dependencies pre-synced. Without an editor, run the image directly from a clone of this repository (a clone, not a git worktree: the container must see `.git`):
 
 ```sh
 docker run --rm -u $(id -u):$(id -g) -v $PWD:/work \
-  ghcr.io/living-proof-labs/capability-verifier-hallway:1.23.2@sha256:21a3062a91dea7a5992451ce036041125126c338ba4921046e589b28be6718f7 \
+  ghcr.io/living-proof-labs/capability-verifier-hallway:1.24.0@sha256:931ce2ac77a986e00bd41f035780bb25267a97f85336204815a6da7baec3a5c0 \
   capability verify run --reporter source verifications/unitree-g1-stock-mujoco-hallway.toml
 ```
 
@@ -68,6 +70,8 @@ python3 tools/lock.py verifications/unitree-g1-stock-mujoco-hallway.toml
 
 The `locks` job needs the network. On every run it resolves tags, commits and image digests from git and GHCR, and `tests/test_locks.py` compares that fresh resolution to the committed locks. Those lookups are not cached: a cache would let a stale reporter, verifier or digest pass the review. Git tag lookups retry a timeout three times (60 seconds each, one second apart) and then raise `LockError`. A registry timeout or an unreachable host is `LockError` as well. The job fails closed either way. A GitHub or GHCR outage blocks CI after the retries are exhausted. That is the chosen tradeoff: bounded retry, then fail closed, and no cache. Missing releases and install incompatibilities stay blockers, not reasons to weaken the check.
 
+A definition may instead own its scenario, world, plan and specs release (all four, or none). The corner definitions do this: the robots are thin, so a new definition has no robot lock or earlier lock to take them from. `scenario` is `name@version`; `[world]` names `id`, `version`, `repository` and `tag`, and `lock` records the tag's commit and the sha256 of `worlds/<id>/<version>/world.json` at that commit; `[plan]` is copied whole; `[releases.specs]` names `repository` and `tag`, and `lock` records the commit. The runner release is then the livingproof-sim-mujoco tag and commit in the robot's `uv.lock`, checked against the tag, so the lock names the simulator that actually runs. Procedure `walk-hallway` calls the verifier's `walk-hallway.yml`; procedure `scenario` calls its `scenario.yml`, which runs whatever scenario and world the lock names (capability-verifier v1.24.0 and later). `plan.command_speed` is required for walk-hallway only: walk-corner takes its speed from its parameter file.
+
 Then update the call in `.github/workflows/verify.yml` to the new robot commit and, when the lock names a new verifier, to that verifier commit. `tests/test_locks.py` (the `locks` CI job, which every verification job waits for) and `lock --check --workflow` fail until `uses`, `verification-lock` and the locked verifier and reporter agree. Both parse the workflow YAML, so a commented-out pin does not count. Every configuration's `uses` commit is its locked verifier commit.
 
 ## Updating the verifier
@@ -85,20 +89,23 @@ git add .github/workflows/verify.yml .devcontainer/devcontainer.json README.md \
 git commit -m "chore: coordinate verifier release and locked evidence"
 ```
 
-Replace `vX.Y.Z` with the reviewed release. Use a `fix:` or `chore:` commit prefix. The command resolves its unique tag/commit, stages changes in a temporary directory, and uses the existing `python3 tools/lock.py --update` implementation to resolve the registry digest and scenario evaluator from that release's declaration. It updates all workflow calls, four locks, checker git requirements, devcontainer image, README image example, and the published-history verifier expectation in `tests/test_site.py`. Resolution/validation errors leave the checkout untouched. Robot, reporter, runner, specs and definition bytes remain unchanged; historical definition comments need not be rewritten. No release hashes are handwritten. Direct `python3 tools/lock.py --update` remains available for lock-only repair after a workflow change, but does not coordinate image/example changes.
+Replace `vX.Y.Z` with the reviewed release. Use a `fix:` or `chore:` commit prefix. The command resolves its unique tag/commit, stages changes in a temporary directory, and uses the existing `python3 tools/lock.py --update` implementation to resolve the registry digest and scenario evaluator from that release's declaration. It updates all workflow calls, every lock, checker git requirements, devcontainer image, README image example, and the published-history verifier expectation in `tests/test_site.py`. Resolution/validation errors leave the checkout untouched. Robot, reporter, runner, specs and definition bytes remain unchanged; historical definition comments need not be rewritten. No release hashes are handwritten. Direct `python3 tools/lock.py --update` remains available for lock-only repair after a workflow change, but does not coordinate image/example changes.
 
-Before merge, required checks must pass on the exact head revision, and the engineering lead records verification evidence (passed, failed, blocked, and not run separately, tied to that SHA). Release provenance is checked by `python3 tools/update_verifier.py --tag vX.Y.Z`, which resolves a unique published tag to its commit and digest, and by `python3 tools/lock.py --check --workflow` plus the locks job, which fail until workflow pins, verification locks, and the locked verifier and reporter agree. Unrelated pins stay unchanged because the generator does not rewrite robot, reporter, runner, specs, or definition bytes. Require those fresh-resolution and consistency checks plus all four configuration pipelines. If new verifier dependencies require a hashed requirements recompile, follow `.github/requirements/lock-check.in`; this helper does not resolve the whole Python environment. Missing releases, unavailable registries and install incompatibilities are blockers, not reasons to weaken checks. CI success and robot capability verdicts must be reported separately. Automerge stays off; a human approval is not a merge gate. The engineering lead may merge once those required checks pass and the evidence is recorded.
+Before merge, required checks must pass on the exact head revision, and the engineering lead records verification evidence (passed, failed, blocked, and not run separately, tied to that SHA). Release provenance is checked by `python3 tools/update_verifier.py --tag vX.Y.Z`, which resolves a unique published tag to its commit and digest, and by `python3 tools/lock.py --check --workflow` plus the locks job, which fail until workflow pins, verification locks, and the locked verifier and reporter agree. Unrelated pins stay unchanged because the generator does not rewrite robot, reporter, runner, specs, or definition bytes. Require those fresh-resolution and consistency checks plus every verification pipeline. If new verifier dependencies require a hashed requirements recompile, follow `.github/requirements/lock-check.in`; this helper does not resolve the whole Python environment. Missing releases, unavailable registries and install incompatibilities are blockers, not reasons to weaken checks. CI success and robot capability verdicts must be reported separately. Automerge stays off; a human approval is not a merge gate. The engineering lead may merge once those required checks pass and the evidence is recorded.
 
 ## Updating the reporter
 
-Renovate proposes a new `Living-Proof-Labs/livingproof-capability-report` release by editing the tag in `verifications/settings.toml` only. The organization preset still applies: the release is reviewed, automerge stays off, and this repository does not widen the preset's schedule, rate limits or stability filter. The four `verifications/*.lock.json` files are generator output. Renovate does not edit them, and it does not edit robot, verifier or evaluator pins.
+Renovate proposes a new `Living-Proof-Labs/livingproof-capability-report` release by editing the tag in `verifications/settings.toml` only. The organization preset still applies: the release is reviewed, automerge stays off, and this repository does not widen the preset's schedule, rate limits or stability filter. The `verifications/*.lock.json` files are generator output. Renovate does not edit them, and it does not edit robot, verifier or evaluator pins.
 
-Hosted Mend Renovate cannot run the lock generator. Check out the proposal's exact head and regenerate all four locks with the existing generator:
+Hosted Mend Renovate cannot run the lock generator. Check out the proposal's exact head and regenerate every lock with the existing generator:
 
 ```sh
+python3 tools/lock.py verifications/booster-t1-stock-mujoco-corner.toml
 python3 tools/lock.py verifications/booster-t1-stock-mujoco-hallway.toml
 python3 tools/lock.py verifications/unitree-g1-playground-mujoco-hallway.toml
+python3 tools/lock.py verifications/unitree-g1-stock-mujoco-corner.toml
 python3 tools/lock.py verifications/unitree-g1-stock-mujoco-hallway.toml
+python3 tools/lock.py verifications/unitree-go1-playground-mujoco-corner.toml
 python3 tools/lock.py verifications/unitree-go1-playground-mujoco-hallway.toml
 ```
 

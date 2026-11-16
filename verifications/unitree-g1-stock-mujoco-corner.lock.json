@@ -1,0 +1,78 @@
+{
+  "format": "livingproof-verification-lock/0.2.0",
+  "definition": {
+    "path": "unitree-g1-stock-mujoco-corner.toml",
+    "sha256": "b3ad02fd4b3f53c333a1f4f9e371c038c8e387469313e391c1f913520695e1b5"
+  },
+  "procedure": "scenario",
+  "scenario": "walk-corner@0.1.0",
+  "robot": {
+    "repository": "Living-Proof-Labs/livingproof-unitree-g1",
+    "ref": "v2.2.1",
+    "commit": "68725986336c38d25a5ea421f895d9d796aed7f1",
+    "configurations": [
+      "stock"
+    ],
+    "adapter": "lpl_g1.adapter:ROBOT"
+  },
+  "releases": {
+    "specs": {
+      "repository": "Living-Proof-Labs/robot-capability-specs",
+      "tag": "v2.3.0",
+      "commit": "57317e617014a6df97bb7fba9d92a890af8d42e5"
+    },
+    "runner": {
+      "repository": "Living-Proof-Labs/livingproof-sim-mujoco",
+      "tag": "v3.2.1",
+      "commit": "f9c326f370cc3e54bf38932bfb332455dc4b5ef1"
+    },
+    "verifier": {
+      "repository": "Living-Proof-Labs/capability-verifier",
+      "tag": "v1.24.0",
+      "commit": "f1ca679eddfa55440f0988e1e4591c0ea85dabac",
+      "image": "ghcr.io/living-proof-labs/capability-verifier-hallway",
+      "digest": "sha256:931ce2ac77a986e00bd41f035780bb25267a97f85336204815a6da7baec3a5c0"
+    },
+    "reporter": {
+      "repository": "Living-Proof-Labs/livingproof-capability-report",
+      "tag": "v3.11.1",
+      "commit": "3453a141746bca38adda2a7d66f517afb0c48bf4",
+      "image": "ghcr.io/living-proof-labs/livingproof-capability-report",
+      "digest": "sha256:fc6a5d01f86349c2f47cf6beb0937a830d6a2fd437df087443c8c56fd57606f8"
+    }
+  },
+  "world": {
+    "id": "hallway-corner",
+    "version": "0.1.0",
+    "repository": "Living-Proof-Labs/livingproof-worlds",
+    "tag": "v1.3.0",
+    "commit": "12915e34e6ad1dfe376ec2fcb49d5afb957caff9",
+    "sha256": "8393881e8b38a090f51c3a424ca444623a901f642f75186cb4d41ac7482898f5"
+  },
+  "configurations": [
+    {
+      "name": "stock",
+      "version": "1.1.1",
+      "path": "configurations/stock.json",
+      "sha256": "8baf584eb025fa4408aad20a81521b73bc068a3a7e613dfeeb8f03d24eb02b5e"
+    },
+    {
+      "name": "playground",
+      "version": "1.0.1",
+      "path": "configurations/playground.json",
+      "sha256": "1fef76d2e5b6eb0ab7627d1f93333e8ca2ec01249a5b1d1f68876186f0657e89"
+    }
+  ],
+  "plan": {
+    "trials": {
+      "count": 1
+    }
+  },
+  "evaluators": {
+    "livingproof-evaluator-scenario": {
+      "repository": "Living-Proof-Labs/livingproof-evaluator-scenario",
+      "tag": "v1.3.0",
+      "commit": "965629ab1e9508cb3090931abbae6a957bf5d294"
+    }
+  }
+}

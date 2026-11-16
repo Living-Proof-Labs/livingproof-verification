@@ -6,7 +6,7 @@
     python3 tools/lock.py --update
 
 ``--update`` refreshes ``releases.verifier`` (tag, commit and digest) in every
-``verifications/*.lock.json`` from the walk-hallway commit that definition's job
+``verifications/*.lock.json`` from the verifier commit that definition's job
 calls, and points ``.github/requirements/lock-check-git.txt`` at that same commit.
 It also refreshes ``evaluators.livingproof-evaluator-scenario`` (repository, tag
 and commit) from the dependency that verifier release declares in its pyproject.
@@ -28,10 +28,20 @@ for a missing robot lock.
 Either way, the reporter tag, repository and image come from ``verifications/settings.toml``
 in this repository. A missing file is a ``LockError``; the reporter is not copied from a
 robot lock or an existing ``0.2.0``. The commit and digest are resolved from that tag.
-The verifier pin is the walk-hallway commit that definition's job calls in
-``.github/workflows/verify.yml``, with that tag's hallway image digest. The
+The verifier pin is the commit that definition's job calls in
+``.github/workflows/verify.yml`` (``walk-hallway.yml`` for procedure ``walk-hallway``,
+``scenario.yml`` for procedure ``scenario``), with that tag's hallway image digest. The
 scenario-evaluator pin is read from that verifier release. Git tag lookups retry a
 timeout, then raise ``LockError``. Resolutions are not cached.
+
+A definition may own scenario, world, plan and the specs release itself (all four, or
+none). The robots are thin, so a new definition has no robot lock and no earlier lock
+to take them from. ``scenario`` is ``name@version``; ``[world]`` names id, version,
+repository and tag, and the lock records the tag's commit and the sha256 of
+``worlds/<id>/<version>/world.json`` at that commit; ``[plan]`` is copied whole;
+``[releases.specs]`` names repository and tag, and the lock records the commit. The
+runner release is then the livingproof-sim-mujoco tag and commit the robot's
+``uv.lock`` installs, so the lock names the simulator that actually runs.
 """
 
 from __future__ import annotations
@@ -58,6 +68,14 @@ EVALUATOR = "livingproof-evaluator-scenario"
 # from the tag; it is never invented.
 DEFAULT_EVALUATOR = ("Living-Proof-Labs/livingproof-evaluator-scenario", "v1.0.0")
 OWNED = ("releases", "scenario", "plan", "world", "evaluators")
+# What a definition may own itself (all of them or none of them).
+DEFINITION_OWNED = ("scenario", "world", "plan", "releases")
+RUNNER_REPOSITORY = "Living-Proof-Labs/livingproof-sim-mujoco"
+RUNNER_PACKAGE = "livingproof-sim-mujoco"
+UV_GIT_SOURCE = re.compile(
+    r"(?:git\+)?https://github\.com/(?P<repository>[A-Za-z0-9-]+/[A-Za-z0-9._-]+?)(?:\.git)?"
+    r"\?tag=(?P<tag>v\d+\.\d+\.\d+)#(?P<commit>[0-9a-f]{40})$"
+)
 
 FILE_SHA = re.compile(r"[0-9a-f]{64}")
 SEMVER = re.compile(r"\d+\.\d+\.\d+")
@@ -70,7 +88,14 @@ EVALUATOR_DEP = re.compile(
     r"livingproof-evaluator-scenario\s*@\s*git\+https://github\.com/"
     r"(?P<repository>[A-Za-z0-9-]+/[A-Za-z0-9._-]+)\.git@(?P<tag>v\d+\.\d+\.\d+)\b"
 )
-PROCEDURE = ".github/workflows/walk-hallway.yml"
+# Definition procedure -> the capability-verifier workflow its job calls. walk-hallway.yml
+# is the thin wrapper existing callers keep; scenario.yml runs whatever scenario and world
+# the lock names (capability-verifier v1.24.0, robot-capability-specs#40).
+PROCEDURES = {
+    "walk-hallway": ".github/workflows/walk-hallway.yml",
+    "scenario": ".github/workflows/scenario.yml",
+}
+PROCEDURE = PROCEDURES["walk-hallway"]
 VERIFIER_IMAGE = "ghcr.io/living-proof-labs/capability-verifier-hallway"
 # The locks job resolves tags from git on every run and does not cache them.
 # A timeout is retried, then raised as LockError so CI fails closed.
@@ -271,15 +296,23 @@ def called_verifier(
     workflow: Path,
     definition_id: str,
     *,
+    procedure: str = "walk-hallway",
     tag_of=None,
     digester=None,
 ) -> dict | None:
-    """The walk-hallway release ``definition_id``'s job calls, or None when it does not."""
+    """The release ``definition_id``'s job calls, or None when it does not.
+
+    The job must call the workflow of ``procedure`` (``walk-hallway.yml`` or
+    ``scenario.yml``). A call of the other procedure's workflow does not count.
+    """
     uses = _job_uses(workflow.read_text(), definition_id)
     if not isinstance(uses, str) or "@" not in uses:
         return None
     target, _, commit = uses.partition("@")
-    if not target.lower().endswith("/" + PROCEDURE.lower()) or not SHA.fullmatch(commit):
+    path = PROCEDURES.get(procedure)
+    if path is None:
+        raise LockError(f"procedure must be one of {sorted(PROCEDURES)} (got {procedure!r})")
+    if not target.lower().endswith("/" + path.lower()) or not SHA.fullmatch(commit):
         return None
     repository = "/".join(target.split("/")[:2])
     if not REPO.fullmatch(repository):
@@ -354,8 +387,8 @@ def load_definition(path: Path) -> dict:
     problems = []
     if document.get("format") != DEFINITION_FORMAT:
         problems.append(f"format must be {DEFINITION_FORMAT!r}")
-    if document.get("procedure") != "walk-hallway":
-        problems.append("procedure must be 'walk-hallway'")
+    if document.get("procedure") not in PROCEDURES:
+        problems.append(f"procedure must be one of {sorted(PROCEDURES)}")
     if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", str(document.get("id", ""))):
         problems.append("id must be lower-case letters, digits and dashes")
     robot = document.get("robot", {})
@@ -370,9 +403,70 @@ def load_definition(path: Path) -> dict:
         and all(isinstance(name, str) and name for name in configurations)
     ):
         problems.append("robot.configurations must be a non-empty list of names")
+    problems.extend(_definition_owned_problems(document))
     if problems:
         raise LockError(f"{path}: " + "; ".join(problems))
     return document
+
+
+def definition_owns(document: dict) -> bool:
+    """Whether the definition names scenario, world, plan and the specs release itself."""
+    return any(key in document for key in DEFINITION_OWNED)
+
+
+def _definition_owned_problems(document: dict) -> list[str]:
+    """Why the definition's own scenario, world, plan and specs are incomplete."""
+    if not definition_owns(document):
+        return []
+    missing = [key for key in DEFINITION_OWNED if key not in document]
+    if missing:
+        return [
+            f"a definition that names any of {', '.join(DEFINITION_OWNED)} must name all of "
+            f"them (missing {', '.join(missing)})"
+        ]
+    problems = []
+    scenario = document["scenario"]
+    if not isinstance(scenario, str) or not SCENARIO_ID.fullmatch(scenario):
+        problems.append(f"scenario must be name@version (got {scenario!r})")
+    world = document["world"]
+    if not isinstance(world, dict):
+        problems.append("world must be a table with id, version, repository and tag")
+    else:
+        for key in ("id", "version"):
+            if not isinstance(world.get(key), str) or not world[key]:
+                problems.append(f"world.{key} must be a string")
+        if isinstance(world.get("version"), str) and not SEMVER.fullmatch(world["version"]):
+            problems.append("world.version must be X.Y.Z")
+        if not isinstance(world.get("repository"), str) or not REPO.fullmatch(
+            world.get("repository", "")
+        ):
+            problems.append("world.repository must be OWNER/NAME")
+        if not isinstance(world.get("tag"), str) or not TAG.fullmatch(world.get("tag", "")):
+            problems.append("world.tag must be a vX.Y.Z release tag")
+        extra = sorted(set(world) - {"id", "version", "repository", "tag"})
+        if extra:
+            problems.append(f"world names {extra}; the lock resolves commit and sha256")
+    if not isinstance(document["plan"], dict):
+        problems.append("plan must be a table")
+    releases = document["releases"]
+    specs = releases.get("specs") if isinstance(releases, dict) else None
+    if not isinstance(releases, dict) or set(releases) != {"specs"}:
+        problems.append(
+            "releases must name specs only: the runner is the simulator the robot's uv.lock "
+            "installs, and verifier and reporter come from the workflow call and settings.toml"
+        )
+    elif not isinstance(specs, dict):
+        problems.append("releases.specs must be a table with repository and tag")
+    else:
+        if not isinstance(specs.get("repository"), str) or not REPO.fullmatch(
+            specs.get("repository", "")
+        ):
+            problems.append("releases.specs.repository must be OWNER/NAME")
+        if not isinstance(specs.get("tag"), str) or not TAG.fullmatch(specs.get("tag", "")):
+            problems.append("releases.specs.tag must be a vX.Y.Z release tag")
+        if set(specs) - {"repository", "tag"}:
+            problems.append("releases.specs names repository and tag; the lock resolves the commit")
+    return problems
 
 
 def read_lock(path: Path) -> dict:
@@ -428,8 +522,8 @@ def v2_problems(lock: dict) -> list[str]:
     digest = definition.get("sha256") if isinstance(definition, dict) else None
     if not isinstance(digest, str) or not FILE_SHA.fullmatch(digest):
         problems.append("definition.sha256 must be 64 hex characters")
-    if lock.get("procedure") != "walk-hallway":
-        problems.append("procedure must be 'walk-hallway'")
+    if lock.get("procedure") not in PROCEDURES:
+        problems.append(f"procedure must be one of {sorted(PROCEDURES)}")
     scenario = lock.get("scenario")
     if not isinstance(scenario, str) or not SCENARIO_ID.fullmatch(scenario):
         problems.append(f"scenario must be name@version (got {scenario!r})")
@@ -482,8 +576,17 @@ def v2_problems(lock: dict) -> list[str]:
     if missing:
         problems.append(f"robot.configurations {missing} are not in configurations")
     plan = lock.get("plan")
-    speed = plan.get("command_speed") if isinstance(plan, dict) else None
-    if isinstance(speed, bool) or not isinstance(speed, (int, float)):
+    if not isinstance(plan, dict):
+        problems.append("plan must be an object")
+        plan = {}
+    # walk-hallway records its speed in the plan. Another scenario (walk-corner) takes it
+    # from the scenario's parameter file; when present it is still a number. The same rule
+    # as capability-verifier v1.24.0 read_lock.
+    hallway = isinstance(scenario, str) and scenario.split("@", 1)[0] == "walk-hallway"
+    speed = plan.get("command_speed")
+    if (hallway or "command_speed" in plan) and (
+        isinstance(speed, bool) or not isinstance(speed, (int, float))
+    ):
         problems.append("plan.command_speed must be a number")
     world = lock.get("world")
     if not isinstance(world, dict):
@@ -707,6 +810,78 @@ def _owned_from_existing(existing: dict | None, definition: Path, where: str) ->
     }
 
 
+def _runner_from_uv_lock(root: Path, where: str) -> dict:
+    """The livingproof-sim-mujoco release the robot's ``uv.lock`` installs."""
+    path = root / "uv.lock"
+    if not path.is_file():
+        raise LockError(f"{where}: uv.lock is missing; the runner is read from it")
+    try:
+        packages = tomllib.loads(path.read_text()).get("package", [])
+    except tomllib.TOMLDecodeError as exc:
+        raise LockError(f"{where}: uv.lock is not valid TOML ({exc})") from None
+    found = [
+        item for item in packages if isinstance(item, dict) and item.get("name") == RUNNER_PACKAGE
+    ]
+    if len(found) != 1:
+        raise LockError(f"{where}: uv.lock must lock {RUNNER_PACKAGE} exactly once")
+    source = found[0].get("source")
+    git_url = source.get("git") if isinstance(source, dict) else None
+    match = UV_GIT_SOURCE.fullmatch(git_url) if isinstance(git_url, str) else None
+    if match is None:
+        raise LockError(
+            f"{where}: uv.lock installs {RUNNER_PACKAGE} from {git_url!r}, not a released "
+            f"{RUNNER_REPOSITORY} tag and commit"
+        )
+    if match["repository"].lower() != RUNNER_REPOSITORY.lower():
+        raise LockError(f"{where}: uv.lock installs {RUNNER_PACKAGE} from {match['repository']}")
+    return {"repository": RUNNER_REPOSITORY, "tag": match["tag"], "commit": match["commit"]}
+
+
+def _owned_from_definition(document: dict, root: Path, work: Path, where: str, *, resolve) -> dict:
+    """Scenario, world, plan and specs from the definition; the runner from the robot."""
+    world = document["world"]
+    world_commit = resolve(world["repository"], world["tag"])
+    fetched = checkout(world["repository"], world["tag"], work / "world")
+    if fetched != world_commit:
+        raise LockError(
+            f"{world['repository']} {world['tag']} resolved to {world_commit[:12]} "
+            f"but the fetch gave {fetched[:12]}"
+        )
+    relative = f"worlds/{world['id']}/{world['version']}/world.json"
+    world_file = work / "world" / relative
+    if not world_file.is_file():
+        raise LockError(f"{world['repository']} {world['tag']} has no {relative}")
+    specs = document["releases"]["specs"]
+    runner = _runner_from_uv_lock(root, where)
+    resolved_runner = resolve(runner["repository"], runner["tag"])
+    if resolved_runner != runner["commit"]:
+        raise LockError(
+            f"{where}: uv.lock pins {RUNNER_PACKAGE} {runner['tag']} at {runner['commit'][:12]}, "
+            f"but that tag is {resolved_runner[:12]}"
+        )
+    return {
+        "scenario": document["scenario"],
+        "releases": {
+            "specs": {
+                "repository": specs["repository"],
+                "tag": specs["tag"],
+                "commit": resolve(specs["repository"], specs["tag"]),
+            },
+            "runner": runner,
+        },
+        "world": {
+            "id": world["id"],
+            "version": world["version"],
+            "repository": world["repository"],
+            "tag": world["tag"],
+            "commit": world_commit,
+            "sha256": sha256(world_file.read_bytes()),
+        },
+        "plan": document["plan"],
+        "configurations": None,
+    }
+
+
 def _apply_caller_pins(
     owned: dict,
     definition: Path,
@@ -714,6 +889,7 @@ def _apply_caller_pins(
     work: Path,
     notes: list[str],
     *,
+    procedure: str = "walk-hallway",
     resolve,
     verifier_pyproject: str | None,
     tag_of,
@@ -728,7 +904,9 @@ def _apply_caller_pins(
     releases = dict(owned["releases"])
     workflow = _workflow_path(definition)
     if workflow is not None:
-        called = called_verifier(workflow, definition_id, tag_of=tag_of, digester=digester)
+        called = called_verifier(
+            workflow, definition_id, procedure=procedure, tag_of=tag_of, digester=digester
+        )
         if called is not None:
             releases["verifier"] = called
     releases["reporter"] = reporter_pin(
@@ -772,13 +950,21 @@ def generate(
     # Read a 0.1.0 or 0.2.0 beside the definition. A missing robot lock is the thin case.
     existing = read_lock(existing_path) if existing_path.is_file() else None
     notes: list[str] = []
-    if robot_lock_path.is_file():
+    thin = False
+    if definition_owns(document):
+        # The definition names scenario, world, plan and specs: neither a robot lock nor an
+        # earlier lock supplies them. Configuration sha256s come from the robot tree.
+        owned = _owned_from_definition(document, root, work, where, resolve=resolve)
+        notes.append(
+            "definition owns scenario, world, plan and specs; runner "
+            f"{owned['releases']['runner']['tag']} from the robot's uv.lock"
+        )
+    elif robot_lock_path.is_file():
         try:
             robot_lock = json.loads(robot_lock_path.read_text())
         except json.JSONDecodeError as exc:
             raise LockError(f"{where}: {ROBOT_LOCK} is not valid JSON ({exc})") from None
         owned = _owned_from_robot(robot_lock, where)
-        thin = False
     else:
         owned = _owned_from_existing(existing, definition, where)
         thin = True
@@ -789,6 +975,7 @@ def generate(
         document["id"],
         work,
         notes,
+        procedure=document["procedure"],
         resolve=resolve,
         verifier_pyproject=verifier_pyproject,
         tag_of=tag_of,
@@ -810,7 +997,10 @@ def generate(
         "releases": owned["releases"],
         "world": owned["world"],
         "configurations": _configurations(
-            root, where, owned.get("configurations"), published=not thin
+            root,
+            where,
+            owned.get("configurations"),
+            published=not thin and not definition_owns(document),
         ),
         "plan": owned["plan"],
         "evaluators": evaluators,
@@ -930,7 +1120,7 @@ def update_locks(
 ) -> list[Path]:
     """Refresh every lock's verifier pin and the scenario-evaluator pin.
 
-    Writes the verifier tag, commit and digest from the walk-hallway ``uses``
+    Writes the verifier tag, commit and digest from each job's ``uses``
     line, and ``evaluators.livingproof-evaluator-scenario`` (repository, tag and
     commit) from the dependency that release declares. Robot, reporter, specs
     and runner stay as committed. Also records the same verifier commit in
@@ -956,10 +1146,17 @@ def update_locks(
     pending: list[tuple[Path, dict]] = []
     for definition in definition_paths(root):
         document = load_definition(definition)
-        called = called_verifier(workflow, document["id"], tag_of=tag_of, digester=digester)
+        called = called_verifier(
+            workflow,
+            document["id"],
+            procedure=document["procedure"],
+            tag_of=tag_of,
+            digester=digester,
+        )
         if called is None:
             raise LockError(
-                f"{definition.name}: {workflow.name} has no walk-hallway commit pin "
+                f"{definition.name}: {workflow.name} has no "
+                f"{PROCEDURES[document['procedure']].rsplit('/', 1)[1]} commit pin "
                 f"for job {document['id']}"
             )
         path = lock_path(definition)
@@ -997,17 +1194,17 @@ def update_locks(
     verifiers = [lock["releases"]["verifier"] for _, lock in pending]
     if len({item["commit"] for item in verifiers}) != 1:
         raise LockError(
-            "walk-hallway jobs pin different verifier commits; "
+            "verification jobs pin different verifier commits; "
             "lock-check-git.txt can record only one"
         )
     if (
         len({item["tag"] for item in verifiers}) != 1
         or len({item["repository"] for item in verifiers}) != 1
     ):
-        raise LockError("walk-hallway jobs pin different verifier releases")
+        raise LockError("verification jobs pin different verifier releases")
     scenario = [lock["evaluators"][EVALUATOR] for _, lock in pending]
     if len({(item["repository"], item["tag"], item["commit"]) for item in scenario}) != 1:
-        raise LockError("walk-hallway jobs resolve different scenario-evaluator pins")
+        raise LockError("verification jobs resolve different scenario-evaluator pins")
     written = []
     for path, lock in pending:
         path.write_text(json.dumps(lock, indent=2) + "\n")

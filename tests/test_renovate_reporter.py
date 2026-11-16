@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""The reporter Renovate pin stays reviewed, and the four locks stay generator output."""
+"""The reporter Renovate pin stays reviewed, and every lock stays generator output."""
 
 import json
 import re
@@ -9,9 +9,12 @@ from pathlib import Path
 ROOT = Path(__file__).parents[1]
 REPORTER = "Living-Proof-Labs/livingproof-capability-report"
 DEFINITIONS = (
+    "verifications/booster-t1-stock-mujoco-corner.toml",
     "verifications/booster-t1-stock-mujoco-hallway.toml",
+    "verifications/unitree-g1-stock-mujoco-corner.toml",
     "verifications/unitree-g1-playground-mujoco-hallway.toml",
     "verifications/unitree-g1-stock-mujoco-hallway.toml",
+    "verifications/unitree-go1-playground-mujoco-corner.toml",
     "verifications/unitree-go1-playground-mujoco-hallway.toml",
 )
 
@@ -69,7 +72,7 @@ def test_reporter_manager_is_targeted_and_automerge_stays_off():
     assert renovate["excludeCommitPaths"] == ["verifications/*.lock.json"]
 
 
-def test_reporter_completion_is_documented_for_all_four_locks():
+def test_reporter_completion_is_documented_for_every_lock():
     readme = (ROOT / "README.md").read_text()
     assert "Never hand-edit" in readme
     assert "python3 tools/lock.py --update" in readme
@@ -116,8 +119,10 @@ def test_the_match_string_finds_exactly_the_settings_reporter_tag():
 
 def test_every_lock_names_the_settings_reporter_tag():
     locks = sorted((ROOT / "verifications").glob("*.lock.json"))
-    definitions = list((ROOT / "verifications").glob("*-hallway.toml"))
-    assert len(locks) == len(definitions) == 4
+    definitions = [
+        path for path in (ROOT / "verifications").glob("*.toml") if path.name != "settings.toml"
+    ]
+    assert len(locks) == len(definitions) == 7
     for path in locks:
         reporter = json.loads(path.read_text())["releases"]["reporter"]
         assert (reporter["repository"], reporter["tag"]) == (REPORTER, _current()), path.name

@@ -27,7 +27,7 @@ CONSUMER_RULE_DESCRIPTIONS = (
         "Reporter release tags stay on the organization policy. Renovate edits only "
         "verifications/settings.toml."
     ),
-    "The four verification locks are generator output. Renovate must not edit them.",
+    "The verification locks are generator output. Renovate must not edit them.",
 )
 
 
