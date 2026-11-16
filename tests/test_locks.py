@@ -788,7 +788,7 @@ _HALLWAY_REF = re.compile(
 
 
 def test_walk_hallway_pin_locks_and_hallway_image_agree():
-    """The uses pin, the four locks' verifier tag and commit, and the hallway image agree."""
+    """The uses pin, every lock's verifier tag and commit, and the hallway image agree."""
     text = WORKFLOW.read_text()
     verifiers = []
     for definition in DEFINITIONS:
