@@ -104,7 +104,11 @@ test('the real settings file exposes the current reporter pin', () => {
   assert.equal(extracted.deps.length, 1);
   const [dep] = extracted.deps;
   assert.equal(dep.depName, REPORTER);
+  // The extracted pin is whatever settings.toml currently contains, and a full
+  // release tag. Renovate moves that tag, so this checks the live value and the
+  // vX.Y.Z shape rather than one version. Fixture replacements below stay.
   assert.equal(dep.currentValue, CURRENT);
+  assert.match(dep.currentValue, /^v\d+\.\d+\.\d+$/);
   assert.equal(dep.datasource, 'github-releases');
   assert.equal(dep.versioning, 'semver');
   assert.match(dep.replaceString, new RegExp(`tag = "${CURRENT}"`));
@@ -180,7 +184,10 @@ test('the four locks are not managed files and their pins do not match', () => {
     assert.match(lock.releases.verifier.commit, /^[0-9a-f]{40}$/);
     assert.match(lock.releases.verifier.digest, /^sha256:[0-9a-f]{64}$/);
     assert.equal(lock.releases.reporter.repository, REPORTER);
+    // Same live pin as the extraction above: the tag in settings.toml, shaped
+    // vX.Y.Z. A reporter bump updates the locks; this does not freeze one version.
     assert.equal(lock.releases.reporter.tag, CURRENT);
+    assert.match(lock.releases.reporter.tag, /^v\d+\.\d+\.\d+$/);
     assert.match(lock.releases.reporter.commit, /^[0-9a-f]{40}$/);
     assert.match(lock.releases.reporter.digest, /^sha256:[0-9a-f]{64}$/);
     const evaluator = lock.evaluators['livingproof-evaluator-scenario'];

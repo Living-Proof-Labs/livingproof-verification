@@ -2,7 +2,7 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "description": "Use the released organization preset while retaining development-container coverage. The reporter tag in verifications/settings.toml is the only custom pin. Lock files are generator output.",
   "extends": [
-    "github>Living-Proof-Labs/collaboration-guidelines:renovate-preset#v9.2.0"
+    "github>Living-Proof-Labs/collaboration-guidelines:renovate-preset#v9.5.2"
   ],
   "enabledManagers": [
     "github-actions",

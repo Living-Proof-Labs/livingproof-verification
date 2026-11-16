@@ -2,7 +2,9 @@
 """Assemble the GitHub Pages site from a run's capability-report artifacts.
 
 The verifier's grade and trial counts are read from report.json, never recomputed.
-A compared run keeps those counts null and carries ``reproducibility.statement``
+A stored grade of ``UNSUPPORTED`` is labelled "not supported" on the history
+pages. The report files stay the verifier's. A compared run keeps those counts
+null and carries ``reproducibility.statement``
 (or the stored finding, when no statement was recorded) onto the history record.
 The public run page is the reporter's HTML: this module asks the pinned reporter to
 render it with this site's evidence paths, retention and a link to the run history.
@@ -609,7 +611,7 @@ def add_run(
         "robot": target["robot"],
         "variant": target["variant"],
         "verification": target["id"],
-        "outcome": outcome(read_report(source / "report.json"), str(source / "report.json")),
+        "outcome": outcome(read_report(folder / "report.json"), str(folder / "report.json")),
         **provenance(target, run),
     }
     if evidence is not None:
@@ -727,6 +729,7 @@ STYLE = """body{font-family:system-ui,sans-serif;margin:2rem auto;max-width:72re
 color:#1b1f24}table{border-collapse:collapse}td,th{border:1px solid #d0d7de;padding:.35rem .6rem;
 text-align:left}.PASS{color:#1a7f37;font-weight:600}.FAIL{color:#cf222e;font-weight:600}
 .INSUFFICIENT_EVIDENCE{color:#9a6700;font-weight:600}
+.UNSUPPORTED{color:#57606a;font-weight:600}
 dl{display:grid;grid-template-columns:max-content 1fr;gap:.2rem 1rem}dt{font-weight:600}
 code{font-size:.9em}"""
 
@@ -767,8 +770,17 @@ def actions_links(site: Path) -> list[str]:
 COUNTS_NOT_STORED = "counts not stored"
 
 
+def grade_label(grade: str) -> str:
+    """The words a reader sees. ``UNSUPPORTED`` is not a failure."""
+    if grade == "UNSUPPORTED":
+        return "not supported"
+    return grade
+
+
 def outcome_detail(item: dict) -> str:
     """Text beside the grade. Real counts stay; null counts are not a fraction."""
+    if item.get("grade") == "UNSUPPORTED":
+        return "no trials run"
     statement = _stored_text(item.get("statement"))
     if statement is not None:
         return html.escape(statement)
@@ -783,7 +795,7 @@ def outcome_detail(item: dict) -> str:
 
 def outcome_cells(record: dict) -> str:
     return "<br>".join(
-        f'<span class="{html.escape(o["grade"])}">{html.escape(o["grade"])}</span> '
+        f'<span class="{html.escape(o["grade"])}">{html.escape(grade_label(o["grade"]))}</span> '
         f"{outcome_detail(o)} · {html.escape(o['capability'])}"
         for o in record["outcome"]
     )
