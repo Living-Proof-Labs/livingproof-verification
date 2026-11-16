@@ -15,6 +15,10 @@ verification and configuration:
     <robot>/<variant>/runs/<run-id>/   the styled report as index.html;
                                        report.{html,json,md,txt}, SHA256SUMS, run.json
                                        (no report.html.orig; artifact ids stay in run.json)
+                                       and each thresholds.json the evaluator results
+                                       cite, digest-checked. These grading inputs are kept
+                                       with the report for as long as the run's history
+                                       is, and are never pruned with the evidence copies.
     <robot>/<variant>/runs/<run-id>/evidence/<name>/
                                        site copies of the run's linked evidence (MCAP,
                                        videos), with sha256 in run.json. Copies older
@@ -587,6 +591,88 @@ def provenance(target: dict, run: dict) -> dict:
     }
 
 
+THRESHOLDS_NAME = "thresholds.json"
+
+
+def _cited_path(uri: object) -> str | None:
+    """A cited thresholds file as a safe path relative to the report, or None."""
+    if not isinstance(uri, str) or not uri or "\\" in uri or "://" in uri or uri.startswith("/"):
+        return None
+    parts = PurePosixPath(uri).parts
+    if not parts or any(part in ("", ".", "..") for part in parts) or parts[-1] != THRESHOLDS_NAME:
+        return None
+    return "/".join(parts)
+
+
+def grading_inputs(source: Path, report: object) -> list[dict]:
+    """The thresholds files the report's evaluator results cite, checked against the artifact.
+
+    Every ``inputs`` item with role ``thresholds`` (or a ``thresholds.json`` uri) must name
+    a path inside the report artifact. That file must exist and its sha256 must be the
+    cited one. One path cited with two digests is a substitution. An item the incoming
+    SHA256SUMS lists must also match it. Returns ``[{role, path, sha256, bytes}]`` sorted
+    by path; empty for a report that cites none (from before the thresholds export).
+    """
+    bundle = report.get("source_bundle") if isinstance(report, dict) else None
+    results = bundle.get("results") if isinstance(bundle, dict) else None
+    cited: dict[str, str] = {}
+    for result in results if isinstance(results, list) else []:
+        evaluated = result.get("evaluator_results") if isinstance(result, dict) else None
+        for item in evaluated if isinstance(evaluated, list) else []:
+            inputs = item.get("inputs") if isinstance(item, dict) else None
+            for entry in inputs if isinstance(inputs, list) else []:
+                if not isinstance(entry, dict):
+                    continue
+                uri = entry.get("uri")
+                named = (
+                    isinstance(uri, str) and uri.rstrip("/").rsplit("/", 1)[-1] == THRESHOLDS_NAME
+                )
+                if entry.get("role") != "thresholds" and not named:
+                    continue
+                relative = _cited_path(uri)
+                if relative is None:
+                    raise SiteError(
+                        f"{source}: substituted: an evaluator result cites {uri!r}, not a "
+                        f"{THRESHOLDS_NAME} inside the report"
+                    )
+                digest = entry.get("sha256")
+                previous = cited.setdefault(relative, digest)
+                if previous != digest:
+                    raise SiteError(
+                        f"{source}: substituted: {relative} is cited with two different "
+                        f"sha256 values ({previous} and {digest})"
+                    )
+    listed = {}
+    sums = source / "SHA256SUMS"
+    if sums.is_file():
+        for line in sums.read_text().splitlines():
+            digest, _, name = line.partition("  ")
+            listed[name.strip()] = digest
+    found = []
+    for relative, digest in sorted(cited.items()):
+        path = source.joinpath(*PurePosixPath(relative).parts)
+        current = path
+        while current != source:
+            if current.is_symlink():
+                raise SiteError(f"{source}: substituted: {relative} is a symlink")
+            current = current.parent
+        if not path.is_file():
+            raise SiteError(
+                f"{source}: missing: {relative} is cited by the evaluator results but is not "
+                "in the report artifact. capability-verifier v1.21.0 or later copies it there."
+            )
+        data = path.read_bytes()
+        actual = hashlib.sha256(data).hexdigest()
+        if relative in listed and listed[relative] != actual:
+            raise SiteError(f"{path}: does not match SHA256SUMS")
+        if actual != digest:
+            raise SiteError(
+                f"{source}: altered: {relative} sha256 is {actual}, not the cited {digest!r}"
+            )
+        found.append({"role": "thresholds", "path": relative, "sha256": actual, "bytes": data})
+    return found
+
+
 def add_run(
     site: Path,
     reports: Path,
@@ -599,6 +685,7 @@ def add_run(
     if not source.is_dir():
         raise SiteError(f"No report artifact {target['artifact']} in {reports}")
     check_reports(source)
+    inputs = grading_inputs(source, read_report(source / "report.json"))
     if not RUN_ID.fullmatch(run["id"]):
         raise SiteError(f"Unexpected run id {run['id']!r}")
     folder = site / target["robot"] / target["variant"] / "runs" / run["id"]
@@ -607,6 +694,10 @@ def add_run(
     folder.mkdir(parents=True)
     for name in (*REPORT_FILES, "SHA256SUMS"):
         shutil.copyfile(source / name, folder / name)
+    for item in inputs:
+        destination = folder.joinpath(*PurePosixPath(item["path"]).parts)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(item["bytes"])
     record = {
         "robot": target["robot"],
         "variant": target["variant"],
@@ -614,6 +705,10 @@ def add_run(
         "outcome": outcome(read_report(folder / "report.json"), str(folder / "report.json")),
         **provenance(target, run),
     }
+    if inputs:
+        record["grading_inputs"] = [
+            {key: item[key] for key in ("role", "path", "sha256")} for item in inputs
+        ]
     if evidence is not None:
         preserved = preserve_evidence(folder, target, evidence, artifacts or [])
         if preserved is not None:
