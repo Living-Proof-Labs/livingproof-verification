@@ -1716,7 +1716,8 @@ def test_retention_changes_what_is_pruned_and_the_kept_for_text(tmp_path, monkey
     assert (folder / "report.json").is_file() and (folder / "index.html").is_file()
     assert (folder / "report.html").is_file()
     page = _page(site)
-    assert "Evidence kept for 3 days" in page and "Evidence kept for 7 days" not in page
+    # Reporter v3.11.1 (livingproof-capability-report#77) says so once the copies are gone.
+    assert "Evidence expired after 3 days" in page and "Evidence kept for" not in page
     assert f"src='{video}'" not in page and f"href='{video}'" not in page
     assert "artifact" not in page.lower() and "/actions/" not in page
     record = json.loads((folder / "run.json").read_text())
