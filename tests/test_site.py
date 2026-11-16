@@ -139,7 +139,7 @@ def test_published_history_names_the_verifier_and_reporter_releases(tmp_path):
     """The public history and run.json name both pinned releases (issue 62)."""
     settings = tomllib.loads((ROOT / "verifications/settings.toml").read_text())
     reporter_tag = settings["reporter"]["tag"]
-    assert reporter_tag == "v3.8.4"
+    assert reporter_tag == "v3.8.7"
     site = tmp_path / "site"
     site_tool.build(
         site, reports_for(tmp_path, "one", 12, "PASS"), run("100", "2026-11-02T06:00:00Z")

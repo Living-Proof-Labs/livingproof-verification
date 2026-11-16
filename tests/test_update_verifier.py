@@ -120,12 +120,12 @@ def test_published_history_pin_follows_the_resolved_release(checkout, monkeypatc
     shutil.copyfile(ROOT / "tests/test_site.py", destination)
     before = destination.read_text()
     assert 'assert verifier["tag"] == "v9.9.9"' not in before
-    assert 'assert reporter_tag == "v3.8.4"' in before
+    assert 'assert reporter_tag == "v3.8.7"' in before
     updater.update(checkout, "v9.9.9")
     text = destination.read_text()
     assert 'assert verifier["tag"] == "v9.9.9"' in text
     assert f'assert verifier["commit"] == "{"a" * 40}"' in text
-    assert 'assert reporter_tag == "v3.8.4"' in text
+    assert 'assert reporter_tag == "v3.8.7"' in text
     assert updater.update(checkout, "v9.9.9") == []
 
 
