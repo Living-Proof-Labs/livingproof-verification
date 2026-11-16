@@ -12,7 +12,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   checks:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     permissions:
       contents: read
@@ -57,7 +57,7 @@ jobs:
             --created "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           python3 tools/site_fixture.py check "$RUNNER_TEMP/site"
   renovate:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     permissions:
       contents: read

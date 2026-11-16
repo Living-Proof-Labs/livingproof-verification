@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: Apache-2.0
+# actionlint configuration (read by the checks workflow's actionlint step).
+self-hosted-runner:
+  # ubuntu-26.04 is a GitHub-hosted runner label, not a self-hosted one. actionlint 1.7.12 (the
+  # latest release) predates it, so its runner-label rule rejects it. Hosted execution was
+  # confirmed on PR #77: the checks, renovate and locks jobs ran on the ubuntu-26.04 image
+  # (20261111.196.1). Only this one label is allowed; every other runner label is still
+  # validated. Remove this file once an actionlint release lists ubuntu-26.04.
+  labels:
+    - ubuntu-26.04

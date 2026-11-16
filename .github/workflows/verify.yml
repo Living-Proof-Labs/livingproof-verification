@@ -21,7 +21,7 @@ jobs:
   # Review guard: no verification runs (or publishes evidence) for pins that drift from the
   # reviewed locks: tests/test_locks.py (offline) and `lock --check --workflow`.
   locks:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -134,7 +134,7 @@ jobs:
     if: >-
       github.ref == 'refs/heads/main' && (github.event_name == 'push' ||
       (github.event_name == 'workflow_dispatch' && inputs.reset-history))
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     # One publish at a time, in order, so no run restores a site that misses its predecessor.
     concurrency:
@@ -197,7 +197,7 @@ jobs:
     if: >-
       github.ref == 'refs/heads/main' && (github.event_name == 'push' ||
       (github.event_name == 'workflow_dispatch' && inputs.reset-history))
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     concurrency:
       group: pages-deploy
