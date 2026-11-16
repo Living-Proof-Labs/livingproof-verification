@@ -57,7 +57,8 @@ def test_completion_coordinates_both_entry_points(checkout, monkeypatch, entry):
             updater.CALL.sub(lambda m: m["prefix"] + "a" * 40 + "  # v9.9.9", workflow.read_text())
         )
     updater.update(checkout, "v9.9.9")
-    assert workflow.read_text().count("a" * 40 + "  # v9.9.9") == 4
+    calls = workflow.read_text().count("a" * 40 + "  # v9.9.9")
+    assert calls == len(updater.lock.definition_paths(checkout)) == 7
     pin = updater.lock.VERIFIER_IMAGE + ":9.9.9@sha256:" + "b" * 64
     assert json.loads(dev.read_text())["image"] == pin
     assert pin in (checkout / "README.md").read_text()

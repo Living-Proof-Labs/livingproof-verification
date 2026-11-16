@@ -116,8 +116,10 @@ def test_the_match_string_finds_exactly_the_settings_reporter_tag():
 
 def test_every_lock_names_the_settings_reporter_tag():
     locks = sorted((ROOT / "verifications").glob("*.lock.json"))
-    definitions = list((ROOT / "verifications").glob("*-hallway.toml"))
-    assert len(locks) == len(definitions) == 4
+    definitions = [
+        path for path in (ROOT / "verifications").glob("*.toml") if path.name != "settings.toml"
+    ]
+    assert len(locks) == len(definitions) == 7
     for path in locks:
         reporter = json.loads(path.read_text())["releases"]["reporter"]
         assert (reporter["repository"], reporter["tag"]) == (REPORTER, _current()), path.name

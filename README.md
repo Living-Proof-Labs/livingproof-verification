@@ -14,6 +14,8 @@ Scope and acceptance criteria: [Living-Proof-Labs/.github#11](https://github.com
 
 The first definition is `unitree-g1-stock-mujoco-hallway`: Unitree G1 with its stock controller in the MuJoCo hallway, 3 trials.
 
+The walk-corner definitions ([robot-capability-specs#40](https://github.com/Living-Proof-Labs/robot-capability-specs/issues/40)) run walk-corner 0.1.0 on hallway-corner 0.1.0 (livingproof-worlds v1.3.0), one trial each, through the verifier's `scenario.yml`: `unitree-g1-stock-mujoco-corner` (G1 v2.2.1), `booster-t1-stock-mujoco-corner` (T1 v2.2.0) and `unitree-go1-playground-mujoco-corner` (Go1 v2.2.0). The site publishes their reports beside the walk-hallway ones, as their own robot/variant pages.
+
 ## Run a verification locally
 
 The recommended path is the devcontainer (`.devcontainer/devcontainer.json`): the capability verifier's hallway image, pinned by digest, the same image CI's evidence, verify and media jobs use. It has Python 3.12, uv, git, jq, OSMesa, `livingproof` and the verifier, with the locked dependencies pre-synced. Without an editor, run the image directly from a clone of this repository (a clone, not a git worktree: the container must see `.git`):

@@ -978,7 +978,12 @@ def test_restore_rejects_unsafe_archive_paths(tmp_path):
 def test_publishing_runs_only_on_push_to_main_with_scoped_permissions():
     jobs = WORKFLOW["jobs"]
     assert WORKFLOW["permissions"] == {"contents": "read"}
-    verifications = {n for n, j in jobs.items() if "walk-hallway.yml" in str(j.get("uses"))}
+    verifications = {
+        n
+        for n, j in jobs.items()
+        if any(f"/{name}@" in str(j.get("uses")) for name in ("walk-hallway.yml", "scenario.yml"))
+    }
+    assert len(verifications) == 7
     assert set(jobs["site"]["needs"]) == verifications
     for name in ("site", "pages"):
         assert jobs[name]["if"] == (
