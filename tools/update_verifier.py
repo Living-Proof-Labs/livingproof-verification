@@ -12,9 +12,13 @@ import tempfile
 import lock
 
 REPOSITORY = "Living-Proof-Labs/capability-verifier"
+# Every definition's call: walk-hallway.yml (procedure walk-hallway) or scenario.yml
+# (procedure scenario). One release for all of them.
 CALL = re.compile(
     r"(?m)^(?P<prefix>[ \t]+uses: "
-    + re.escape(REPOSITORY + "/" + lock.PROCEDURE)
+    + "(?:"
+    + "|".join(re.escape(REPOSITORY + "/" + path) for path in lock.PROCEDURES.values())
+    + ")"
     + r"@)[0-9a-f]{40}[ \t]+# v\d+\.\d+\.\d+[ \t]*$"
 )
 IMAGE = re.compile(re.escape(lock.VERIFIER_IMAGE) + r":\d+\.\d+\.\d+@sha256:[0-9a-f]{64}")
@@ -53,7 +57,7 @@ def update(root: Path, tag: str) -> list[Path]:
         workflow = stage / paths[0]
         text, count = CALL.subn(lambda m: f"{m['prefix']}{commit}  # {tag}", workflow.read_text())
         if count != len(lock.definition_paths(stage)):
-            raise lock.LockError("expected one immutable walk-hallway call per definition")
+            raise lock.LockError("expected one immutable verifier call per definition")
         workflow.write_text(text)
         # Definition comments identify the release; the generator retains their hashes,
         # so leave definition bytes untouched rather than inventing new evidence hashes.
