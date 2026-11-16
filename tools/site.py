@@ -1089,6 +1089,32 @@ def strip_actions_links(report: dict) -> bool:
     return changed
 
 
+def publish_evidence_links(report: dict, links: dict) -> bool:
+    """Make ``report.json``'s ``evidence_links`` the site document the page uses.
+
+    Each entry is then a copied site path, or ``expired: true`` once pruned, as on the
+    page. A stored https link that is not an Actions URL stays. The Actions ``run``
+    field, and an entry left with neither a url nor a path, are dropped, so the pinned
+    reporter can render the published file on its own. Returns whether it changed.
+    """
+    stored = report.get("evidence_links")
+    if not isinstance(stored, dict):
+        return False
+    kept = [
+        entry
+        for entry in stored.get("links") or []
+        if isinstance(entry, dict)
+        and isinstance(entry.get("url"), str)
+        and entry["url"].startswith("https://")
+        and not _is_actions_url(entry["url"])
+    ]
+    public = {"links": [dict(entry) for entry in links.get("links", [])] + kept}
+    if public == stored:
+        return False
+    report["evidence_links"] = public
+    return True
+
+
 def strip_actions_text(text: str) -> str:
     """Remove Actions URLs and the word artifact from a published text file."""
     text = ACTIONS_ANCHOR.sub(lambda match: match.group(3), text)
@@ -1266,7 +1292,9 @@ def publish_run_page(folder: Path, record: dict, *, now: str, days: int, trial: 
     links = evidence_links_document(record.get("evidence"), expired=expired)
     report_path = folder / "report.json"
     report = read_report(report_path)
-    if isinstance(report, dict) and strip_actions_links(report):
+    if isinstance(report, dict) and (
+        strip_actions_links(report) | publish_evidence_links(report, links)
+    ):
         # Before the published checksum, and before the page embeds this JSON.
         report_path.write_text(json.dumps(report, indent=2) + "\n")
     if report_is_renderable(report):
