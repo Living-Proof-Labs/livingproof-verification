@@ -27,7 +27,7 @@ WORKFLOW = ROOT / ".github/workflows/verify.yml"
 VERIFIER = "Living-Proof-Labs/capability-verifier"
 
 # Released tags, resolved once by hand (git ls-remote) and recorded here.
-VERIFIER_RELEASE = ("v2.0.0", "8684a56ceed287f64e4a55a2dbdd91b8e37be54f")
+VERIFIER_RELEASE = ("v2.1.0", "3be0ec1b0135a0eaf9f285a67e0293d2ead2a2c2")
 EVALUATOR_RELEASE = ("v1.3.0", "965629ab1e9508cb3090931abbae6a957bf5d294")
 # The first reporter release whose HTML step card writes out corner-turned's list of
 # places (livingproof-capability-report#79, 3453a14). v3.10.1 fails with
