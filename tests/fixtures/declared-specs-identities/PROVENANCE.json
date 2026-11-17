@@ -1,0 +1,3 @@
+{
+  "note": "Same published-run shape as issue-100-t1-run-43954868926, with both the evidence lock and each bundle result.spec set to specs v2.3.0, the declared identity capability-verifier v2.0.0 records when it assesses against the caller lock (livingproof-verification#100 step 5)."
+}

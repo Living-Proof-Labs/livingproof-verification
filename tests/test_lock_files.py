@@ -2,8 +2,8 @@
 """tools/lock.py records per-file sha256 digests for already-committed specs pins (issue 100).
 
 A matching digest is recorded. A tampered digest is refused. specs v2.0.2 has no
-walk-hallway parameters.json, and the lock records that absence. Tags are not
-changed and no release is republished.
+walk-hallway parameters.json, and the lock records that absence. Hallway
+definitions now pin v2.3.0 (issue 100 step 5), which has that file.
 """
 
 import hashlib
@@ -226,12 +226,12 @@ def test_specs_v2_0_2_records_that_walk_hallway_parameters_are_missing(tmp_path,
 
 
 @pytest.mark.parametrize("name", HALLWAY_LOCKS)
-def test_committed_hallway_locks_record_the_missing_v2_0_2_parameters_path(name):
+def test_committed_hallway_locks_record_matching_v2_3_0_digests(name):
     lock = json.loads((ROOT / "verifications" / f"{name}.lock.json").read_text())
     specs = lock["releases"]["specs"]
-    assert specs["tag"] == "v2.0.2"
-    assert specs["commit"] == "16524cbfeef18ff0454ebf125668b010d38a3993"
-    assert specs["files"][HALLWAY_PARAMETERS] is None
+    assert specs["tag"] == "v2.3.0"
+    assert specs["commit"] == "57317e617014a6df97bb7fba9d92a890af8d42e5"
+    assert specs["files"][HALLWAY_PARAMETERS] == V2_3_0_HALLWAY_PARAMETERS_SHA256
     assert specs["files"][HALLWAY_DESCRIPTION] == V2_0_2_DESCRIPTION_SHA256
 
 

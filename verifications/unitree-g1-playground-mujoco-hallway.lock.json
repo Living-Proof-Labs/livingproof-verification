@@ -2,7 +2,7 @@
   "format": "livingproof-verification-lock/0.2.0",
   "definition": {
     "path": "unitree-g1-playground-mujoco-hallway.toml",
-    "sha256": "9e22ced904062ac60cd3339b231497d2eb5ee8e6f4db56063c8f78e7d400fbdb"
+    "sha256": "67db35a30d7c078c6fa908818076f99de1475733f3b9d61ad5e81a916926bd79"
   },
   "procedure": "walk-hallway",
   "scenario": "walk-hallway@0.1.0",
@@ -18,11 +18,11 @@
   "releases": {
     "specs": {
       "repository": "Living-Proof-Labs/robot-capability-specs",
-      "tag": "v2.0.2",
-      "commit": "16524cbfeef18ff0454ebf125668b010d38a3993",
+      "tag": "v2.3.0",
+      "commit": "57317e617014a6df97bb7fba9d92a890af8d42e5",
       "files": {
         "specs/scenarios/walk-hallway/description.json": "788bcd6345dad4d262ea14fc346d8883933b790f4991302f01d6eee84f52ff21",
-        "specs/scenarios/walk-hallway/parameters.json": null
+        "specs/scenarios/walk-hallway/parameters.json": "9226aa6bc0e577863bdc210514e7e7c3a7edc32f49c4f7b46aa7249837f08b3d"
       }
     },
     "runner": {
@@ -32,10 +32,10 @@
     },
     "verifier": {
       "repository": "Living-Proof-Labs/capability-verifier",
-      "tag": "v1.26.0",
-      "commit": "55908a4b9c570f9bfa9ba5bb74bdfea984246345",
+      "tag": "v2.1.0",
+      "commit": "3be0ec1b0135a0eaf9f285a67e0293d2ead2a2c2",
       "image": "ghcr.io/living-proof-labs/capability-verifier-hallway",
-      "digest": "sha256:6173c5d27d698a11f330d3af825633e0b954afb95a286077cadd25abf446a9e8"
+      "digest": "sha256:50371561ebf0ad9e3b1ce58ba6a0b10cc716667556f88a977d6f70081496f6ed"
     },
     "reporter": {
       "repository": "Living-Proof-Labs/livingproof-capability-report",
@@ -50,7 +50,8 @@
     "version": "0.1.0",
     "repository": "Living-Proof-Labs/livingproof-worlds",
     "tag": "v1.1.0",
-    "commit": "9b3e7119aa93a3370383227fb30bd39a9dd72b4b"
+    "commit": "9b3e7119aa93a3370383227fb30bd39a9dd72b4b",
+    "sha256": "d60bb8aa6a72c8403fb6674cc9d803962c1484bc3e163527988e8c57ccec775c"
   },
   "configurations": [
     {
