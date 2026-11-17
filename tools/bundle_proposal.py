@@ -229,9 +229,16 @@ def publish(root, path, digest):
 
 def discover(main):
     """Select one eligible proposal; a single repository concurrency group serializes it."""
+    root = bundle.lock.repo_root()
+    if command("git", "rev-parse", "HEAD", cwd=root) != main:
+        raise ValueError("discovery must use the exact trusted main checkout")
     for pr in api("pulls?state=open&base=main&per_page=100"):
         try:
-            proposal(pr["number"], pr["head"]["sha"], main)
+            eligible = proposal(pr["number"], pr["head"]["sha"], main)
+            command("git", "fetch", "--no-tags", URL, pr["head"]["sha"], cwd=root)
+            # Inspect inert blobs before choosing: a major/malformed/custom proposal
+            # must not monopolize every scheduled run. Prepare rechecks these inputs.
+            inputs(root, pr["head"]["sha"], eligible["head"]["ref"])
         except ValueError:
             continue
         return {"pr": pr["number"], "head": pr["head"]["sha"]}

@@ -84,6 +84,38 @@ Renovate/custom proposals are refused by this writer, rather than rebased or res
    heads, missing checks, major releases or custom commits. This coordinator is not
    activated by this patch.
 
+## Discovery and stale-base liveness
+
+Discovery checks both metadata and inert proposal bytes before selecting work. Major,
+malformed and custom-edit proposals are skipped so the next eligible proposal can
+proceed. Preparation repeats those checks; discovery does not confer publication
+permission and never checks out proposal code.
+
+A separate unresolved boundary is stale, non-conflicting bot proposals. The consumed
+[preset v9.6.3](https://github.com/Living-Proof-Labs/collaboration-guidelines/blob/v9.6.3/renovate-preset.json)
+(blob `90a44f90bae15a5cdb123f556877821d3d4afa40`) sets `rebaseWhen: "conflicted"`.
+This repository does not override it and disables automerge. Thus the current
+configuration does **not** promise to refresh a proposal merely because main advanced.
+The single-commit/direct-current-main guard intentionally refuses that stale proposal.
+No hosted-run evidence establishing automatic non-conflict refresh was observed.
+
+Proposed activation prerequisite: set `rebaseWhen: "behind-base-branch"` only on the
+reporter and grouped verifier discovery rules, leaving automerge disabled. Let
+Renovate rebuild its own untouched, single-commit proposals on current main, then
+rediscover and regenerate under the existing expected-head checks. Verify this on
+hosted Mend with a non-conflicting main advance and a separate custom-commit case.
+[Renovate documents](https://docs.renovatebot.com/updating-rebasing/) that ordinary
+updates stop after another author adds a commit. Never use a rebase label/checkbox,
+amend, reset, or force refresh to discard custom commits. This patch does not change
+Renovate's active configuration or claim the refresh path is proven.
+
+Once our completion commit exists, it is deliberately no longer a raw single-commit
+Renovate proposal. If main advances, the normal merge-group checks must validate that
+completed candidate against current main. A conflict or a need to regenerate it
+requires a separately reviewed append-only strategy with an expected-head lease;
+this writer must not reset it or erase custom work. These liveness cases and both
+live-release proofs remain prerequisites for claiming unattended automerge works.
+
 ## Exact activation boundary
 
 Inspection found an authenticated GitHub connector with push access, but `gh auth

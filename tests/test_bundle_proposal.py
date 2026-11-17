@@ -188,7 +188,10 @@ def test_discovery_skips_custom_proposals(monkeypatch):
     def proposal(number, head, main):
         if number == 1:
             raise ValueError("custom commit")
+        return {"head": {"ref": BRANCH}}
 
+    monkeypatch.setattr(writer, "command", lambda *args, **kwargs: MAIN)
+    monkeypatch.setattr(writer, "inputs", lambda *args: {"reporter": "v3.99.0"})
     monkeypatch.setattr(writer, "proposal", proposal)
     assert writer.discover(MAIN) == {"pr": 2, "head": HEAD}
 
@@ -213,3 +216,42 @@ def test_dormant_template_separates_generation_and_write_credentials():
     assert len(writes) == 1
     assert "publish" in writes[0]["run"] and "prepare" not in writes[0]["run"]
     assert "pip" not in writes[0]["run"] and "pytest" not in writes[0]["run"]
+
+
+@pytest.mark.parametrize("invalid", ["major", "malformed", "custom"])
+def test_discovery_does_not_starve_valid_update(checkout, monkeypatch, invalid):
+    later = "c" * 40
+    candidates = [{"number": 1, "head": {"sha": HEAD}}, {"number": 2, "head": {"sha": later}}]
+    monkeypatch.setattr(writer, "api", lambda path: candidates)
+    monkeypatch.setattr(writer.bundle.lock, "repo_root", lambda: checkout)
+    monkeypatch.setattr(writer, "proposal", lambda *args: {"head": {"ref": BRANCH}})
+    path = "verifications/settings.toml"
+    original = (checkout / path).read_text()
+    current = writer.bundle.lock.load_reporter_setting(checkout / path)["tag"]
+    good = original.replace(f'tag = "{current}"', 'tag = "v3.99.0"')
+    bad = original.replace(
+        f'tag = "{current}"', 'tag = "v4.0.0"' if invalid == "major" else 'tag = "main"'
+    )
+    if invalid == "custom":
+        bad = good + "# custom change\n"
+    calls = []
+
+    def command(*args, **kwargs):
+        calls.append(args)
+        if args[1] == "rev-parse":
+            return MAIN
+        if args[1] == "fetch":
+            return ""
+        if args[1] == "diff":
+            return path
+        if args[1] == "ls-tree":
+            return "100644 blob hash file"
+        if args[1] == "show":
+            return (bad if args[2].startswith(HEAD) else good).rstrip("\n")
+        raise AssertionError(args)
+
+    monkeypatch.setattr(writer, "command", command)
+    assert writer.discover(MAIN) == {"pr": 2, "head": later}
+    candidates.pop()
+    assert writer.discover(MAIN) == {}
+    assert not any("checkout" in call for call in calls)
