@@ -19,7 +19,11 @@
     "specs": {
       "repository": "Living-Proof-Labs/robot-capability-specs",
       "tag": "v2.3.0",
-      "commit": "57317e617014a6df97bb7fba9d92a890af8d42e5"
+      "commit": "57317e617014a6df97bb7fba9d92a890af8d42e5",
+      "files": {
+        "specs/scenarios/walk-corner/description.json": "be8de80e1a7b6f2273cee7abf7303d2e78a407ba0a5f11f9d06ed8cbed7c252c",
+        "specs/scenarios/walk-corner/parameters.json": "62f2912c33b557d58cd454daf7d1eea543e919dec0e9b53e613d4101a5a12977"
+      }
     },
     "runner": {
       "repository": "Living-Proof-Labs/livingproof-sim-mujoco",
