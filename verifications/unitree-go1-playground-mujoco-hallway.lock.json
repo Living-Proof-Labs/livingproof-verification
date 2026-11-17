@@ -32,17 +32,17 @@
     },
     "verifier": {
       "repository": "Living-Proof-Labs/capability-verifier",
-      "tag": "v1.25.4",
-      "commit": "1db96553fdf7774ff0ffb7e5c40ce98b699c6696",
+      "tag": "v1.25.5",
+      "commit": "d770f050886a705f0acf130fb5bd6324b178c63d",
       "image": "ghcr.io/living-proof-labs/capability-verifier-hallway",
-      "digest": "sha256:efc6a145abd94ea2a79c2432fc5dd002ce942504b1a384703d6a04328b1c681f"
+      "digest": "sha256:97e1cc4eb95126ee36224ce40f8c09f98fae99955b38645b370baea6cc80d546"
     },
     "reporter": {
       "repository": "Living-Proof-Labs/livingproof-capability-report",
-      "tag": "v3.11.2",
-      "commit": "b0893cbc94057d64a39bca9bc79ad4f017fc04b1",
+      "tag": "v3.11.3",
+      "commit": "dd378fe5e64548a33dae4edd2d95cb0495fab77a",
       "image": "ghcr.io/living-proof-labs/livingproof-capability-report",
-      "digest": "sha256:dbeda8e2fab931e78a0128762ccac96a476e85be279375c1385ea36f5a5646e1"
+      "digest": "sha256:efaa7ee565941ea812098b8cbff1e9d3199f06ce273d4ab453b4899d9020d530"
     }
   },
   "world": {

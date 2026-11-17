@@ -25,13 +25,13 @@ WORKFLOW = ROOT / ".github/workflows/verify.yml"
 VERIFIER = "Living-Proof-Labs/capability-verifier"
 
 # Released tags, resolved once by hand (git ls-remote) and recorded here.
-VERIFIER_RELEASE = ("v1.25.4", "1db96553fdf7774ff0ffb7e5c40ce98b699c6696")
+VERIFIER_RELEASE = ("v1.25.5", "d770f050886a705f0acf130fb5bd6324b178c63d")
 EVALUATOR_RELEASE = ("v1.3.0", "965629ab1e9508cb3090931abbae6a957bf5d294")
 # The first reporter release whose HTML step card writes out corner-turned's list of
 # places (livingproof-capability-report#79, 3453a14). v3.10.1 fails with
 # "float() argument must be a string or a real number, not 'list'".
 # The constant is the settings pin; every lock must name that same release.
-REPORTER_RELEASE = ("v3.11.2", "b0893cbc94057d64a39bca9bc79ad4f017fc04b1")
+REPORTER_RELEASE = ("v3.11.3", "dd378fe5e64548a33dae4edd2d95cb0495fab77a")
 WORLD = {
     "id": "hallway-corner",
     "version": "0.1.0",

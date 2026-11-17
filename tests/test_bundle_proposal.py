@@ -87,7 +87,8 @@ def checkout(tmp_path):
 @pytest.mark.parametrize("custom", [False, True])
 def test_parse_reporter_as_data_only(checkout, monkeypatch, custom):
     path = "verifications/settings.toml"
-    text = (checkout / path).read_text().replace('tag = "v3.11.2"', 'tag = "v3.11.3"')
+    current = writer.bundle.lock.load_reporter_setting(checkout / path)["tag"]
+    text = (checkout / path).read_text().replace(f'tag = "{current}"', 'tag = "v3.99.0"')
     if custom:
         text += "# custom work\n"
 
@@ -105,7 +106,7 @@ def test_parse_reporter_as_data_only(checkout, monkeypatch, custom):
         with pytest.raises(ValueError, match="custom edits"):
             writer.inputs(checkout, HEAD, BRANCH)
     else:
-        assert writer.inputs(checkout, HEAD, BRANCH) == {"reporter": "v3.11.3"}
+        assert writer.inputs(checkout, HEAD, BRANCH) == {"reporter": "v3.99.0"}
 
 
 def plan():
