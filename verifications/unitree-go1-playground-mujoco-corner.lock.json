@@ -32,10 +32,10 @@
     },
     "verifier": {
       "repository": "Living-Proof-Labs/capability-verifier",
-      "tag": "v1.25.3",
-      "commit": "074a3cac45ad44b3c810694147422763d2b23449",
+      "tag": "v1.25.4",
+      "commit": "1db96553fdf7774ff0ffb7e5c40ce98b699c6696",
       "image": "ghcr.io/living-proof-labs/capability-verifier-hallway",
-      "digest": "sha256:4a3287a49f9c6925029e5bcc7311ff801f39367a320c5591de3f31336f38a3ac"
+      "digest": "sha256:efc6a145abd94ea2a79c2432fc5dd002ce942504b1a384703d6a04328b1c681f"
     },
     "reporter": {
       "repository": "Living-Proof-Labs/livingproof-capability-report",
