@@ -3,13 +3,15 @@
 
 livingproof-verification#100 requires one declared specs identity for both
 execution and assessment. The T1 hallway run 43954868926 recorded evidence
-specs v2.0.2 and assessment specs v2.3.0; this test must fail that split.
+specs v2.0.2 and assessment specs v2.3.0; the match test must fail that split.
 """
 
 import json
 from pathlib import Path
 
-FIXTURE = Path(__file__).parent / "fixtures" / "issue-100-t1-run-43954868926"
+ROOT = Path(__file__).parent / "fixtures"
+HISTORICAL = ROOT / "issue-100-t1-run-43954868926"
+DECLARED = ROOT / "declared-specs-identities"
 GITHUB = "https://github.com/"
 SPECS_V202 = (
     "Living-Proof-Labs/robot-capability-specs",
@@ -58,10 +60,19 @@ def _load(directory: Path) -> tuple[dict, dict]:
     )
 
 
-def test_evidence_and_assessment_specs_identities_match():
-    run, report = _load(FIXTURE)
+def test_issue_100_t1_run_recorded_a_v2_0_2_vs_v2_3_0_specs_split():
+    """Historical evidence is left intact; the match test was written to reject this."""
+    run, report = _load(HISTORICAL)
     evidence = evidence_specs(run, report)
     assessment = assessment_specs(report)
     assert specs_identity(evidence) == SPECS_V202
     assert specs_identity(assessment) == SPECS_V230
+    assert specs_identity(evidence) != specs_identity(assessment)
+
+
+def test_evidence_and_assessment_specs_identities_match():
+    run, report = _load(DECLARED)
+    evidence = evidence_specs(run, report)
+    assessment = assessment_specs(report)
+    assert specs_identity(evidence) == SPECS_V230
     assert specs_identity(evidence) == specs_identity(assessment)
