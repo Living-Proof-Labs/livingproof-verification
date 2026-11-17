@@ -75,71 +75,101 @@ Renovate/custom proposals are refused by this writer, rather than rebased or res
    a concurrent writer causes rejection, never loss of custom commits. Replaying a
    completed proposal is refused. If a push outcome is uncertain, inspect the remote
    ref before retrying; never regenerate against a guessed head.
-3. **Final-head checks and queue:** do not enable automatic queue entry yet. Before
-   activation, record the actual enforced checks and their PR/merge-group execution
-   paths. After all exact-head gates pass, normal queue entry can use
-   `gh pr merge --auto --match-head-commit "$COMPLETED_HEAD" --repo
-   Living-Proof-Labs/livingproof-verification "$PR"` (no admin/bypass flag). Use a
-   trusted coordinator that rechecks the completion commit and stops for changed
-   heads, missing checks, major releases or custom commits. This coordinator is not
-   activated by this patch.
+3. **Prepared final-head coordinator:** `tools/bundle_queue.py --pr NUMBER --head
+   PUBLISHED_SHA --branch EXPECTED_BRANCH` waits up to one hour for the latest PR
+   runs of both `checks.yml` and `verify.yml` on the exact published head. It requires
+   successful, non-skipped `checks`, `renovate`, and `verification` jobs, then rechecks
+   the PR and calls `enqueuePullRequest` with `expectedHeadOid` and `jump: false`.
+   It never enables deferred auto-merge, merges directly, or bypasses requirements.
+   GitHub still applies any additional review/check requirements. The mutation fields
+   are defined in [GitHub's published schema](https://github.com/octokit/graphql-schema/blob/master/schema.graphql).
+   Missing/running checks wait; failed, ambiguous, changed-head or missing-rule cases
+   refuse. An uncertain mutation outcome must be inspected before retrying.
+
+   **This coordinator is not wired into the dormant template.** Its head and branch
+   arguments must come from the trusted publisher's output and sealed preparation
+   data in the same run, never PR-controlled input, commit messages, or author heuristics.
+   No PR code, dependencies, or candidate scripts may execute in that job. A failed
+   queue job should be retried with those same trusted outputs; never rerun publication
+   blindly or guess a replacement head. Durable recovery beyond retained run outputs
+   is not implemented.
 
 ## Discovery and stale-base liveness
 
-Discovery checks both metadata and inert proposal bytes before selecting work. Major,
-malformed and custom-edit proposals are skipped so the next eligible proposal can
-proceed. Preparation repeats those checks; discovery does not confer publication
-permission and never checks out proposal code.
+Discovery checks metadata and inert proposal bytes before choosing work, so major,
+malformed, deleted-input and custom-edit proposals cannot starve eligible proposals.
+The reporter and grouped verifier rules now specify `rebaseWhen: "behind-base-branch"`.
+This asks hosted Renovate to refresh its untouched proposals even without conflicts;
+other dependency rules retain their inherited policy. Automerge remains disabled in
+Renovate; bundle completion has one intended writer.
 
-A separate unresolved boundary is stale, non-conflicting bot proposals. The consumed
-[preset v9.6.3](https://github.com/Living-Proof-Labs/collaboration-guidelines/blob/v9.6.3/renovate-preset.json)
-(blob `90a44f90bae15a5cdb123f556877821d3d4afa40`) sets `rebaseWhen: "conflicted"`.
-This repository does not override it and disables automerge. Thus the current
-configuration does **not** promise to refresh a proposal merely because main advanced.
-The single-commit/direct-current-main guard intentionally refuses that stale proposal.
-No hosted-run evidence establishing automatic non-conflict refresh was observed.
-
-Proposed activation prerequisite: set `rebaseWhen: "behind-base-branch"` only on the
-reporter and grouped verifier discovery rules, leaving automerge disabled. Let
-Renovate rebuild its own untouched, single-commit proposals on current main, then
-rediscover and regenerate under the existing expected-head checks. Verify this on
-hosted Mend with a non-conflicting main advance and a separate custom-commit case.
 [Renovate documents](https://docs.renovatebot.com/updating-rebasing/) that ordinary
-updates stop after another author adds a commit. Never use a rebase label/checkbox,
-amend, reset, or force refresh to discard custom commits. This patch does not change
-Renovate's active configuration or claim the refresh path is proven.
+updates stop when another author adds a commit. No rebase label/checkbox, reset,
+amend or force refresh is used. A stale proposal remains refused until Renovate
+refreshes it, and a custom or completed branch is never rebuilt by this writer.
+Hosted proof must cover both non-conflicting main movement and preservation of a
+custom commit. Main movement during generation still causes an expected-main refusal.
 
-Once our completion commit exists, it is deliberately no longer a raw single-commit
-Renovate proposal. If main advances, the normal merge-group checks must validate that
-completed candidate against current main. A conflict or a need to regenerate it
-requires a separately reviewed append-only strategy with an expected-head lease;
-this writer must not reset it or erase custom work. These liveness cases and both
-live-release proofs remain prerequisites for claiming unattended automerge works.
+After completion, non-conflicting main advancement is handled by normal merge-group
+execution of both workflows. `verification` aggregates the lock guard and all seven
+reusable pipelines and fails on any failure, cancellation or skipped dependency.
+It judges pipeline completion, not the robot's capability verdict; truthful robot
+FAIL remains report data. Pages still runs only on main push or explicit history reset.
+Conflicted completed branches require human review or a future reviewed append-only
+regeneration strategy; this code does not discard custom commits to guarantee liveness.
 
-## Exact activation boundary
+## Observed integration and exact activation boundary (2026-11-17)
 
-Inspection found an authenticated GitHub connector with push access, but `gh auth
-status` reports no CLI login in this environment. Connector access is not an Actions
-credential. No existing job-scoped writer credential or dispatch installation was
-verified. Do not create a token, add a secret, change App permissions, settings or
-protections to make this work as part of #105's implementation slice. Selecting and
-authorizing the existing credential and installing the two-job runner is a separate
-activation decision. GitHub documents that [App credentials can trigger subsequent
-checks automatically](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow);
-ordinary `GITHUB_TOKEN` behavior must not be assumed sufficient for unattended checks.
+Main `3fa0c5bf7ea6e61f319cd2af9eec7a6ec31195b0` includes #110. Its
+[main run 44028270422](https://github.com/Living-Proof-Labs/livingproof-verification/actions/runs/44028270422)
+completed successfully, including site and Pages jobs. This is adoption evidence,
+not either requested automatic-release demonstration.
 
-Existing gates in this repository are `checks` (lint, tests, workflow lint, fixture
-site), `renovate` (config/extraction), `locks` (fresh integrity resolution) and all
-seven verification pipelines, including compatibility/report generation. Their
-current workflows run on PRs; `verify` also runs on main pushes. Neither current
-workflow declares `merge_group`. Publication remains main-only. The inspected
-organization policy declares a merge queue for this repository, but only `.github`
-has an entry in `required_checks_by_repository`. This is policy-source evidence,
-not proof of the live protections: the unauthenticated protection read returned 401.
-**Do not activate automatic enqueue until live requirements and applicable merge-group
-execution are audited and repaired through their owners.** No gate or trigger is
-changed in this slice. Robot capability FAIL remains a truthful result, distinct
-from failed integrity, compatibility or pipeline execution.
+The live repository ruleset [26346316](https://github.com/Living-Proof-Labs/livingproof-verification/rules/26346316)
+is active on the default branch, requires PRs and the normal merge queue, and has no
+bypass actors. Its response contains no required-status-check rule. A current classic
+branch-protection read returns 403 with the connected integration. The existing
+[administration audit run 43828994015](https://github.com/Living-Proof-Labs/.github/actions/runs/43828994015)
+reported `unprotected` / null classic required checks for this repository on November
+16 (artifact `classic-protection-evidence`, ID 14206784610). That historical audit is
+not a current queue-readiness certificate.
+
+The coordinator deliberately refuses queue entry unless applied rules require all
+three stable contexts (`checks`, `renovate`, `verification`) from GitHub Actions
+(integration ID 15368), as well as merge queue. Before activation, the settings owner
+must refresh the audit and, if still absent, approve and configure these required
+checks for main. This is a protection change outside this task; no setting was changed.
+Adding merge-group triggers alone cannot make an unenforced check a gate.
+
+Existing infrastructure was inspected without reading secret values or minting tokens:
+
+- The connected GitHub App can publish draft PRs, but local `gh` is unauthenticated.
+  No relevant GH or Rivet credential environment variable is present. Connector access
+  is not Actions access.
+- `.github/config/github/app-access.json` declares Rivet contents/workflows/PR write
+  and Actions read-capable permissions. It documents intent, not accepted installation
+  permissions or an Actions-accessible key in this repository.
+- The existing Keel comment pilot is restricted to collaboration-guidelines and issues
+  write, with a one-use approval. It cannot be repurposed for bundle publication.
+- The repository-administration App is for settings/Pages, not content and PR writes.
+  Do not broaden either credential to activate this feature.
+
+Minimum remaining approval/action: identify an already approved App installation/key
+that is accessible to trusted Actions for **this repository** and already has contents,
+workflows and PR write plus Actions/read access; confirm its accepted scopes and bind
+short-lived tokens to isolated publication/queue steps. The existing App-token action
+pattern is supported, but availability of such a key here has not been established.
+If none exists, credential provisioning or permission expansion requires separate
+owner approval; it is not performed or implied by this PR.
+
+Then review the template wiring: trusted-main scheduled/manual preparation with read
+access; isolated publisher; isolated queue job consuming only same-run trusted output;
+one shared concurrency group. The current template lacks Actions/PR read declarations
+needed for these API reads. An attempted template edit was rejected by automatic
+approval review as a workflow-permission/credential-wiring change. It did not execute;
+the template remains unchanged. Approval for that precise read-permission and queue-job
+wiring is required before completing it. No new workflow has been installed, no secret
+bound, no token minted, no settings changed, and no writer activated.
 
 ## Acceptance evidence still required
 

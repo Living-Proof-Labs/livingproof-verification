@@ -8,6 +8,8 @@
 name: verify
 on:
   pull_request:
+  merge_group:
+    types: [checks_requested]
   push:
     branches: [main]
   workflow_dispatch:
@@ -171,6 +173,29 @@ jobs:
       artifact-prefix: unitree-go1-playground-mujoco-corner-
       check: false  # the robot repository's own CI tests the robot
       comment: false
+  # Stable queue gate: pipeline/integrity success, not the robot capability verdict.
+  verification:
+    needs:
+      - locks
+      - unitree-g1-stock-mujoco-hallway
+      - unitree-g1-playground-mujoco-hallway
+      - booster-t1-stock-mujoco-hallway
+      - unitree-go1-playground-mujoco-hallway
+      - unitree-g1-stock-mujoco-corner
+      - booster-t1-stock-mujoco-corner
+      - unitree-go1-playground-mujoco-corner
+    if: always()
+    runs-on: ubuntu-26.04
+    timeout-minutes: 2
+    steps:
+      - env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PYCODE'
+          import json, os
+          results = json.loads(os.environ["RESULTS"])
+          assert results and all(job["result"] == "success" for job in results.values()), results
+          PYCODE
   # Publishing (push to main only): lay this run's reports out into the Pages site, keeping
   # every earlier run from the previous Pages artifact. Layout and index only (tools/site.py):
   # the verifier graded and the reporter rendered; nothing is committed.
