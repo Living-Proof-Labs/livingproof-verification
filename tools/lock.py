@@ -39,7 +39,10 @@ none). The robots are thin, so a new definition has no robot lock and no earlier
 to take them from. ``scenario`` is ``name@version``; ``[world]`` names id, version,
 repository and tag, and the lock records the tag's commit and the sha256 of
 ``worlds/<id>/<version>/world.json`` at that commit; ``[plan]`` is copied whole;
-``[releases.specs]`` names repository and tag, and the lock records the commit. The
+``[releases.specs]`` names repository and tag, and the lock records the commit and
+the sha256 of that scenario's ``parameters.json`` and ``description.json`` at the
+commit (null when a file is absent; specs v2.0.2 has no walk-hallway
+``parameters.json``). Tags are not changed. The
 runner release is then the livingproof-sim-mujoco tag and commit the robot's
 ``uv.lock`` installs, so the lock names the simulator that actually runs.
 """
@@ -78,6 +81,8 @@ UV_GIT_SOURCE = re.compile(
 )
 
 FILE_SHA = re.compile(r"[0-9a-f]{64}")
+# Scenario files execution and assessment read. A missing file is recorded as null.
+SCENARIO_SPEC_FILES = ("description.json", "parameters.json")
 SEMVER = re.compile(r"\d+\.\d+\.\d+")
 SCENARIO_ID = re.compile(r"[a-z0-9-]+@\d+\.\d+\.\d+")
 TAG = re.compile(r"v\d+\.\d+\.\d+")
@@ -513,6 +518,81 @@ def _pin_problems(label: str, ref: object, *, require_digest: bool = False) -> l
     return problems
 
 
+def scenario_file_paths(scenario: str) -> tuple[str, ...]:
+    """paths of the scenario files the lock records digests for."""
+    name = scenario.split("@", 1)[0] if isinstance(scenario, str) else ""
+    if not name:
+        raise LockError(f"scenario must be name@version (got {scenario!r})")
+    return tuple(f"specs/scenarios/{name}/{filename}" for filename in SCENARIO_SPEC_FILES)
+
+
+def _file_digest(root: Path, rel: str) -> str | None:
+    """sha256 of ``rel`` under ``root``, or ``None`` when the path is absent."""
+    path = root / rel
+    if not path.is_file():
+        return None
+    return sha256(path.read_bytes())
+
+
+def spec_file_digests(
+    repository: str, commit: str, scenario: str, work: Path
+) -> dict[str, str | None]:
+    """Per-file sha256 of the scenario files at the already-pinned specs commit."""
+    dest = work / "specs"
+    fetched = checkout(repository, commit, dest)
+    if fetched != commit:
+        raise LockError(
+            f"{repository} {commit[:12]} fetched as {fetched[:12]}; the lock records the "
+            "pinned commit, not a moved tag"
+        )
+    return {path: _file_digest(dest, path) for path in scenario_file_paths(scenario)}
+
+
+def _files_problems(files: object, *, label: str = "releases.specs.files") -> list[str]:
+    """Shape problems for a ``files`` map of path to sha256 (or null if missing)."""
+    if not isinstance(files, dict):
+        return [f"{label} must be an object of paths to sha256 digests (or null if missing)"]
+    problems = []
+    for path, digest in files.items():
+        if not _relative(path):
+            problems.append(f"{label} path {path!r} must stay inside the specs repository")
+        if digest is not None and (not isinstance(digest, str) or not FILE_SHA.fullmatch(digest)):
+            problems.append(f"{label}[{path}] must be 64 hex characters or null")
+    return problems
+
+
+def record_spec_files(owned: dict, work: Path, where: str) -> None:
+    """Record per-file sha256 digests for the already-pinned specs commit.
+
+    ``parameters.json`` and ``description.json`` are hashed at that commit. A missing
+    file is recorded as null (specs v2.0.2 has no walk-hallway parameters.json). A
+    digest already in the pin that does not match is an error. Tags and commits are
+    not changed.
+    """
+    releases = owned.get("releases")
+    if not isinstance(releases, dict) or not isinstance(releases.get("specs"), dict):
+        return
+    specs = dict(releases["specs"])
+    repository = specs.get("repository")
+    commit = specs.get("commit")
+    if not isinstance(repository, str) or not isinstance(commit, str) or not SHA.fullmatch(commit):
+        return
+    recorded = spec_file_digests(repository, commit, owned["scenario"], work)
+    declared = specs.get("files")
+    if isinstance(declared, dict):
+        for path, digest in recorded.items():
+            if path in declared and declared[path] != digest:
+                actual = "missing" if digest is None else digest
+                published = "missing" if declared[path] is None else declared[path]
+                raise LockError(
+                    f"{where}: {path} sha256 is {actual}, not the published {published}"
+                )
+    specs["files"] = recorded
+    updated = dict(releases)
+    updated["specs"] = specs
+    owned["releases"] = updated
+
+
 def v2_problems(lock: dict) -> list[str]:
     """Why ``lock`` is not a complete ``0.2.0`` document. Empty when it is."""
     problems = []
@@ -608,6 +688,21 @@ def v2_problems(lock: dict) -> list[str]:
             problems.append(f"missing releases.{name}")
         else:
             problems.extend(_pin_problems(f"releases.{name}", releases[name]))
+    specs = releases.get("specs")
+    if isinstance(specs, dict):
+        if "files" not in specs:
+            problems.append("releases.specs.files must record the scenario file digests")
+        else:
+            problems.extend(_files_problems(specs.get("files")))
+            files = specs.get("files")
+            if (
+                isinstance(scenario, str)
+                and SCENARIO_ID.fullmatch(scenario)
+                and isinstance(files, dict)
+            ):
+                for path in scenario_file_paths(scenario):
+                    if path not in files:
+                        problems.append(f"releases.specs.files must record {path}")
     if "reporter" not in releases:
         problems.append("missing releases.reporter")
     else:
@@ -981,6 +1076,7 @@ def generate(
         tag_of=tag_of,
         digester=digester,
     )
+    record_spec_files(owned, work, where)
     evaluators = owned["evaluators"]
     lock = {
         "format": FORMAT_V2,

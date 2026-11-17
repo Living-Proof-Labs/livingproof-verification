@@ -19,7 +19,11 @@
     "specs": {
       "repository": "Living-Proof-Labs/robot-capability-specs",
       "tag": "v2.0.2",
-      "commit": "16524cbfeef18ff0454ebf125668b010d38a3993"
+      "commit": "16524cbfeef18ff0454ebf125668b010d38a3993",
+      "files": {
+        "specs/scenarios/walk-hallway/description.json": "788bcd6345dad4d262ea14fc346d8883933b790f4991302f01d6eee84f52ff21",
+        "specs/scenarios/walk-hallway/parameters.json": null
+      }
     },
     "runner": {
       "repository": "Living-Proof-Labs/livingproof-sim-mujoco",
@@ -28,10 +32,10 @@
     },
     "verifier": {
       "repository": "Living-Proof-Labs/capability-verifier",
-      "tag": "v1.25.0",
-      "commit": "a175d7d5f094f7ad8a6e3eab56086edf7c1f5f5f",
+      "tag": "v1.25.3",
+      "commit": "074a3cac45ad44b3c810694147422763d2b23449",
       "image": "ghcr.io/living-proof-labs/capability-verifier-hallway",
-      "digest": "sha256:ef76191676ed6aa57b1c9a01d5756892344e6b12cfb8c55fd27920677f62d2ab"
+      "digest": "sha256:4a3287a49f9c6925029e5bcc7311ff801f39367a320c5591de3f31336f38a3ac"
     },
     "reporter": {
       "repository": "Living-Proof-Labs/livingproof-capability-report",
