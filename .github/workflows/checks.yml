@@ -5,10 +5,12 @@
 name: checks
 on:
   pull_request:
+  merge_group:
+    types: [checks_requested]
 permissions:
   contents: read
 concurrency:
-  group: checks-${{ github.event.pull_request.number }}
+  group: checks-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 jobs:
   checks:
@@ -49,7 +51,7 @@ jobs:
         env:
           GITHUB_REPOSITORY: ${{ github.repository }}
           RUN_ID: ${{ github.run_id }}
-          COMMIT: ${{ github.event.pull_request.head.sha }}
+          COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           python3 tools/site_fixture.py write "$RUNNER_TEMP/reports"
           python3 tools/site.py build "$RUNNER_TEMP/site" --reports "$RUNNER_TEMP/reports" \

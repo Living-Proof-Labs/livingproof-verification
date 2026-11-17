@@ -252,6 +252,7 @@ test('the organization preset still governs the reporter and the locks stay disa
     'test',
   );
   assert.equal(reporter.automerge, false);
+  assert.equal(reporter.rebaseWhen, 'behind-base-branch');
   assert.equal(reporter.platformAutomerge, false);
   assert.equal(reporter.skipReason, undefined);
   assert.equal(reporter.groupName, undefined);
@@ -289,6 +290,7 @@ test('the organization preset still governs the reporter and the locks stay disa
   assert.equal(thirdParty.prHourlyLimit, 1);
   assert.equal(thirdParty.prConcurrentLimit, 2);
   assert.equal(thirdParty.automerge, false);
+  assert.equal(thirdParty.rebaseWhen, preset.rebaseWhen);
 
   const verifier = await applyPackageRules(
     {
@@ -301,6 +303,7 @@ test('the organization preset still governs the reporter and the locks stay disa
   );
   assert.equal(verifier.groupName, 'capability verifier and evidence');
   assert.equal(verifier.automerge, false);
+  assert.equal(verifier.rebaseWhen, 'behind-base-branch');
   assert.deepEqual(verifier.schedule, ['at any time']);
 });
 
