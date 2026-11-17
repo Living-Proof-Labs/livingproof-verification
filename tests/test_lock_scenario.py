@@ -68,7 +68,17 @@ def _corner_project(tmp_path: Path, monkeypatch, *, definition_extra: str = "", 
         {"worlds/hallway-corner/0.1.0/world.json": WORLD_JSON},
         "v1.3.0",
     )
-    specs = _repo(base, "Living-Proof-Labs/robot-capability-specs.git", {"README": "s\n"}, "v2.3.0")
+    corner_description = '{"id": "walk-corner"}\n'
+    corner_parameters = '{"command_speed": 0.5}\n'
+    specs = _repo(
+        base,
+        "Living-Proof-Labs/robot-capability-specs.git",
+        {
+            "specs/scenarios/walk-corner/description.json": corner_description,
+            "specs/scenarios/walk-corner/parameters.json": corner_parameters,
+        },
+        "v2.3.0",
+    )
     configuration = json.dumps({"name": "stock", "version": "1.1.1"})
     robot = _repo(
         base,
@@ -165,6 +175,14 @@ def test_a_definition_that_owns_scenario_world_plan_and_specs_locks_a_thin_robot
         "repository": "Living-Proof-Labs/robot-capability-specs",
         "tag": "v2.3.0",
         "commit": commits["specs"],
+        "files": {
+            "specs/scenarios/walk-corner/description.json": hashlib.sha256(
+                b'{"id": "walk-corner"}\n'
+            ).hexdigest(),
+            "specs/scenarios/walk-corner/parameters.json": hashlib.sha256(
+                b'{"command_speed": 0.5}\n'
+            ).hexdigest(),
+        },
     }
     assert lock["releases"]["runner"] == {
         "repository": "Living-Proof-Labs/livingproof-sim-mujoco",

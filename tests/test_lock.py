@@ -51,6 +51,22 @@ def _git_out(path: Path, *args) -> str:
     ).stdout.strip()
 
 
+def _specs(base: Path, *, tag: str = "v2.0.2", parameters: str | None = "{}\n") -> str:
+    """A local Living-Proof-Labs/example specs pin generate() can hash."""
+    repo = base / "Living-Proof-Labs" / "example.git"
+    if not (repo / ".git").exists() and not (repo / "HEAD").exists():
+        _init(repo)
+        files = {"specs/scenarios/walk-hallway/description.json": "{}\n"}
+        if parameters is not None:
+            files["specs/scenarios/walk-hallway/parameters.json"] = parameters
+        for rel, body in files.items():
+            dest = repo / rel
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_text(body)
+        return _commit(repo)
+    return _git_out(repo, "rev-parse", "HEAD")
+
+
 def _pin(commit: str, *, image: str | None = None) -> dict:
     ref = {
         "repository": "Living-Proof-Labs/example",
@@ -80,6 +96,7 @@ def _configuration(name: str, version: str) -> str:
 
 def _robot(base: Path, *, publish_lock: bool = True, sha: str | None = None) -> Path:
     repo = base / "Org" / "robot.git"
+    specs_commit = _specs(base)
     _init(repo)
     (repo / "pyproject.toml").write_text(
         '[project]\nname = "fixture-robot"\nversion = "0.1.0"\n\n'
@@ -106,7 +123,7 @@ def _robot(base: Path, *, publish_lock: bool = True, sha: str | None = None) -> 
         robot_lock = {
             "format": "livingproof-verification-lock/1.0.0",
             "scenario": "walk-hallway@0.1.0",
-            "releases": _releases(),
+            "releases": {**_releases(), "specs": _pin(specs_commit)},
             "world": {"id": "hallway-open", "version": "0.1.0"},
             "configurations": [
                 {
@@ -330,6 +347,7 @@ def test_the_evaluator_commit_is_resolved_from_the_verifier_checkout(tmp_path, m
 def _v2(definition: Path, repo: Path) -> dict:
     stock = (repo / "configurations" / "stock.json").read_bytes()
     playground = (repo / "configurations" / "playground.json").read_bytes()
+    specs_commit = _specs(repo.parent.parent)
     return {
         "format": lock_tool.FORMAT_V2,
         "definition": {"path": definition.name, "sha256": "0" * 64},
@@ -342,7 +360,7 @@ def _v2(definition: Path, repo: Path) -> dict:
             "configurations": ["stock"],
             "adapter": "lpl_g1.adapter:ROBOT",
         },
-        "releases": _releases(),
+        "releases": {**_releases(), "specs": _pin(specs_commit)},
         "world": {"id": "hallway-open", "version": "0.1.0"},
         "configurations": [
             {
@@ -447,7 +465,12 @@ def test_a_thin_robot_keeps_owned_fields_and_refreshes_the_tree(tmp_path, monkey
     assert "Review it before committing." in text
     written = json.loads(lock_tool.lock_path(definition).read_text())
     assert written["format"] == lock_tool.FORMAT_V2
-    assert written["releases"]["specs"] == kept["specs"]
+    # Tags and commits stay. Issue 100 records per-file sha256 digests on the same pin.
+    specs = written["releases"]["specs"]
+    assert {key: specs[key] for key in ("repository", "tag", "commit")} == {
+        key: kept["specs"][key] for key in ("repository", "tag", "commit")
+    }
+    assert specs["files"]["specs/scenarios/walk-hallway/parameters.json"] is not None
     assert written["releases"]["runner"] == kept["runner"]
     assert written["plan"] == existing["plan"]
     assert written["world"] == existing["world"]

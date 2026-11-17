@@ -44,6 +44,14 @@ SPECS = {
     "repository": "Living-Proof-Labs/robot-capability-specs",
     "tag": "v2.3.0",
     "commit": "57317e617014a6df97bb7fba9d92a890af8d42e5",
+    "files": {
+        "specs/scenarios/walk-corner/description.json": (
+            "be8de80e1a7b6f2273cee7abf7303d2e78a407ba0a5f11f9d06ed8cbed7c252c"
+        ),
+        "specs/scenarios/walk-corner/parameters.json": (
+            "62f2912c33b557d58cd454daf7d1eea543e919dec0e9b53e613d4101a5a12977"
+        ),
+    },
 }
 SIM_3_2_0 = ("v3.2.0", "4ff176028a0f20ce30f022d45796d098bd8f1025")
 SIM_3_2_1 = ("v3.2.1", "f9c326f370cc3e54bf38932bfb332455dc4b5ef1")
@@ -70,25 +78,27 @@ CORNER = {
         "runner": SIM_3_2_0,
     },
 }
-# The four walk-hallway definitions on main before step 12: sha256 of the definition file,
-# and sha256 of everything the evidence run reads from the lock (procedure, scenario, robot,
-# world, plan, configurations, and the specs and runner releases), as sorted-key JSON.
+# The four walk-hallway definitions: sha256 of the definition file, and sha256 of
+# everything the evidence run reads from the lock (procedure, scenario, robot, world,
+# plan, configurations, and the specs and runner releases), as sorted-key JSON.
+# Issue 100 step 3 adds releases.specs.files (v2.0.2 records a null parameters.json).
+# Tags, commits, definition bytes and published history are unchanged.
 HALLWAY = {
     "booster-t1-stock-mujoco-hallway": (
         "6b60b94820ded893f120fb727e45d9d8a1f33653178921e8c405668dfe77a544",
-        "ecea3c2cac9f90236cd9eddec95292e8f78811960c00b12df6b2b2e802351e37",
+        "c64f15a9ed9a246ecf553d4a0581ce8ed3f4c3b474bf034fb919a53bb20eb88e",
     ),
     "unitree-g1-playground-mujoco-hallway": (
         "9e22ced904062ac60cd3339b231497d2eb5ee8e6f4db56063c8f78e7d400fbdb",
-        "0ef98f48c5ecfdbb70dc825815c3953827659c4170a39b1710b5235d5a88e7a8",
+        "c4353fd165fbbeefa622683d9f64b91b7d5d98e1c2ca82a326d8a780430e5590",
     ),
     "unitree-g1-stock-mujoco-hallway": (
         "3d842a80dce610e5af4b0f179b54ceb0d4b674a3080e7323aff7e72dd34ed43f",
-        "1e7e37c2a9e32055ac52d3e11f856acc26666d9731f45fff1e3a4834ac736cb7",
+        "068ea138f671bf3e1848efe75a558324dbc0735937e255505a8a96c7fde1da61",
     ),
     "unitree-go1-playground-mujoco-hallway": (
         "d0acee2b58cd728763ea9e3cd80ebcadc5c0ce5f2ae84f5f46746a6a0560753a",
-        "821d6be337fc04526f7c377df4d3152e1d324af09082dec382cf884a79f9781d",
+        "30a0e1adf587c8516011756a1a129d625ccc154d4b5a3f450c1377ad1a503ae9",
     ),
 }
 EVIDENCE_KEYS = ("procedure", "scenario", "robot", "world", "plan", "configurations")
