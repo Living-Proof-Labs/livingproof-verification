@@ -81,8 +81,10 @@ def inputs(root, head, branch):
     tags = set()
     for path in changed:
         # Reject symlinks and other special modes before inspecting text.
-        mode = command("git", "ls-tree", head, "--", path, cwd=root).split()[0]
-        if mode != "100644":
+        entry = command("git", "ls-tree", head, "--", path, cwd=root).split()
+        if not entry:
+            raise ValueError(f"proposal deletes required input: {path}")
+        if entry[0] != "100644":
             raise ValueError("proposal is not a regular file")
         old = (root / path).read_text()
         new = command("git", "show", f"{head}:{path}", cwd=root) + "\n"

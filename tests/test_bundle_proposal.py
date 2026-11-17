@@ -218,7 +218,7 @@ def test_dormant_template_separates_generation_and_write_credentials():
     assert "pip" not in writes[0]["run"] and "pytest" not in writes[0]["run"]
 
 
-@pytest.mark.parametrize("invalid", ["major", "malformed", "custom"])
+@pytest.mark.parametrize("invalid", ["major", "malformed", "custom", "deleted"])
 def test_discovery_does_not_starve_valid_update(checkout, monkeypatch, invalid):
     later = "c" * 40
     candidates = [{"number": 1, "head": {"sha": HEAD}}, {"number": 2, "head": {"sha": later}}]
@@ -245,6 +245,8 @@ def test_discovery_does_not_starve_valid_update(checkout, monkeypatch, invalid):
         if args[1] == "diff":
             return path
         if args[1] == "ls-tree":
+            if invalid == "deleted" and args[2] == HEAD:
+                return ""
             return "100644 blob hash file"
         if args[1] == "show":
             return (bad if args[2].startswith(HEAD) else good).rstrip("\n")
@@ -255,3 +257,25 @@ def test_discovery_does_not_starve_valid_update(checkout, monkeypatch, invalid):
     candidates.pop()
     assert writer.discover(MAIN) == {}
     assert not any("checkout" in call for call in calls)
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "verifications/settings.toml",
+        ".github/workflows/verify.yml",
+        ".devcontainer/devcontainer.json",
+    ],
+)
+def test_deleted_input_is_refused_before_reading_blob(checkout, monkeypatch, path):
+    def command(*args, **kwargs):
+        if args[1] == "diff":
+            return path
+        if args[1] == "ls-tree":
+            return ""
+        raise AssertionError("deleted input must not reach git show")
+
+    monkeypatch.setattr(writer, "command", command)
+    branch = BRANCH if path.endswith("settings.toml") else "renovate/capability-verifier-evidence"
+    with pytest.raises(ValueError, match="deletes required input"):
+        writer.inputs(checkout, HEAD, branch)
