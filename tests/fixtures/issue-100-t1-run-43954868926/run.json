@@ -1,0 +1,127 @@
+{
+  "robot": {
+    "repository": "Living-Proof-Labs/livingproof-booster-t1",
+    "commit": "61b2559ebb401973ec7733b4c886753e6d2b704c",
+    "configuration": "stock",
+    "url": "https://github.com/Living-Proof-Labs/livingproof-booster-t1/tree/61b2559ebb401973ec7733b4c886753e6d2b704c"
+  },
+  "variant": "stock-mujoco-hallway",
+  "verification": "booster-t1-stock-mujoco-hallway",
+  "outcome": [
+    {
+      "capability": "walk-hallway",
+      "system": "booster-t1/stock",
+      "grade": "FAIL",
+      "passed": null,
+      "trials": null,
+      "required": null,
+      "statement": "3 of 3 repeats agree"
+    }
+  ],
+  "run": {
+    "id": "43954868926",
+    "url": "https://github.com/Living-Proof-Labs/livingproof-verification/actions/runs/43954868926",
+    "created": "2026-11-16T21:04:33Z"
+  },
+  "commit": {
+    "sha": "633e2bac76ba1ac17982674c1f8a4a88a7b61f32",
+    "url": "https://github.com/Living-Proof-Labs/livingproof-verification/commit/633e2bac76ba1ac17982674c1f8a4a88a7b61f32"
+  },
+  "releases": {
+    "specs": {
+      "repository": "Living-Proof-Labs/robot-capability-specs",
+      "tag": "v2.0.2",
+      "commit": "16524cbfeef18ff0454ebf125668b010d38a3993",
+      "url": "https://github.com/Living-Proof-Labs/robot-capability-specs/releases/tag/v2.0.2"
+    },
+    "runner": {
+      "repository": "Living-Proof-Labs/livingproof-sim-mujoco",
+      "tag": "v2.0.3",
+      "commit": "292589ad15582c26cff2bffcc851e3abaf4ea708",
+      "url": "https://github.com/Living-Proof-Labs/livingproof-sim-mujoco/releases/tag/v2.0.3"
+    },
+    "verifier": {
+      "repository": "Living-Proof-Labs/capability-verifier",
+      "tag": "v1.24.0",
+      "commit": "f1ca679eddfa55440f0988e1e4591c0ea85dabac",
+      "image": "ghcr.io/living-proof-labs/capability-verifier-hallway",
+      "digest": "sha256:931ce2ac77a986e00bd41f035780bb25267a97f85336204815a6da7baec3a5c0",
+      "url": "https://github.com/Living-Proof-Labs/capability-verifier/releases/tag/v1.24.0"
+    },
+    "reporter": {
+      "repository": "Living-Proof-Labs/livingproof-capability-report",
+      "tag": "v3.11.1",
+      "commit": "3453a141746bca38adda2a7d66f517afb0c48bf4",
+      "image": "ghcr.io/living-proof-labs/livingproof-capability-report",
+      "digest": "sha256:fc6a5d01f86349c2f47cf6beb0937a830d6a2fd437df087443c8c56fd57606f8",
+      "url": "https://github.com/Living-Proof-Labs/livingproof-capability-report/releases/tag/v3.11.1"
+    }
+  },
+  "definition": "verifications/booster-t1-stock-mujoco-hallway.toml",
+  "grading_inputs": [
+    {
+      "role": "thresholds",
+      "path": "thresholds.json",
+      "sha256": "65d612a13805abc34965133880248616f19c397a6a82c3c1738b54317fd42b84"
+    }
+  ],
+  "evidence": [
+    {
+      "label": "MCAP, all 3 trials",
+      "kind": "mcap",
+      "artifact": {
+        "id": "14271261950",
+        "name": "booster-t1-stock-mujoco-hallway-mcap-stock",
+        "url": "https://github.com/Living-Proof-Labs/livingproof-verification/actions/runs/43954868926/artifacts/14271261950",
+        "expires_at": "2026-12-16T21:00:45Z",
+        "digest": "sha256:3887f56b07c8c82aebb06e465212348fc20267fef20c420a743e5e26e8b7f872",
+        "size": 248798
+      },
+      "preserved": true,
+      "files": [
+        {
+          "path": "evidence/booster-t1-stock-mujoco-hallway-mcap-stock/mcap/trial-01.mcap",
+          "sha256": "812922770c97f35735c8e84685cb05bde255e13c70e2fc4dd18d254b5109fcff",
+          "bytes": 91462
+        },
+        {
+          "path": "evidence/booster-t1-stock-mujoco-hallway-mcap-stock/mcap/trial-02.mcap",
+          "sha256": "812922770c97f35735c8e84685cb05bde255e13c70e2fc4dd18d254b5109fcff",
+          "bytes": 91462
+        },
+        {
+          "path": "evidence/booster-t1-stock-mujoco-hallway-mcap-stock/mcap/trial-03.mcap",
+          "sha256": "812922770c97f35735c8e84685cb05bde255e13c70e2fc4dd18d254b5109fcff",
+          "bytes": 91462
+        },
+        {
+          "path": "evidence/booster-t1-stock-mujoco-hallway-mcap-stock/media.json",
+          "sha256": "68022f8f1bc70db742d8fc1d79ed4b3357b0b9263f5169db7fea23f9e098aa3c",
+          "bytes": 1255
+        }
+      ]
+    },
+    {
+      "label": "video",
+      "kind": "video",
+      "seed": 1,
+      "status": "FAIL",
+      "artifact": {
+        "id": "14272501575",
+        "name": "booster-t1-stock-mujoco-hallway-video-stock-seed-1-fail",
+        "url": "https://github.com/Living-Proof-Labs/livingproof-verification/actions/runs/43954868926/artifacts/14272501575",
+        "expires_at": "2026-12-16T21:00:46Z",
+        "digest": "sha256:c583cc2a4270df0ff45196d68286cc15a516b7b2bb2f3a69ee1528479714bc93",
+        "size": 514310
+      },
+      "preserved": true,
+      "files": [
+        {
+          "path": "evidence/booster-t1-stock-mujoco-hallway-video-stock-seed-1-fail/trial-01-fail.mp4",
+          "sha256": "bc9520784d6da3005887e9af788ca227aaa0b2032ddef3eaf387ebf289459d38",
+          "bytes": 516230
+        }
+      ]
+    }
+  ]
+}

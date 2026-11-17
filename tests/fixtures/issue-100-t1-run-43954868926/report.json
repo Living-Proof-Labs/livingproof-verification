@@ -1,0 +1,81 @@
+{
+  "source_bundle": {
+    "schema_version": "1.1.0",
+    "producer": {
+      "id": "capability-verifier",
+      "version": "1.24.0",
+      "commit": "f1ca679eddfa55440f0988e1e4591c0ea85dabac"
+    },
+    "results": [
+      {
+        "id": "stock-seed-01",
+        "spec": {
+          "repository": "https://github.com/Living-Proof-Labs/robot-capability-specs",
+          "tag": "v2.3.0",
+          "commit": "57317e617014a6df97bb7fba9d92a890af8d42e5",
+          "capability": "walk-hallway",
+          "revision": "0.1.0"
+        },
+        "provenance": {
+          "lock": {
+            "content": {
+              "releases": {
+                "specs": {
+                  "repository": "Living-Proof-Labs/robot-capability-specs",
+                  "tag": "v2.0.2",
+                  "commit": "16524cbfeef18ff0454ebf125668b010d38a3993"
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "stock-seed-02",
+        "spec": {
+          "repository": "https://github.com/Living-Proof-Labs/robot-capability-specs",
+          "tag": "v2.3.0",
+          "commit": "57317e617014a6df97bb7fba9d92a890af8d42e5",
+          "capability": "walk-hallway",
+          "revision": "0.1.0"
+        },
+        "provenance": {
+          "lock": {
+            "content": {
+              "releases": {
+                "specs": {
+                  "repository": "Living-Proof-Labs/robot-capability-specs",
+                  "tag": "v2.0.2",
+                  "commit": "16524cbfeef18ff0454ebf125668b010d38a3993"
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "stock-seed-03",
+        "spec": {
+          "repository": "https://github.com/Living-Proof-Labs/robot-capability-specs",
+          "tag": "v2.3.0",
+          "commit": "57317e617014a6df97bb7fba9d92a890af8d42e5",
+          "capability": "walk-hallway",
+          "revision": "0.1.0"
+        },
+        "provenance": {
+          "lock": {
+            "content": {
+              "releases": {
+                "specs": {
+                  "repository": "Living-Proof-Labs/robot-capability-specs",
+                  "tag": "v2.0.2",
+                  "commit": "16524cbfeef18ff0454ebf125668b010d38a3993"
+                }
+              }
+            }
+          }
+        }
+      }
+    ]
+  }
+}

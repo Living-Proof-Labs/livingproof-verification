@@ -1,0 +1,5 @@
+{
+  "source": "https://docs.livingprooflabs.com/livingproof-verification/booster-t1/stock-mujoco-hallway/runs/43954868926/",
+  "run_id": "43954868926",
+  "note": "Historical T1 hallway split from livingproof-verification#100: run.json and the evidence lock name specs v2.0.2; each bundle result.spec names assessment specs v2.3.0. report.json is trimmed to the identity fields; run.json is the published file."
+}
