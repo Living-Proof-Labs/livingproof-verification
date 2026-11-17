@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Queue refusals are local simulations, never real-release automerge evidence."""
 
-import copy
 import json
 import os
 from pathlib import Path
@@ -32,49 +31,16 @@ def remote(monkeypatch):
         "base": {"ref": "main", "repo": {"full_name": queue.writer.REPO}},
         "head": {"sha": HEAD, "ref": BRANCHES[0], "repo": {"full_name": queue.writer.REPO}},
     }
-    rules = [
-        {"type": "merge_queue"},
-        {
-            "type": "required_status_checks",
-            "parameters": {
-                "required_status_checks": [
-                    {"context": name, "integration_id": queue.ACTIONS_APP} for name in queue.GATES
-                ]
-            },
-        },
-    ]
-    runs = [
-        {
-            "id": i,
-            "path": path,
-            "head_sha": HEAD,
-            "event": "pull_request",
-            "head_repository": {"full_name": queue.writer.REPO},
-            "pull_requests": [{"number": 1}],
-            "status": "completed",
-            "conclusion": "success",
-        }
-        for i, path in enumerate(sorted(queue.WORKFLOWS), 1)
-    ]
-    jobs = {
-        i: [
-            {"name": name, "head_sha": HEAD, "status": "completed", "conclusion": "success"}
-            for name in names
-        ]
-        for i, names in [(1, ["checks", "renovate"]), (2, ["verification"])]
-    }
-    state = {"pr": pr, "rules": rules, "runs": runs, "jobs": jobs, "writes": []}
+    state = {"pr": pr, "writes": [], "reads": [], "rules": [], "runs": []}
 
     def api(path):
+        state["reads"].append(path)
         if path == "pulls/1":
             return pr
         if path == "rules/branches/main":
-            return rules
+            return state["rules"]
         if path.startswith("actions/runs?"):
-            return {"total_count": len(runs), "workflow_runs": runs}
-        if "/jobs?" in path:
-            selected = jobs[int(path.split("/")[2])]
-            return {"total_count": len(selected), "jobs": selected}
+            return {"total_count": len(state["runs"]), "workflow_runs": state["runs"]}
         raise AssertionError(path)
 
     def command(*args, data=None):
@@ -90,7 +56,7 @@ def remote(monkeypatch):
 @pytest.mark.parametrize("branch", BRANCHES, ids=["verifier", "reporter"])
 def test_each_release_path_requests_exact_head_normal_queue(remote, branch):
     remote["pr"]["head"]["ref"] = branch
-    queue.enqueue(1, HEAD, branch, wait_seconds=0)
+    queue.enqueue(1, HEAD, branch)
     assert len(remote["writes"]) == 1
     request = remote["writes"][0]
     assert request["variables"] == {"id": "PR_example", "head": HEAD}
@@ -115,51 +81,45 @@ def test_target_changes_refuse_before_write(remote, bad):
     if bad == "closed":
         pr["state"] = "closed"
     with pytest.raises(ValueError):
-        queue.enqueue(1, HEAD, BRANCHES[0], wait_seconds=0)
+        queue.enqueue(1, HEAD, BRANCHES[0])
     assert not remote["writes"]
 
 
-@pytest.mark.parametrize(
-    "bad", ["queue", "gate", "app", "missing", "skipped", "failed", "stale", "pending", "newer"]
-)
-def test_missing_or_unsuccessful_gates_refuse(remote, bad):
-    if bad == "queue":
-        remote["rules"].pop(0)
-    if bad == "gate":
-        remote["rules"][1]["parameters"]["required_status_checks"].pop()
-    if bad == "app":
-        remote["rules"][1]["parameters"]["required_status_checks"][0]["integration_id"] = None
-    if bad == "missing":
-        remote["jobs"][2].clear()
-    if bad == "skipped":
-        remote["jobs"][2][0]["conclusion"] = "skipped"
-    if bad == "failed":
-        remote["runs"][0]["conclusion"] = "failure"
-    if bad == "stale":
-        remote["runs"][0]["head_sha"] = "b" * 40
-    if bad == "pending":
-        remote["runs"][0]["status"] = "in_progress"
-    if bad == "newer":
-        run = copy.deepcopy(remote["runs"][0])
-        run.update(id=3, conclusion="failure")
-        remote["runs"].append(run)
-    with pytest.raises(ValueError):
-        queue.enqueue(1, HEAD, BRANCHES[0], wait_seconds=0)
-    assert not remote["writes"]
+@pytest.mark.parametrize("branch", BRANCHES, ids=["verifier", "reporter"])
+@pytest.mark.parametrize("status", ["absent", "queued", "in_progress", "failure", "skipped"])
+def test_no_required_checks_and_informational_runs_do_not_block(remote, branch, status):
+    remote["pr"]["head"]["ref"] = branch
+    remote["rules"] = [{"type": "merge_queue"}]
+    remote["runs"] = [] if status == "absent" else [{"status": status}]
+    queue.enqueue(1, HEAD, branch)
+    assert len(remote["writes"]) == 1
+    # No hidden status polling, rule enrollment prerequisite, or wait for optional CI.
+    assert remote["reads"] == ["pulls/1"]
 
 
-def test_head_race_after_green_stops_before_mutation(remote, monkeypatch):
-    original = queue.ready
+@pytest.mark.parametrize("reason", ["head moved", "required check pending", "queue unavailable"])
+def test_server_refusal_never_falls_back_to_merge_or_retries(remote, monkeypatch, reason):
+    calls = []
 
-    def ready(*args):
-        result = original(*args)
-        remote["pr"]["head"]["sha"] = "b" * 40
-        return result
+    def command(*args, data=None):
+        request = json.loads(data)
+        assert request["variables"]["head"] == HEAD
+        assert "expectedHeadOid: $head" in request["query"]
+        calls.append(request)
+        return json.dumps({"errors": [{"message": reason}]})
 
-    monkeypatch.setattr(queue, "ready", ready)
-    with pytest.raises(ValueError, match="head/target changed"):
-        queue.enqueue(1, HEAD, BRANCHES[0], wait_seconds=0)
-    assert not remote["writes"]
+    monkeypatch.setattr(queue.writer, "command", command)
+    with pytest.raises(ValueError, match="queue refused"):
+        queue.enqueue(1, HEAD, BRANCHES[0])
+    assert len(calls) == 1
+    assert "mergePullRequest" not in calls[0]["query"]
+
+
+@pytest.mark.parametrize("head", ["main", "", "a" * 39])
+def test_invalid_publication_head_refused(remote, head):
+    with pytest.raises(ValueError, match="invalid trusted publication output"):
+        queue.enqueue(1, head, BRANCHES[0])
+    assert not remote["reads"] and not remote["writes"]
 
 
 @pytest.mark.parametrize("result", ["success", "failure", "skipped", "cancelled"])

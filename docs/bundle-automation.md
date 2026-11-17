@@ -75,16 +75,15 @@ Renovate/custom proposals are refused by this writer, rather than rebased or res
    a concurrent writer causes rejection, never loss of custom commits. Replaying a
    completed proposal is refused. If a push outcome is uncertain, inspect the remote
    ref before retrying; never regenerate against a guessed head.
-3. **Prepared final-head coordinator:** `tools/bundle_queue.py --pr NUMBER --head
-   PUBLISHED_SHA --branch EXPECTED_BRANCH` waits up to one hour for the latest PR
-   runs of both `checks.yml` and `verify.yml` on the exact published head. It requires
-   successful, non-skipped `checks`, `renovate`, and `verification` jobs, then rechecks
-   the PR and calls `enqueuePullRequest` with `expectedHeadOid` and `jump: false`.
+3. **Prepared exact-head coordinator:** `tools/bundle_queue.py --pr NUMBER --head
+   PUBLISHED_SHA --branch EXPECTED_BRANCH` rechecks candidate eligibility and requests
+   normal queue entry with `enqueuePullRequest`, `expectedHeadOid`, and `jump: false`.
+   GitHub enforces the repository's actually configured protections. The coordinator
+   neither requires named status contexts nor polls/waits for informational workflows.
    It never enables deferred auto-merge, merges directly, or bypasses requirements.
-   GitHub still applies any additional review/check requirements. The mutation fields
-   are defined in [GitHub's published schema](https://github.com/octokit/graphql-schema/blob/master/schema.graphql).
-   Missing/running checks wait; failed, ambiguous, changed-head or missing-rule cases
-   refuse. An uncertain mutation outcome must be inspected before retrying.
+   The mutation fields are defined in [GitHub's published schema](https://github.com/octokit/graphql-schema/blob/master/schema.graphql).
+   A changed head, invalid target, or server refusal stops the request. An uncertain
+   mutation outcome must be inspected before retrying.
 
    **This coordinator is not wired into the dormant template.** Its head and branch
    arguments must come from the trusted publisher's output and sealed preparation
@@ -110,8 +109,8 @@ refreshes it, and a custom or completed branch is never rebuilt by this writer.
 Hosted proof must cover both non-conflicting main movement and preservation of a
 custom commit. Main movement during generation still causes an expected-main refusal.
 
-After completion, non-conflicting main advancement is handled by normal merge-group
-execution of both workflows. `verification` aggregates the lock guard and all seven
+After completion, the normal queue handles non-conflicting main advancement. Both
+workflows also run on merge groups for informational observation. `verification` aggregates the lock guard and all seven
 reusable pipelines and fails on any failure, cancellation or skipped dependency.
 It judges pipeline completion, not the robot's capability verdict; truthful robot
 FAIL remains report data. Pages still runs only on main push or explicit history reset.
@@ -134,12 +133,26 @@ reported `unprotected` / null classic required checks for this repository on Nov
 16 (artifact `classic-protection-evidence`, ID 14206784610). That historical audit is
 not a current queue-readiness certificate.
 
-The coordinator deliberately refuses queue entry unless applied rules require all
-three stable contexts (`checks`, `renovate`, `verification`) from GitHub Actions
-(integration ID 15368), as well as merge queue. Before activation, the settings owner
-must refresh the audit and, if still absent, approve and configure these required
-checks for main. This is a protection change outside this task; no setting was changed.
-Adding merge-group triggers alone cannot make an unenforced check a gate.
+Aaron's November 16 policy explicitly keeps non-required checks informational:
+[repository operations](https://github.com/Living-Proof-Labs/.github/blob/main/docs/repository-operations.md#required-checks-capability-and-staged-adoption)
+and [repository policy](https://github.com/Living-Proof-Labs/.github/blob/main/config/github/repository-policy.json)
+select only `.github`'s own required-check contract. The absence of required contexts
+here is not a defect to repair or an activation prerequisite. The earlier proposal to
+require `checks`, `renovate`, and `verification` was stronger than that policy and is
+withdrawn. Existing workflow jobs and merge-group triggers remain informational unless
+separately enrolled by the owner; this correction changes no workflow or protection.
+
+Internal bundle validity remains mandatory before publication: trusted generation,
+coherent release/lock resolution, checksums, repeatability and the prepare-stage guards
+must succeed. This is distinct from waiting for optional PR or merge-group CI.
+
+**Risk and post-merge observation:** with no required contexts, the normal queue can
+merge while informational tests are still pending; those tests can subsequently fail.
+Post-merge observation reports those failures; it does not prevent or undo the merge.
+Record the merged SHA, main run, all seven reports and Pages outcome, distinguishing
+pending, failed and verified publication. Do not mark delivery verified from queue
+acceptance or merge alone. Robot capability FAIL remains a truthful report result,
+not by itself a pipeline failure. Observation must not silently become a new queue gate.
 
 Existing infrastructure was inspected without reading secret values or minting tokens:
 
@@ -156,7 +169,7 @@ Existing infrastructure was inspected without reading secret values or minting t
 
 Minimum remaining approval/action: identify an already approved App installation/key
 that is accessible to trusted Actions for **this repository** and already has contents,
-workflows and PR write plus Actions/read access; confirm its accepted scopes and bind
+workflows and PR write; confirm its accepted scopes and bind
 short-lived tokens to isolated publication/queue steps. The existing App-token action
 pattern is supported, but availability of such a key here has not been established.
 If none exists, credential provisioning or permission expansion requires separate
@@ -164,11 +177,14 @@ owner approval; it is not performed or implied by this PR.
 
 Then review the template wiring: trusted-main scheduled/manual preparation with read
 access; isolated publisher; isolated queue job consuming only same-run trusted output;
-one shared concurrency group. The current template lacks Actions/PR read declarations
-needed for these API reads. An attempted template edit was rejected by automatic
-approval review as a workflow-permission/credential-wiring change. It did not execute;
-the template remains unchanged. Approval for that precise read-permission and queue-job
-wiring is required before completing it. No new workflow has been installed, no secret
+one shared concurrency group. Prepare needs PR read access with its read-only token.
+The corrected queue command no longer reads Actions runs or rulesets; Actions read is
+not an enqueue prerequisite. A later read-only post-merge observer may need Actions
+read access separately. The earlier proposed Actions/PR read declarations and queue
+wiring were rejected by automatic approval review and did not execute. The template
+remains unchanged. Any revised permission declaration or publisher-to-queue wiring
+still requires its separate approval; this correction does not retry that change.
+No new workflow has been installed, no secret
 bound, no token minted, no settings changed, and no writer activated.
 
 ## Acceptance evidence still required
@@ -177,16 +193,17 @@ bound, no token minted, no settings changed, and no writer activated.
   verify the generated commit triggers all exact-head checks without manual approval.
 - **Verifier release case:** a newly discovered verifier version automatically completes
   its workflow/image/requirements pins, seven locks, evaluator declaration and current
-  expectations, passes exact-head checks, and automerges through the normal queue.
+  expectations, and automerges through the normal queue under its configured protections.
 - **Reporter release case:** a separately discovered reporter version automatically
   completes its settings pin, verified wheel checksum, seven locks and current
-  expectations, passes exact-head checks, and automerges through the normal queue.
+  expectations, and automerges through the normal queue under its configured protections.
   For each case, record byte-stable regeneration and links from discovery through
   published mainline evidence. A manually completed commit or manually merged
   adoption PR is not proof for either case. Local mocked tests are not live-release proof.
 - Prove concurrent head changes, competing runs and custom commits fail closed on GitHub.
-- Audit and record live required checks; prove the applicable merge-group path runs
-  them, then demonstrate automatic normal-queue merge with no bypass.
+- Record the actually configured required checks, if any, and observe PR/merge-group
+  results without waiting for informational checks as a queue prerequisite. Demonstrate
+  automatic normal-queue merge with no bypass.
 - Verify the merged SHA's mainline run, Pages deployment and all seven published
   reports; link discovery, proposal, run and publication. Preserve earlier evidence.
 - Obtain Deep independent review of the user-run command and publication boundary
