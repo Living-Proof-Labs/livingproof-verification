@@ -1,0 +1,80 @@
+# SPDX-License-Identifier: Apache-2.0
+# DORMANT TEMPLATE: outside .github/workflows. Do not activate before the boundary
+# in docs/bundle-automation.md is resolved. No token is created by this template.
+name: Complete dependency bundle
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '19 * * * *'
+permissions:
+  contents: read
+concurrency:
+  group: verification-bundle-writer
+  cancel-in-progress: false
+jobs:
+  prepare:
+    if: github.repository == 'Living-Proof-Labs/livingproof-verification' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 45
+    outputs:
+      candidate: ${{ steps.discover.outputs.candidate }}
+      digest: ${{ steps.prepare.outputs.digest }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - id: discover
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MAIN: ${{ github.sha }}
+        run: |
+          echo "candidate=$(python3 tools/bundle_proposal.py discover --main "$MAIN")" >> "$GITHUB_OUTPUT"
+      - if: steps.discover.outputs.candidate != '{}'
+        run: |
+          python3 -m venv "$RUNNER_TEMP/tests"
+          "$RUNNER_TEMP/tests/bin/pip" install --require-hashes --no-deps -r .github/requirements/tests.txt
+      - id: prepare
+        if: steps.discover.outputs.candidate != '{}'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MAIN: ${{ github.sha }}
+          PR: ${{ fromJSON(steps.discover.outputs.candidate).pr }}
+          HEAD: ${{ fromJSON(steps.discover.outputs.candidate).head }}
+        run: |
+          "$RUNNER_TEMP/tests/bin/python" tools/bundle_proposal.py prepare \
+            --pr "$PR" --head "$HEAD" --main "$MAIN" --output "$RUNNER_TEMP/bundle.json" \
+            > "$RUNNER_TEMP/prepare-output"
+          echo "digest=$(tail -n 1 "$RUNNER_TEMP/prepare-output")" >> "$GITHUB_OUTPUT"
+      - if: steps.discover.outputs.candidate != '{}'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: trusted-bundle-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/bundle.json
+          retention-days: 1
+          if-no-files-found: error
+  publish:
+    needs: prepare
+    if: needs.prepare.outputs.candidate != '{}'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: trusted-bundle-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/candidate
+      - name: Publish with existing approved credential only
+        env:
+          # Placeholder binding: no such credential was verified during implementation.
+          # Do not create it or expand App permissions to activate this template.
+          GH_TOKEN: ${{ secrets.BUNDLE_WRITER_TOKEN }}
+          DIGEST: ${{ needs.prepare.outputs.digest }}
+        run: |
+          test -n "$GH_TOKEN"
+          python3 tools/bundle_proposal.py publish \
+            --plan "$RUNNER_TEMP/candidate/bundle.json" --sha256 "$DIGEST"
+# No enqueue job until live required checks and merge-group execution are verified.

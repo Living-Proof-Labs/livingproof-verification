@@ -187,3 +187,10 @@ and the reporter extraction test against the real `verifications/settings.toml`.
 ## License
 
 [Apache License 2.0](LICENSE)
+
+## Completing reporter/verifier bundles
+
+Run `python3 tools/update_bundle.py --reporter vX.Y.Z --verifier vA.B.C`
+with either or both explicit releases. It resolves the complete candidate before
+writing files and refuses unrelated input drift. See [bundle automation](docs/bundle-automation.md)
+for the trusted prepare/publish split, verification, and the unactivated writer boundary.
