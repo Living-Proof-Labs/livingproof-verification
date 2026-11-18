@@ -1,23 +1,37 @@
 # Evidence-generation and assessment specs
 
-The published report view and each history entry distinguish two recorded roles:
+The published **report** view records two roles, in a block below the result card and the
+evaluators (#146). The block is a collapsed `<details>`; its one-line summary names the
+assessed spec, for example **Spec** `v2.3.0` · walk-hallway · revision 0.1.0. Inside:
 
-- **Evidence-generation spec (recorded pin)** comes from that run's `run.json`,
+- **Generation** (the evidence-generation spec, recorded pin) comes from that run's `run.json`,
   `releases.specs`, copied from the caller's resolved verification lock at publication.
   It records the generation pin. In older runners it does not prove the runner read
   a scenario parameter file from that release.
-- **Assessment spec** comes from the saved `report.json`, `summaries[].spec`.
+- **Assessment** comes from the saved `report.json`, `summaries[].spec`.
   The reporter carries the verifier's bundle result spec into these summaries.
   This is the catalog identified by the report's existing **Spec** field, including
   scenario capability and revision. Distinct summary identities are all shown.
 
-Both roles remain labelled when their values agree. Missing identities say
-“Not recorded”; they are never filled from today's lock or the other role.
-Full recorded commits are displayed, including when two entries have the same tag.
-The source links lead to the saved JSON documents for that particular run.
-The site's explanation is added only to the rendered `index.html` view and history;
-report downloads, source bundles, recorded grades and evidence are not reassessed
-or rewritten by this feature. No new field is backfilled into historical `run.json`.
+When the one assessed spec is the generation pin (same repository, tag and commit), one
+**Generation and assessment** line is shown instead of two. Each line links the version to its
+spec release and shows the commit as an 8-character monospace SHA that links to the commit;
+the full SHA is in the link and its title, not in the visible text. The block ends with
+"Recorded at run time; not reassessed." Missing identities say “Not recorded”; they are never
+filled from today's lock or the other role.
+
+The block is inserted by `with_spec_provenance()` in `tools/site.py` just before `</main>`
+(`</body>` for older HTML), so it follows the evaluators without reading the reporter's layout.
+It is added only to the rendered `index.html`; report downloads, source bundles, recorded
+grades and evidence are not reassessed or rewritten by this feature. No new field is
+backfilled into historical `run.json`.
+
+The **history** page does not repeat the block. Its header names `specs v…` (linked to the spec
+release) with the runner, verifier and reporter, and the robot pin as its tag (an 8-character
+monospace SHA when no tag resolves; a record stored without a tag takes the tag the reviewed
+locks give that commit). A row shows one quiet chip, `Spec changed: v2.3.0 → v2.4.0`, only when
+its spec version or assessment revision differs from the run below it. An unrecorded part is
+never a change.
 
 ## How the assessment catalog is chosen
 
@@ -56,7 +70,7 @@ Its recorded outcome stays **FAIL**. The fixture
 `tests/fixtures/historical-spec-provenance.json` contains those provenance fields
 from the published JSON, not reconstructed evidence. Tests publish a synthetic
 report with those identities, restore its Pages archive, then publish another run
-using current locks. Both old identities and the original saved bytes must survive.
+using current locks. Both old identities and the original saved bytes must survive on the report page.
 
 This change does not deploy the site, regenerate observations, change thresholds,
 or resolve the separate same-run collision/attempt-identity work in #100.

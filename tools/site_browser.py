@@ -8,18 +8,45 @@ This changes only fixture run metadata, never published reports or deployment st
 """
 
 import argparse
+from datetime import datetime, timedelta
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import importlib.metadata
 import json
 import os
 from pathlib import Path
+import shutil
 import threading
 import traceback
 
 from playwright.sync_api import expect, sync_playwright
 
 from site_fixture import site_tool
+
+
+SEEDED_RUNS = ("8000000001", "8000000002", "8000000003")
+
+
+def seed_history(site, path):
+    """Three older runs behind a run, the oldest on an earlier spec: one `Spec changed` row.
+
+    Copies keep the run's published files; only run.json and its identity change (#146).
+    """
+    folder = path.parent
+    record = json.loads(path.read_text())
+    created = datetime.fromisoformat(record["run"]["created"].replace("Z", "+00:00"))
+    for index, run_id in enumerate(SEEDED_RUNS, start=1):
+        copy = folder.parent / run_id
+        shutil.copytree(folder, copy)
+        older = json.loads(json.dumps(record))
+        older["run"]["id"] = run_id
+        older["run"]["url"] = older["run"]["url"].rsplit("/", 1)[0] + "/" + run_id
+        older["run"]["created"] = (created - timedelta(days=index)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        if index == len(SEEDED_RUNS):
+            specs = older["releases"]["specs"]
+            specs["url"] = specs["url"].replace(f"/{specs['tag']}", "/v0.0.1")
+            specs["tag"] = "v0.0.1"
+        (copy / "run.json").write_text(json.dumps(older) + "\n")
 
 
 def prepare(site):
@@ -34,12 +61,35 @@ def prepare(site):
                 {"id": "fixture", "title": "Fixture evaluator", "href": "#fixture"}
             ]
         path.write_text(json.dumps(record) + "\n")
+    for path in records:
+        seed_history(site, path)
     site_tool.render(site, now="2026-11-19T08:00:00Z")
     return {
         str(path.parents[2].relative_to(site)) + "/latest/": str(path.parent.relative_to(site))
         + "/"
         for path in records
     }
+
+
+def check_history(page, width, height, result, output):
+    """#146: rows carry no spec provenance; the header names the specs; one row flags a change."""
+    expect(page.locator("main .spec-provenance")).to_have_count(0)
+    expect(page.locator("main")).not_to_contain_text("Spec provenance")
+    expect(page.locator(".masthead")).to_contain_text("specs v")
+    expect(page.locator(".chip-spec")).to_have_count(1)
+    expect(page.locator(".chip-spec")).to_contain_text("Spec changed: v0.0.1 → ")
+    rows = page.locator(".row")
+    assert rows.count() == len(SEEDED_RUNS) + 1
+    visible = sum(
+        1 for index in range(rows.count()) if rows.nth(index).bounding_box()["y"] + 60 < height
+    )
+    if width == 390:
+        assert visible >= 3, f"only {visible} history rows start on the first screen at 390"
+    result.setdefault("history", {})[str(width)] = {
+        "rows_on_first_screen": visible,
+        "spec_changed_chips": 1,
+    }
+    page.screenshot(path=output / f"{width}-history.png")
 
 
 def check_viewport(browser, url, output, width, height, result, destinations):
@@ -91,7 +141,7 @@ def check_viewport(browser, url, output, width, height, result, destinations):
             result.setdefault("history_heights", {})[grade] = box["height"]
             history_link.tap() if width == 390 else history_link.click()
             expect(page).to_have_url(url + history)
-            expect(page.locator(".spec-provenance").first).to_be_visible()
+            check_history(page, width, height, result, output)
 
         page.goto(url)
         page.mouse.move(0, 0)
