@@ -1647,7 +1647,8 @@ def _spec_summary_html(generation: object, assessed: list[dict]) -> str:
         return "<strong>Spec</strong> not recorded"
     _, tag, commit = _spec_core(spec)
     version = tag or (commit or "")[:_SHORT_SHA]
-    pieces = [f"<code>{html.escape(version)}</code>"]
+    # The reporter's summary style upper-cases its text; a version stays as written.
+    pieces = [f'<code style="text-transform:none">{html.escape(version)}</code>']
     if _stored_text(spec.get("capability")):
         pieces.append(html.escape(_stored_text(spec["capability"])))
     if _stored_text(spec.get("revision")):

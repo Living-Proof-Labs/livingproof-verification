@@ -2781,7 +2781,7 @@ def test_report_provenance_summary_is_one_line_and_hides_the_commit(tmp_path):
     assert re.sub(r"\s+", " ", visible_text(summary)).strip() == (
         "Spec v2.3.0 · walk-hallway · revision 0.1.0"
     )
-    assert "<code>v2.3.0</code>" in summary
+    assert re.search(r"<code[^>]*>v2.3.0</code>", summary)
 
 
 def test_report_provenance_shows_one_line_when_generation_and_assessment_match():
