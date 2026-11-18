@@ -1555,6 +1555,66 @@ def render_with_reporter(
         return destination.read_text()
 
 
+def spec_provenance_html(record: dict, report: object, prefix: str = "") -> str:
+    """Explain recorded spec roles without changing either saved document.
+
+    The caller pin is not proof that an old runner loaded a catalog. Assessment
+    identities come from the saved summaries, never the current verification lock.
+    Keep every distinct assessment identity (a report can contain several).
+    """
+    generation = (record.get("releases") or {}).get("specs")
+    summaries = report.get("summaries", []) if isinstance(report, dict) else []
+    assessed = []
+    for summary in summaries:
+        spec = summary.get("spec") if isinstance(summary, dict) else None
+        if isinstance(spec, dict) and spec and spec not in assessed:
+            assessed.append(spec)
+
+    def identity(spec):
+        if not isinstance(spec, dict) or not spec:
+            return "Not recorded"
+        fields = [
+            spec.get("repository"),
+            spec.get("tag"),
+            spec.get("commit"),
+        ]
+        if spec.get("capability"):
+            fields.append(spec["capability"])
+        if spec.get("revision"):
+            fields.append(f"revision {spec['revision']}")
+        return html.escape(" · ".join(str(value) for value in fields if value)) or "Not recorded"
+
+    anchor = "spec-provenance-" + record["folder"] if prefix else "spec-provenance"
+    return (
+        f'<section class="spec-provenance" id="{html.escape(anchor, quote=True)}">'
+        "<h2>Spec provenance</h2><dl>"
+        "<dt>Evidence-generation spec (recorded pin)</dt>"
+        f"<dd>{identity(generation)}</dd>"
+        "<dt>Assessment spec</dt>"
+        f"<dd>{'<br>'.join(identity(spec) for spec in assessed) or 'Not recorded'}</dd>"
+        "</dl><p>Generation source: "
+        f"{a(prefix + 'run.json', 'saved caller lock releases.specs')}. "
+        "Assessment source: "
+        f"{a(prefix + 'report.json', 'saved report summaries[].spec')}. "
+        "The report’s “Spec” field identifies the assessment catalog. "
+        "The generation pin alone does not establish which catalog bytes a historical runner loaded. "
+        "These labels describe the recorded run; they do not reassess it.</p></section>"
+    )
+
+
+def with_spec_provenance(public: str, record: dict, report: object) -> str:
+    """Add site provenance to the rendered view, leaving report downloads unchanged."""
+    section = spec_provenance_html(record, report)
+    # The pinned reporter owns the report layout; place this site-owned explanation
+    # at the start of its main region. Legacy HTML may have only a body (or be text).
+    opening = re.search(r"<main\b[^>]*>|<body\b[^>]*>", public, re.I)
+    main = re.search(r"<main\b[^>]*>", public, re.I)
+    opening = main or opening
+    if opening:
+        return public[: opening.end()] + section + public[opening.end() :]
+    return section + public
+
+
 def publish_run_page(folder: Path, record: dict, *, now: str, days: int, trial: bool) -> None:
     """The run directory's index is the styled report, not a frame around it."""
     html_text = reporter_html(folder)
@@ -1582,6 +1642,7 @@ def publish_run_page(folder: Path, record: dict, *, now: str, days: int, trial: 
         )
     else:
         public = scrub_reporter_html(html_text, record, trial=trial, expired=expired)
+    public = with_spec_provenance(public, record, report)
     if html_is_dirty(public):
         raise SiteError(
             f"{folder / 'index.html'}: public page still names an artifact or links to /actions/"
@@ -1681,7 +1742,12 @@ def remember_stored_wording(folder: Path, record: dict) -> None:
     (folder / "run.json").write_text(json.dumps(stored, indent=2) + "\n")
 
 
-SITE_STYLES = """:root {
+SITE_STYLES = """.spec-provenance { overflow-wrap: anywhere; }
+.spec-provenance h2 { font-size: 1rem; }
+.spec-provenance dt { font-weight: 600; }
+.spec-provenance dd { margin-left: 0; }
+.spec-provenance p { font-size: .875rem; }
+:root {
   color-scheme: light;
   --font-sans: "DM Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
   --navy: #01152d;
@@ -1813,19 +1879,28 @@ a:focus-visible, button:focus-visible, .row:focus-visible {
   gap: 0.45rem;
 }
 .card {
+  position: relative;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 0.85rem;
   box-shadow: var(--shadow);
   padding: 0.85rem 1rem 0.9rem;
+  cursor: pointer;
   transition: background 0.15s ease, border-color 0.15s ease;
 }
 .card:hover, .card:focus-within {
-  background: color-mix(in srgb, var(--bg-muted) 65%, var(--surface));
+  background: var(--bg-muted);
   border-color: var(--border-strong);
+}
+.card:has(.card-link:focus-visible) {
+  outline: 3px solid var(--focus);
+  outline-offset: 3px;
 }
 .card.is-fail {
   border-left: 3px solid color-mix(in srgb, var(--chip-fail-fg) 70%, #fda4af);
+}
+.card.is-fail:hover, .card.is-fail:focus-within {
+  border-left-color: color-mix(in srgb, var(--chip-fail-fg) 70%, #fda4af);
 }
 .entry-main {
   display: grid;
@@ -1850,6 +1925,21 @@ a:focus-visible, button:focus-visible, .row:focus-visible {
 }
 .title a { color: inherit; text-decoration: none; }
 .title a:hover { color: var(--link); text-decoration: underline; }
+.card-link:focus-visible { outline: none; }
+.card-link::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: 0.85rem;
+}
+.history-link {
+  position: relative;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 0.45rem;
+}
 .sub {
   margin: 0.15rem 0 0;
   color: var(--text-muted);
@@ -1902,7 +1992,7 @@ a:focus-visible, button:focus-visible, .row:focus-visible {
   text-decoration: none;
   line-height: 1.4;
 }
-.chip:hover {
+a.chip:hover {
   background: color-mix(in srgb, var(--speak) 20%, var(--surface));
   color: var(--speak-text);
   border-color: color-mix(in srgb, var(--speak) 65%, var(--border));
@@ -1980,7 +2070,19 @@ a.release:hover { color: var(--link); text-decoration: underline; }
     align-items: flex-start;
   }
   .chips, .entry-body .chips { justify-content: flex-start; }
-  .links a { margin-left: 0; margin-right: 0.8rem; }
+  .links a { margin-left: 0; }
+  .history-link {
+    min-height: 44px;
+    padding: 0 0.75rem;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    font-weight: 650;
+    text-decoration: none;
+  }
+  .history-link:hover {
+    border-color: var(--border-strong);
+    color: var(--link);
+  }
   .masthead h1 { font-size: 1.4rem; }
   .wrap { width: min(72rem, 100% - 1.5rem); }
 }
@@ -2048,16 +2150,22 @@ def _record_grade(record: dict) -> str:
     return grades[0] if grades else "UNSUPPORTED"
 
 
-def _badge_html(grade: str) -> str:
-    if grade == "PASS":
-        return '<span class="badge badge-pass">PASS</span>'
-    if grade == "FAIL":
-        return '<span class="badge badge-fail">FAIL</span>'
+def _badge_label(grade: str) -> str:
     if grade == "UNSUPPORTED":
-        return '<span class="badge badge-muted">Not supported</span>'
+        return "Not supported"
     if grade == "INSUFFICIENT_EVIDENCE":
-        return '<span class="badge badge-warn">Insufficient evidence</span>'
-    return f'<span class="badge badge-muted">{html.escape(grade)}</span>'
+        return "Insufficient evidence"
+    return grade
+
+
+def _badge_html(grade: str) -> str:
+    cls = {
+        "PASS": "badge-pass",
+        "FAIL": "badge-fail",
+        "UNSUPPORTED": "badge-muted",
+        "INSUFFICIENT_EVIDENCE": "badge-warn",
+    }.get(grade, "badge-muted")
+    return f'<span class="badge {cls}">{html.escape(_badge_label(grade))}</span>'
 
 
 def _relative_time_html(created: str, now: str) -> str:
@@ -2089,7 +2197,7 @@ def _relative_time_html(created: str, now: str) -> str:
     )
 
 
-def _release_html(record: dict) -> str:
+def _release_html(record: dict, *, linked: bool = True) -> str:
     commit = record.get("commit") or {}
     tag = _stored_text(record.get("bundle_tag") or commit.get("tag"))
     sha = commit.get("sha") or ""
@@ -2100,7 +2208,7 @@ def _release_html(record: dict) -> str:
         else:
             tag_url = commit_url
         title = f"Verification bundle release {tag}"
-        if tag_url:
+        if linked and tag_url:
             return (
                 f'<a class="release" href="{html.escape(tag_url, quote=True)}" '
                 f'title="{html.escape(title, quote=True)}">{html.escape(tag)}</a>'
@@ -2111,7 +2219,7 @@ def _release_html(record: dict) -> str:
         )
     short = sha[:8]
     title = "No release tag on this livingproof-verification commit; short SHA shown"
-    if commit_url:
+    if linked and commit_url:
         return (
             f'<a class="release is-fallback" href="{html.escape(commit_url, quote=True)}" '
             f'title="{html.escape(title, quote=True)}">{html.escape(short)}</a>'
@@ -2122,14 +2230,14 @@ def _release_html(record: dict) -> str:
     )
 
 
-def _chips_html(record: dict, prefix: str) -> str:
+def _chips_html(record: dict, prefix: str, *, linked: bool = True) -> str:
     grade = _record_grade(record)
     if grade in ("PASS", "UNSUPPORTED"):
         return ""
     evaluators = record.get("failing_evaluators") or []
     if not isinstance(evaluators, list) or not evaluators:
         return ""
-    links = []
+    items = []
     for ev in evaluators:
         if not isinstance(ev, dict):
             continue
@@ -2137,15 +2245,18 @@ def _chips_html(record: dict, prefix: str) -> str:
         href = _stored_text(ev.get("href"))
         if title is None or href is None:
             continue
-        tip = f"Open the {title} finding in the report"
-        links.append(
-            f'<a class="chip" href="{html.escape(prefix + href, quote=True)}" '
-            f'title="{html.escape(tip, quote=True)}" '
-            f'aria-label="{html.escape(tip, quote=True)}">{html.escape(title)}</a>'
-        )
-    if not links:
+        if linked:
+            tip = f"Open the {title} finding in the report"
+            items.append(
+                f'<a class="chip" href="{html.escape(prefix + href, quote=True)}" '
+                f'title="{html.escape(tip, quote=True)}" '
+                f'aria-label="{html.escape(tip, quote=True)}">{html.escape(title)}</a>'
+            )
+        else:
+            items.append(f'<span class="chip">{html.escape(title)}</span>')
+    if not items:
         return ""
-    return f'<div class="chips">{"".join(links)}</div>'
+    return f'<div class="chips">{"".join(items)}</div>'
 
 
 def _finding_html(record: dict) -> str:
@@ -2187,7 +2298,9 @@ def _styled_document(
     )
 
 
-def _history_page_html(robot: str, variant: str, records: list[dict], now: str) -> str:
+def _history_page_html(
+    robot: str, variant: str, records: list[dict], now: str, reports: dict | None = None
+) -> str:
     newest = records[0]
     robot_title = _robot_title(robot)
     scenario_title = _scenario_title(newest, variant)
@@ -2198,6 +2311,7 @@ def _history_page_html(robot: str, variant: str, records: list[dict], now: str) 
     releases = " · ".join(
         f"{html.escape(name)} {a(release['url'], release['tag'])}"
         for name, release in newest["releases"].items()
+        if name != "specs"
     )
     robot_info = newest["robot"]
     repo_short = robot_info["repository"].rsplit("/", 1)[-1]
@@ -2239,7 +2353,8 @@ def _history_page_html(robot: str, variant: str, records: list[dict], now: str) 
             "<div>"
             f'<h2 class="title">{html.escape(scenario_title)}</h2>'
             f"{chips}{finding}"
-            '<div class="row-meta">'
+            + spec_provenance_html(record, (reports or {}).get(record["folder"]), run_prefix)
+            + '<div class="row-meta">'
             f"{_release_html(record)}"
             '<span class="dot">·</span>'
             f"{_relative_time_html(record['run']['created'], ref_now)}"
@@ -2298,21 +2413,23 @@ def _index_page_html(history: dict, now: str) -> str:
             latest_href = f"{robot}/{variant}/latest/"
             history_href = f"{robot}/{variant}/"
             run_prefix = f"{robot}/{variant}/runs/{newest['folder']}/"
-            chips = _chips_html(newest, run_prefix)
+            chips = _chips_html(newest, run_prefix, linked=False)
+            card_label = f"{scenario_title}, latest report ({_badge_label(grade)})"
             cards.append(
                 f'<article class="{card_class}">'
                 '<div class="entry-main">'
                 f"{_badge_html(grade)}"
                 '<div class="entry-body">'
-                f'<h3 class="title">{a(latest_href, scenario_title)}</h3>'
+                f'<h3 class="title"><a class="card-link" href="{html.escape(latest_href, quote=True)}" '
+                f'aria-label="{html.escape(card_label, quote=True)}">{html.escape(scenario_title)}</a></h3>'
                 f'<p class="sub">{html.escape(subtitle)}</p>'
                 f"{chips}"
                 "</div>"
                 '<div class="entry-side">'
-                f'<div class="side-meta">{_release_html(newest)}'
+                f'<div class="side-meta">{_release_html(newest, linked=False)}'
                 f'<span class="dot">·</span>{_relative_time_html(newest["run"]["created"], ref_now)}</div>'
-                f'<div class="links">{a(latest_href, "Latest report")}'
-                f"{a(history_href, f'History ({len(records)})')}</div>"
+                f'<div class="links"><a class="history-link" href="{html.escape(history_href, quote=True)}">'
+                f"History ({len(records)})</a></div>"
                 "</div>"
                 "</div>"
                 "</article>"
@@ -2349,12 +2466,11 @@ def render(site: Path, now: str = ""):
         latest = base / "latest"
         if latest.exists():
             shutil.rmtree(latest)
-        trials = {
-            record["folder"]: trial_model(
-                read_report(base / "runs" / record["folder"] / "report.json")
-            )
+        reports = {
+            record["folder"]: read_report(base / "runs" / record["folder"] / "report.json")
             for record in records
         }
+        trials = {folder: trial_model(report) for folder, report in reports.items()}
         newest = records[0]
         latest.mkdir(parents=True)
         (latest / "index.html").write_text(redirect_page(f"../runs/{newest['folder']}/"))
@@ -2367,7 +2483,7 @@ def render(site: Path, now: str = ""):
                 days=days,
                 trial=trials[record["folder"]],
             )
-        (base / "index.html").write_text(_history_page_html(robot, variant, records, now))
+        (base / "index.html").write_text(_history_page_html(robot, variant, records, now, reports))
     (site / "index.html").write_text(_index_page_html(history, now))
 
 

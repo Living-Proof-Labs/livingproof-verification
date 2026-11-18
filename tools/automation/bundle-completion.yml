@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
+# SUPERSEDED by the central .github/tools/automation proposal; never activate both.
 # DORMANT TEMPLATE: outside .github/workflows. Do not activate before the boundary
 # in docs/bundle-automation.md is resolved. No token is created by this template.
 name: Complete dependency bundle

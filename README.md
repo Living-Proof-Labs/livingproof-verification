@@ -24,7 +24,7 @@ The recommended path is the devcontainer (`.devcontainer/devcontainer.json`): th
 
 ```sh
 docker run --rm -u $(id -u):$(id -g) -v $PWD:/work \
-  ghcr.io/living-proof-labs/capability-verifier-hallway:2.3.1@sha256:335586ee98474681ab63f45c154bcf615b1c6ec56ab39e77ba168c6a292fd108 \
+  ghcr.io/living-proof-labs/capability-verifier-hallway:2.5.0@sha256:4465eb42b905589bde37b9d65a49cacd9e427ddca1d55155d0a3537f1a61ea92 \
   capability verify run --reporter source verifications/unitree-g1-stock-mujoco-hallway.toml
 ```
 
@@ -207,3 +207,5 @@ Run `python3 tools/update_bundle.py --reporter vX.Y.Z --verifier vA.B.C`
 with either or both explicit releases. It resolves the complete candidate before
 writing files and refuses unrelated input drift. See [bundle automation](docs/bundle-automation.md)
 for the trusted prepare/publish split, verification, and the unactivated writer boundary.
+
+See [spec provenance](docs/spec-provenance.md) for the evidence-generation and assessment identities shown on reports and history.

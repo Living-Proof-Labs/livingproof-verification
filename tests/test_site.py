@@ -152,7 +152,7 @@ def test_published_history_names_the_verifier_and_reporter_releases(tmp_path):
     """The public history and run.json name both pinned releases (issue 62)."""
     settings = tomllib.loads((ROOT / "verifications/settings.toml").read_text())
     reporter_tag = settings["reporter"]["tag"]
-    assert reporter_tag == "v3.11.6"
+    assert reporter_tag == "v3.12.1"
     site = tmp_path / "site"
     site_tool.build(
         site, reports_for(tmp_path, "one", 12, "PASS"), run("100", "2026-11-02T06:00:00Z")
@@ -161,8 +161,8 @@ def test_published_history_names_the_verifier_and_reporter_releases(tmp_path):
         lock = json.loads((ROOT / "verifications" / f"{target['id']}.lock.json").read_text())
         verifier = lock["releases"]["verifier"]
         reporter = lock["releases"]["reporter"]
-        assert verifier["tag"] == "v2.3.1"
-        assert verifier["commit"] == "2450098fe21c504f640021669fd0fabf57d6dbb0"
+        assert verifier["tag"] == "v2.5.0"
+        assert verifier["commit"] == "e6ff270170a70c7a0707a4c53de43c6ab96604b5"
         assert reporter["tag"] == reporter_tag
         assert reporter["repository"] == settings["reporter"]["repository"]
         history = (site / target["robot"] / target["variant"] / "index.html").read_text()
@@ -2318,3 +2318,233 @@ def test_history_styles_match_the_requested_rhythm():
     assert "font-size: 0.88rem;" in css
     assert "font-weight: 700;" in css
     assert ".robot-group:first-child" in css
+
+
+def _parse_index_cards(index_html: str) -> list[dict]:
+    from html.parser import HTMLParser
+
+    class CardParser(HTMLParser):
+        def __init__(self):
+            super().__init__(convert_charrefs=True)
+            self.cards: list[dict] = []
+            self.current: dict | None = None
+            self.anchor_depth = 0
+            self.current_anchor: dict | None = None
+            self.in_title = False
+
+        def handle_starttag(self, tag, attrs):
+            attr_map = dict(attrs)
+            classes = (attr_map.get("class") or "").split()
+            if tag == "article" and "card" in classes:
+                self.current = {"anchors": [], "chips": [], "releases": [], "has_nested_a": False}
+                self.cards.append(self.current)
+                return
+            if self.current is None:
+                return
+            if tag == "h3" and "title" in classes:
+                self.in_title = True
+            elif tag == "a":
+                self.anchor_depth += 1
+                if self.anchor_depth > 1:
+                    self.current["has_nested_a"] = True
+                self.current_anchor = {
+                    "href": attr_map.get("href"),
+                    "class": classes,
+                    "aria-label": attr_map.get("aria-label"),
+                    "in_title": self.in_title,
+                    "text": "",
+                }
+                self.current["anchors"].append(self.current_anchor)
+            elif "chip" in classes:
+                self.current["chips"].append(tag)
+            elif "release" in classes:
+                self.current["releases"].append(tag)
+
+        def handle_endtag(self, tag):
+            if self.current is None:
+                return
+            if tag == "article":
+                self.current = None
+                self.in_title = False
+            elif tag == "h3":
+                self.in_title = False
+            elif tag == "a":
+                self.anchor_depth = max(0, self.anchor_depth - 1)
+                self.current_anchor = None
+
+        def handle_data(self, data):
+            if self.current_anchor is not None:
+                self.current_anchor["text"] += data
+
+    parser = CardParser()
+    parser.feed(index_html)
+    return parser.cards
+
+
+def test_index_cards_use_stretched_latest_link_and_keep_history_only_explicit_link(tmp_path):
+    """Issue #138: whole card opens latest report; History is the only explicit link."""
+    site = tmp_path / "site"
+    site_tool.build(
+        site, reports_for(tmp_path, "r1", 0, "FAIL"), run("100", "2026-11-18T05:00:00Z")
+    )
+    # Give one FAIL record a failing evaluator chip and keep another target PASS.
+    fail_run = site / "unitree-g1/stock-mujoco-hallway/runs/100/run.json"
+    record = json.loads(fail_run.read_text())
+    record["failing_evaluators"] = [
+        {
+            "id": "livingproof-scenario",
+            "title": "Scenario",
+            "href": "#evaluator-livingproof-scenario",
+            "summary": "Stopped short of the goal.",
+        }
+    ]
+    fail_run.write_text(json.dumps(record, indent=2) + "\n")
+
+    site_tool.build(
+        site,
+        reports_for(tmp_path, "r2", 19, "PASS"),
+        {**run("200", "2026-11-18T05:20:00Z"), "tag": "v1.0.0"},
+    )
+    # Force one card back to FAIL with a chip and one card to UNSUPPORTED / INSUFFICIENT_EVIDENCE.
+    pass_hallway = site / "booster-t1/stock-mujoco-hallway/runs/200/run.json"
+    r_fail = json.loads(fail_run.read_text())
+    r_fail["run"]["created"] = "2026-11-18T05:30:00Z"
+    fail_run.write_text(json.dumps(r_fail, indent=2) + "\n")
+
+    unsupported_run = site / "unitree-g1/stock-mujoco-corner-left/runs/200/run.json"
+    r_unsup = json.loads(unsupported_run.read_text())
+    r_unsup["outcome"][0]["grade"] = "UNSUPPORTED"
+    unsupported_run.write_text(json.dumps(r_unsup, indent=2) + "\n")
+
+    insuff_run = site / "unitree-g1/stock-mujoco-corner-right/runs/200/run.json"
+    r_insuff = json.loads(insuff_run.read_text())
+    r_insuff["outcome"][0]["grade"] = "INSUFFICIENT_EVIDENCE"
+    insuff_run.write_text(json.dumps(r_insuff, indent=2) + "\n")
+
+    assert pass_hallway.is_file()
+    site_tool.render(site, now="2026-11-18T05:35:00Z")
+
+    index = (site / "index.html").read_text()
+    assert "Latest report" not in index
+    assert "<script" not in index.lower()
+    assert "onclick=" not in index.lower()
+
+    cards = _parse_index_cards(index)
+    assert len(cards) == len(site_tool.targets())
+    labels = set()
+    for card in cards:
+        assert not card["has_nested_a"]
+        assert all(tag == "span" for tag in card["chips"])
+        assert card["releases"] == ["span"]
+        assert len(card["anchors"]) == 2
+        card_link, history_link = card["anchors"]
+        assert "card-link" in card_link["class"]
+        assert card_link["in_title"] is True
+        assert card_link["href"].endswith("/latest/")
+        assert "history-link" in history_link["class"]
+        assert history_link["href"] == card_link["href"].removesuffix("latest/")
+        assert history_link["text"] == "History (2)"
+        labels.add(card_link["aria-label"])
+
+    assert "Walk the hallway, latest report (PASS)" in labels
+    assert "Walk the hallway, latest report (FAIL)" in labels
+    assert "Walk around the corner (left), latest report (Not supported)" in labels
+    assert "Walk around the corner (right), latest report (Insufficient evidence)" in labels
+
+    # History pages still keep linked chips and release links.
+    history = (site / "unitree-g1/stock-mujoco-hallway/index.html").read_text()
+    assert '<a class="chip"' in history
+    assert '<a class="release' in history
+    local_links_resolve(site)
+
+
+def test_index_card_styles_support_stretched_link_hover_focus_and_mobile_touch_target():
+    """Issue #138: stretched ::after link, --bg-muted/--border-strong hover, card ring, 44px mobile."""
+    css = site_tool.SITE_STYLES
+    assert ".card {\n  position: relative;" in css
+    assert "cursor: pointer;" in css
+    assert (
+        ".card:hover, .card:focus-within {\n  background: var(--bg-muted);\n  border-color: var(--border-strong);\n}"
+        in css
+    )
+    assert (
+        ".card:has(.card-link:focus-visible) {\n  outline: 3px solid var(--focus);\n  outline-offset: 3px;\n}"
+        in css
+    )
+    assert ".card-link:focus-visible { outline: none; }" in css
+    assert (
+        '.card-link::after {\n  content: "";\n  position: absolute;\n  inset: 0;\n  z-index: 1;'
+        in css
+    )
+    assert ".history-link {\n  position: relative;\n  z-index: 2;" in css
+    assert "a.chip:hover {" in css
+    assert "min-height: 44px;" in css
+
+
+def test_spec_identities_survive_publication_and_history_restoration(tmp_path):
+    fixture = json.loads((ROOT / "tests/fixtures/historical-spec-provenance.json").read_text())
+    target = next(t for t in site_tool.targets() if t["id"] == "booster-t1-stock-mujoco-hallway")
+    target["lock"]["releases"]["specs"] = fixture["generation"]
+    reports = tmp_path / "reports"
+    source = reports / target["artifact"]
+    write_reports(source, 0, fixture["grade"], "<html><body>Recorded FAIL</body></html>")
+    report = json.loads((source / "report.json").read_text())
+    report["summaries"][0]["spec"] = fixture["assessment"]
+    (source / "report.json").write_text(json.dumps(report))
+    restamp(source)
+    first = tmp_path / "first"
+    folder = site_tool.add_run(first, reports, target, run("43954868926", "2026-11-16T21:04:33Z"))
+    evidence = folder / "evidence/observations.json"
+    evidence.parent.mkdir()
+    evidence.write_bytes(b'{"recorded": "unchanged"}\n')
+    preserved = {p.relative_to(folder): p.read_bytes() for p in folder.rglob("*") if p.is_file()}
+    site_tool.render(first, now="2026-11-16T21:04:33Z")
+    # Initial publication has always restamped SHA256SUMS to include run.json.
+    for relative, original in preserved.items():
+        if relative.name != "SHA256SUMS":
+            assert (folder / relative).read_bytes() == original, relative
+    preserved = {p.relative_to(folder): p.read_bytes() for p in folder.rglob("*") if p.is_file()}
+    restored = tmp_path / "restored"
+    site_tool.extract_pages(pages_zip(first), restored)
+    # A later publish uses today's locks, which must not replace historical pins.
+    site_tool.build(
+        restored, reports_for(tmp_path, "later", 19, "PASS"), run("500", "2026-11-17T00:00:00Z")
+    )
+    old = restored / folder.relative_to(first)
+    for relative, original in preserved.items():
+        assert (old / relative).read_bytes() == original, relative
+    for page in (old / "index.html", old.parent.parent / "index.html"):
+        text = page.read_text()
+        assert "Evidence-generation spec (recorded pin)" in text
+        assert "Assessment spec" in text
+        for role in ("generation", "assessment"):
+            assert fixture[role]["tag"] in text
+            assert fixture[role]["commit"] in text
+        assert "saved caller lock releases.specs" in text
+        assert "saved report summaries[].spec" in text
+        assert "FAIL" in text
+    assert (old / "index.html").read_text().count('id="spec-provenance"') == 1
+    local_links_resolve(restored)
+
+
+@pytest.mark.parametrize("same_identity", [False, True])
+def test_spec_provenance_keeps_all_assessments_and_missing_fields_explicit(same_identity):
+    spec = {"tag": "v2.3.0", "commit": "a" * 40}
+    other = dict(spec) if same_identity else {**spec, "commit": "b" * 40}
+    report = {"summaries": [{"spec": spec}, {"spec": other}, {"spec": spec}]}
+    text = site_tool.spec_provenance_html({"releases": {"specs": spec}}, report)
+    assert text.count("a" * 40) == 2  # once per role, not once per trial
+    assert text.count("b" * 40) == (0 if same_identity else 1)
+    assert "Evidence-generation spec" in text and "Assessment spec" in text
+    assert site_tool.spec_provenance_html({}, {}).count("Not recorded") == 2
+    hostile = {"tag": "<script>alert(1)</script>"}
+    assert "<script>" not in site_tool.spec_provenance_html({"releases": {"specs": hostile}}, {})
+
+
+def test_spec_provenance_is_added_inside_reporter_main_without_changing_summary():
+    original = "<html><body><header>Report</header><main class='wrap'><dt>Spec</dt><dd>v2.3.0</dd></main></body></html>"
+    public = site_tool.with_spec_provenance(original, {}, {})
+    assert (
+        public.index("<main") < public.index('id="spec-provenance"') < public.index("<dt>Spec</dt>")
+    )
+    assert "<dt>Spec</dt><dd>v2.3.0</dd>" in public

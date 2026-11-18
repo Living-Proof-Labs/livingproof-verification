@@ -5,6 +5,39 @@ end-to-end release. It builds on main `2da9942111b1e01d63e06c7cc454c24e1a72c57e`
 (#104). It does not change the 0.2.0 manifest, robot/world/spec ownership, frozen
 evidence, or published history. Those boundaries remain with #98 and #100.
 
+## Central operations proposal (2026-11-18)
+
+The next infrastructure slice uses the confirmed name **CI Automation** for the
+organization-owned CI service identity. Renovate bundle completion is its first use
+case; the initial installation remains selected-repository access to verification
+only. Its key is proposed to be held solely by `.github`'s trusted-main
+`ci-automation` environment.
+The dormant central template and provisioning review are in
+[`.github/tools/automation`](https://github.com/Living-Proof-Labs/.github/tree/keel/105-central-bundle-operations/tools/automation).
+This branch link is temporary review navigation; replace it with the merged reference
+when the infrastructure is accepted. It is not an executable dependency.
+
+This repository supplies the generation/publication/queue adapter. The new
+`tools/bundle_operations.py publish --plan PATH --sha256 DIGEST` wraps the existing
+publisher and emits validated `head`, `pr`, and `branch` workflow outputs only after
+successful publication. The plan digest remains supplied by trusted prepare output;
+queue arguments now have a concrete same-run source. Existing stale-main/head checks,
+file restrictions, lease behavior and expected-head queue mutation remain unchanged.
+
+The central template requests a fresh one-repository App token per publication/queue
+job and verifies its effective repository boundary. Generation gets no key or write
+token. No credentials belong here. The old template below is retained as historical
+dormant scaffolding and **must not be activated alongside the central writer**;
+workflow concurrency is local to a repository. The central design supersedes its
+static writer-token placeholder, not the generator or publication guards.
+
+The earlier rejected wiring is historical evidence. This new review proposal is
+specifically authorized for code/design only; it creates no App, key, installation,
+environment, permission grant, active workflow or merge. Registry identity and full
+selected-membership audit evidence remain provisioning work. The audit must continue
+reporting selected membership as unverified until authoritative evidence is available.
+The real reporter/verifier automatic-release demonstrations below remain outstanding.
+
 ## One command
 
 ```sh

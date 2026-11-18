@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Lightweight pull request checks: lint, format, tests, workflow lint, a site build from
 # fixture reports, the Renovate reporter extraction test, and the offline bundle-release
-# engine re-run. Read-only: no deploy, no Pages permissions, no artifacts published.
+# engine re-run. Read-only: no deploy, no Pages permissions, only browser evidence artifacts uploaded (no site publication).
 name: checks
 on:
   pull_request:
@@ -58,6 +58,23 @@ jobs:
             --run-id "$RUN_ID" --commit "$COMMIT" \
             --created "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           python3 tools/site_fixture.py check "$RUNNER_TEMP/site"
+      - name: Install pinned browser tools and Chromium
+        run: |
+          VIRTUAL_ENV="$RUNNER_TEMP/checks" uv pip install --require-hashes --no-deps \
+            -r .github/requirements/browser.txt
+          python -m playwright install --with-deps chromium
+      - name: Check card interactions and capture screenshots
+        env:
+          COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: python tools/site_browser.py "$RUNNER_TEMP/site" "$RUNNER_TEMP/browser-evidence"
+      - name: Upload browser evidence (including failures)
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: index-card-browser-${{ github.event.pull_request.head.sha || github.sha }}
+          path: ${{ runner.temp }}/browser-evidence/
+          if-no-files-found: error
+          retention-days: 14
   # Shared semantic-release engine, same pin as verify.yml's release job. Git-only: the
   # GitHub plugin is not loaded, no token is passed, and git remotes are local. Node is
   # the same pinned tarball as the renovate job; the engine comes from the action's

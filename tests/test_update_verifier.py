@@ -121,12 +121,15 @@ def test_published_history_pin_follows_the_resolved_release(checkout, monkeypatc
     shutil.copyfile(ROOT / "tests/test_site.py", destination)
     before = destination.read_text()
     assert 'assert verifier["tag"] == "v9.9.9"' not in before
-    assert 'assert reporter_tag == "v3.11.6"' in before
+    reporter_assertions = [
+        line for line in before.splitlines() if line.strip().startswith("assert reporter_tag ==")
+    ]
+    assert len(reporter_assertions) == 1
     updater.update(checkout, "v9.9.9")
     text = destination.read_text()
     assert 'assert verifier["tag"] == "v9.9.9"' in text
     assert f'assert verifier["commit"] == "{"a" * 40}"' in text
-    assert 'assert reporter_tag == "v3.11.6"' in text
+    assert reporter_assertions[0] in text.splitlines()
     assert updater.update(checkout, "v9.9.9") == []
 
 
