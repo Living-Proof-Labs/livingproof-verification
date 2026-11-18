@@ -1,0 +1,65 @@
+{
+  "format": "livingproof-evaluator-result/1.1.0",
+  "evaluator": {
+    "id": "livingproof-run-integrity",
+    "version": "1.0.0",
+    "kind": "integrity",
+    "execution": "deterministic",
+    "display_name": "Run Integrity",
+    "publisher": "Living Proof Labs",
+    "icon": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\"><rect x=\"3.5\" y=\"4.5\" width=\"17\" height=\"15\" rx=\"3.5\" stroke=\"currentColor\" stroke-width=\"2\"/><path d=\"M6.5 12.5h3l1.2-3 2.2 7 1.6-4H17.5\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg>"
+  },
+  "inputs": [
+    {
+      "role": "manifest",
+      "uri": "manifest.json",
+      "sha256": "e204c2ad1956ef4dc391ae7e986daeb2c3a3189dfc0b4bb7662a3b758ffb2181"
+    },
+    {
+      "role": "observations",
+      "uri": "trials/trial-01.json",
+      "sha256": "2adb9c7841b4f6fdbf78f1eedb4ee559061821a181c5534f5658a58c4f8bc311"
+    }
+  ],
+  "timestamps": {
+    "started_at": "2026-11-18T02:15:50Z",
+    "completed_at": "2026-11-18T02:15:50Z"
+  },
+  "integrity": {
+    "run": {
+      "id": "walk-corner-booster-t1-stock-20261118T021451Z",
+      "test_system_status": "COMPLETED",
+      "success": true,
+      "percentage": 100.0
+    },
+    "trials": [
+      {
+        "id": "trial-01",
+        "test_system_status": "COMPLETED",
+        "success": true,
+        "percentage": 100
+      }
+    ],
+    "checks": [
+      {
+        "id": "completeness",
+        "version": "1.0.0",
+        "applicable": true,
+        "success": true,
+        "percentage": 100.0,
+        "findings": []
+      }
+    ]
+  },
+  "descriptor": {
+    "title": "Run Integrity",
+    "purpose": "Judges whether the run and the test system can be trusted.",
+    "version": "1.0.0",
+    "kind": "Test system",
+    "source": "Living Proof Labs",
+    "tier": "test_system_status",
+    "icon": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\"><rect x=\"3.5\" y=\"4.5\" width=\"17\" height=\"15\" rx=\"3.5\" stroke=\"currentColor\" stroke-width=\"2\"/><path d=\"M6.5 12.5h3l1.2-3 2.2 7 1.6-4H17.5\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg>",
+    "icon_accessible_name": "Run Integrity",
+    "success_copy": "Every planned trial has its observation file."
+  }
+}
