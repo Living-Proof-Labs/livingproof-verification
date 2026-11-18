@@ -1,0 +1,574 @@
+{
+  "format": "livingproof-hallway-evidence/2.0.0",
+  "run_id": "walk-corner-unitree-g1-stock-20261117T175251Z",
+  "created": "2026-11-17T17:52:51+00:00",
+  "lock": {
+    "path": "verification.lock.json",
+    "sha256": "51645282fdbc74721e60bb5b52c62a2bb6c87e792bb668ef63504f737b7ed4fd",
+    "content": {
+      "format": "livingproof-verification-lock/1.0.0",
+      "scenario": "walk-corner@0.1.0",
+      "releases": {
+        "specs": {
+          "repository": "Living-Proof-Labs/robot-capability-specs",
+          "tag": "v2.3.0",
+          "commit": "57317e617014a6df97bb7fba9d92a890af8d42e5",
+          "files": {
+            "specs/scenarios/walk-corner/description.json": "be8de80e1a7b6f2273cee7abf7303d2e78a407ba0a5f11f9d06ed8cbed7c252c",
+            "specs/scenarios/walk-corner/parameters.json": "62f2912c33b557d58cd454daf7d1eea543e919dec0e9b53e613d4101a5a12977"
+          }
+        },
+        "runner": {
+          "repository": "Living-Proof-Labs/livingproof-sim-mujoco",
+          "tag": "v3.2.1",
+          "commit": "f9c326f370cc3e54bf38932bfb332455dc4b5ef1"
+        },
+        "verifier": {
+          "repository": "Living-Proof-Labs/capability-verifier",
+          "tag": "v2.2.0",
+          "commit": "2add8b3cb37433d16fcf4d1283159782df67e4de",
+          "image": "ghcr.io/living-proof-labs/capability-verifier-hallway",
+          "digest": "sha256:bacefdac9b7ddee135a015361f82ddcf149df74365cb5d79b0f8a6780d5d303d"
+        },
+        "reporter": {
+          "repository": "Living-Proof-Labs/livingproof-capability-report",
+          "tag": "v3.11.3",
+          "commit": "dd378fe5e64548a33dae4edd2d95cb0495fab77a",
+          "image": "ghcr.io/living-proof-labs/livingproof-capability-report",
+          "digest": "sha256:efaa7ee565941ea812098b8cbff1e9d3199f06ce273d4ab453b4899d9020d530"
+        }
+      },
+      "world": {
+        "id": "hallway-corner",
+        "version": "0.1.0",
+        "repository": "Living-Proof-Labs/livingproof-worlds",
+        "tag": "v1.3.0",
+        "commit": "12915e34e6ad1dfe376ec2fcb49d5afb957caff9",
+        "sha256": "8393881e8b38a090f51c3a424ca444623a901f642f75186cb4d41ac7482898f5"
+      },
+      "configurations": [
+        {
+          "name": "stock",
+          "version": "1.1.1",
+          "path": "configurations/stock.json",
+          "sha256": "8baf584eb025fa4408aad20a81521b73bc068a3a7e613dfeeb8f03d24eb02b5e"
+        },
+        {
+          "name": "playground",
+          "version": "1.0.1",
+          "path": "configurations/playground.json",
+          "sha256": "1fef76d2e5b6eb0ab7627d1f93333e8ca2ec01249a5b1d1f68876186f0657e89"
+        }
+      ],
+      "plan": {
+        "trials": {
+          "count": 1
+        }
+      }
+    }
+  },
+  "pending_release": [],
+  "plan": {
+    "trials": {
+      "count": 1
+    }
+  },
+  "start": {
+    "spawn": "spawn-entrance",
+    "pose": "nominal",
+    "offset": null
+  },
+  "preconditions": [
+    {
+      "name": "fits_width",
+      "met": true,
+      "detail": "0.52 + 2 x clearance = 0.62 m vs 1.5 m"
+    },
+    {
+      "name": "configuration_offered",
+      "met": true,
+      "detail": "stock"
+    },
+    {
+      "name": "velocity_interface",
+      "met": true,
+      "detail": "interface ['velocity_command']"
+    },
+    {
+      "name": "simulator_declared",
+      "met": true,
+      "detail": "simulators ['mujoco']"
+    },
+    {
+      "name": "scenario_supported",
+      "met": true,
+      "detail": "walk-corner"
+    }
+  ],
+  "robot": {
+    "id": "unitree-g1",
+    "profile_sha256": "97c0b52db16b80e14bc4d460488d11a78d8f6cef3b096e833e05fccb5d374f4d",
+    "profile": {
+      "$comment": "Robot profile (robot-capability-specs v2.3.0, specs/robots). Supported scenarios are declared on manifest.json, not on this profile. model_source is the Playground G1 MJCF used for every configuration; its meshes are mujoco_menagerie unitree_g1 @ 1b86ece (BSD-3-Clause, (c) Unitree Robotics), pinned in pins.json with every other upstream file.",
+      "format": "livingproof-robot-profile/0.1",
+      "id": "unitree-g1",
+      "manufacturer": "Unitree Robotics",
+      "model": "G1 (29 degrees of freedom, rev 1.0, no hands)",
+      "class": "humanoid",
+      "model_source": {
+        "repo": "https://github.com/google-deepmind/mujoco_playground",
+        "path": "mujoco_playground/_src/locomotion/g1/xmls/g1_mjx_feetonly.xml",
+        "commit": "12ad7f3842791ced39f27e5ac96d066bbe361653",
+        "sha256": "fae73d06ae6957ab38e59c67cac5b3665db6de27cd741602dd93951e3f82b72c",
+        "license": "Apache-2.0 (MJCF); meshes BSD-3-Clause (Unitree Robotics, via mujoco_menagerie)"
+      },
+      "dimensions": {
+        "width": {
+          "value": 0.52,
+          "unit": "m",
+          "source": "measured",
+          "ref": "task profile:measure (mesh vertices, widest of the knees_bent and home keyframes)"
+        },
+        "length": {
+          "value": 0.29,
+          "unit": "m",
+          "source": "measured",
+          "ref": "task profile:measure (mesh vertices, longest of the knees_bent and home keyframes)"
+        },
+        "height": {
+          "value": 1.32,
+          "unit": "m",
+          "source": "published",
+          "ref": "Unitree G1 specification sheet (1320 mm standing)"
+        },
+        "mass": {
+          "value": 33.34,
+          "unit": "kg",
+          "source": "measured",
+          "ref": "task profile:measure (sum of MJCF body masses)"
+        }
+      },
+      "configurations": [
+        {
+          "name": "stock",
+          "path": "configurations/stock.json"
+        },
+        {
+          "name": "playground",
+          "path": "configurations/playground.json"
+        }
+      ],
+      "default_configuration": "playground",
+      "simulators": [
+        "mujoco"
+      ]
+    }
+  },
+  "configuration": {
+    "name": "stock",
+    "version": "1.1.1",
+    "sha256": "8baf584eb025fa4408aad20a81521b73bc068a3a7e613dfeeb8f03d24eb02b5e",
+    "profile": {
+      "$comment": "Configuration profile (robot-capability-specs v2.0.2). The deploy values are Unitree's published deploy_real/configs/g1.yaml, copied here so this file states what runs; tests check them against the pinned upstream file.",
+      "format": "livingproof-configuration-profile/0.1",
+      "robot": "unitree-g1",
+      "name": "stock",
+      "version": "1.1.1",
+      "summary": "Unitree's published rl_gym G1 locomotion controller (motion.pt) with its published deploy gains.",
+      "controller": {
+        "publisher": "Unitree Robotics",
+        "artifact": {
+          "repo": "https://github.com/unitreerobotics/unitree_rl_gym",
+          "path": "deploy/pre_train/g1/motion.pt",
+          "commit": "276801e46c5d433564f24658bac64f254b7d2d4b",
+          "sha256": "cf668f75b90d1abf73d2b87612a6e76bccc61ff7e083b63582d3f6aaa3c1759d",
+          "license": "BSD-3-Clause"
+        },
+        "format": "torchscript",
+        "interface": [
+          "velocity_command"
+        ],
+        "rate_hz": 50
+      },
+      "locomotion": {
+        "max_speed": {
+          "value": 0.8,
+          "unit": "m/s",
+          "source": "published",
+          "ref": "unitree_rl_gym deploy_real/configs/g1.yaml max_cmd vx"
+        },
+        "nominal_base_height": {
+          "value": 0.78,
+          "unit": "m",
+          "source": "measured",
+          "ref": "measured with task profile:stand in livingproof-unitree-g1 v1.0.4"
+        },
+        "fall_base_height": {
+          "value": 0.5,
+          "unit": "m",
+          "source": "chosen",
+          "reason": "About two-thirds of the standing pelvis height; the same rule for both configurations."
+        }
+      },
+      "settings": {
+        "adapter": "rl_gym",
+        "deploy_config": {
+          "repo": "https://github.com/unitreerobotics/unitree_rl_gym",
+          "path": "deploy/deploy_real/configs/g1.yaml",
+          "commit": "276801e46c5d433564f24658bac64f254b7d2d4b",
+          "sha256": "fb6fd920c9180baf9a50c389c8119a9f25e0096626de7de982c127ecfbffad78",
+          "license": "BSD-3-Clause"
+        },
+        "reference": {
+          "repo": "https://github.com/unitreerobotics/unitree_rl_gym",
+          "path": "deploy/deploy_mujoco/deploy_mujoco.py",
+          "commit": "276801e46c5d433564f24658bac64f254b7d2d4b",
+          "sha256": "48e9f7a6b8ba701e68dfa48f2e89944c9f2aac1ec39c0a9915d6fe14ec71a4da",
+          "license": "BSD-3-Clause"
+        },
+        "deploy": {
+          "control_dt": 0.02,
+          "kps": [
+            100,
+            100,
+            100,
+            150,
+            40,
+            40,
+            100,
+            100,
+            100,
+            150,
+            40,
+            40
+          ],
+          "kds": [
+            2,
+            2,
+            2,
+            4,
+            2,
+            2,
+            2,
+            2,
+            2,
+            4,
+            2,
+            2
+          ],
+          "default_angles": [
+            -0.1,
+            0.0,
+            0.0,
+            0.3,
+            -0.2,
+            0.0,
+            -0.1,
+            0.0,
+            0.0,
+            0.3,
+            -0.2,
+            0.0
+          ],
+          "arm_waist_target": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "arm_waist_kps": [
+            300,
+            300,
+            300,
+            100,
+            100,
+            50,
+            50,
+            20,
+            20,
+            20,
+            100,
+            100,
+            50,
+            50,
+            20,
+            20,
+            20
+          ],
+          "arm_waist_kds": [
+            3,
+            3,
+            3,
+            2,
+            2,
+            2,
+            2,
+            1,
+            1,
+            1,
+            2,
+            2,
+            2,
+            2,
+            1,
+            1,
+            1
+          ],
+          "ang_vel_scale": 0.25,
+          "dof_pos_scale": 1.0,
+          "dof_vel_scale": 0.05,
+          "action_scale": 0.25,
+          "cmd_scale": [
+            2.0,
+            2.0,
+            0.25
+          ],
+          "max_cmd": [
+            0.8,
+            0.5,
+            1.57
+          ],
+          "num_actions": 12,
+          "num_obs": 47
+        },
+        "gait_period_s": 0.8,
+        "first_tick": 10,
+        "first_tick_note": "deploy_mujoco.py steps first and evaluates the policy when counter % control_decimation == 0 after counter += 1, so the first policy targets are used from physics step 10; until then the PD holds default_angles.",
+        "runtime": "TorchScript LSTM in torch CPU; an ONNX export drops its recurrent state (measured max output difference 14.8)",
+        "initial_keyframe": "home",
+        "initial_pose_note": "Playground MJCF keyframe home, whose leg pose equals default_angles; waist and arms set to arm_waist_target",
+        "leg_joints": [
+          "left_hip_pitch_joint",
+          "left_hip_roll_joint",
+          "left_hip_yaw_joint",
+          "left_knee_joint",
+          "left_ankle_pitch_joint",
+          "left_ankle_roll_joint",
+          "right_hip_pitch_joint",
+          "right_hip_roll_joint",
+          "right_hip_yaw_joint",
+          "right_knee_joint",
+          "right_ankle_pitch_joint",
+          "right_ankle_roll_joint"
+        ],
+        "arm_waist_joints": [
+          "waist_yaw_joint",
+          "waist_roll_joint",
+          "waist_pitch_joint",
+          "left_shoulder_pitch_joint",
+          "left_shoulder_roll_joint",
+          "left_shoulder_yaw_joint",
+          "left_elbow_joint",
+          "left_wrist_roll_joint",
+          "left_wrist_pitch_joint",
+          "left_wrist_yaw_joint",
+          "right_shoulder_pitch_joint",
+          "right_shoulder_roll_joint",
+          "right_shoulder_yaw_joint",
+          "right_elbow_joint",
+          "right_wrist_roll_joint",
+          "right_wrist_pitch_joint",
+          "right_wrist_yaw_joint"
+        ],
+        "limits": {
+          "torque_limits_nm": {
+            "value": {
+              "left_hip_pitch_joint": [
+                -88.0,
+                88.0
+              ],
+              "left_hip_roll_joint": [
+                -139.0,
+                139.0
+              ],
+              "left_hip_yaw_joint": [
+                -88.0,
+                88.0
+              ],
+              "left_knee_joint": [
+                -139.0,
+                139.0
+              ],
+              "left_ankle_pitch_joint": [
+                -50.0,
+                50.0
+              ],
+              "left_ankle_roll_joint": [
+                -50.0,
+                50.0
+              ],
+              "right_hip_pitch_joint": [
+                -88.0,
+                88.0
+              ],
+              "right_hip_roll_joint": [
+                -139.0,
+                139.0
+              ],
+              "right_hip_yaw_joint": [
+                -88.0,
+                88.0
+              ],
+              "right_knee_joint": [
+                -139.0,
+                139.0
+              ],
+              "right_ankle_pitch_joint": [
+                -50.0,
+                50.0
+              ],
+              "right_ankle_roll_joint": [
+                -50.0,
+                50.0
+              ],
+              "waist_yaw_joint": [
+                -88.0,
+                88.0
+              ],
+              "waist_roll_joint": [
+                -50.0,
+                50.0
+              ],
+              "waist_pitch_joint": [
+                -50.0,
+                50.0
+              ],
+              "left_shoulder_pitch_joint": [
+                -25.0,
+                25.0
+              ],
+              "left_shoulder_roll_joint": [
+                -25.0,
+                25.0
+              ],
+              "left_shoulder_yaw_joint": [
+                -25.0,
+                25.0
+              ],
+              "left_elbow_joint": [
+                -25.0,
+                25.0
+              ],
+              "left_wrist_roll_joint": [
+                -25.0,
+                25.0
+              ],
+              "left_wrist_pitch_joint": [
+                -5.0,
+                5.0
+              ],
+              "left_wrist_yaw_joint": [
+                -5.0,
+                5.0
+              ],
+              "right_shoulder_pitch_joint": [
+                -25.0,
+                25.0
+              ],
+              "right_shoulder_roll_joint": [
+                -25.0,
+                25.0
+              ],
+              "right_shoulder_yaw_joint": [
+                -25.0,
+                25.0
+              ],
+              "right_elbow_joint": [
+                -25.0,
+                25.0
+              ],
+              "right_wrist_roll_joint": [
+                -25.0,
+                25.0
+              ],
+              "right_wrist_pitch_joint": [
+                -5.0,
+                5.0
+              ],
+              "right_wrist_yaw_joint": [
+                -5.0,
+                5.0
+              ]
+            },
+            "source": "published",
+            "ref": "Playground MJCF joint actuatorfrcrange, enforced by the model"
+          }
+        },
+        "actuation": "pd_torque: every 0.002 s physics step runs mj_step1, writes kp (q* - q) - kd dq from current state into motor actuators, then mj_step2 (unitree-foxglove-sdk MotorFirmwareBridge fix); identical for every configuration"
+      },
+      "known_issues": "The earlier fall in unitree-foxglove-sdk came from a torque computed once per command on stale sensors, which the in-step PD replaces."
+    }
+  },
+  "world": {
+    "id": "hallway-corner",
+    "version": "0.1.0",
+    "clear_width": 1.5,
+    "route_length": 5.5
+  },
+  "environment": {
+    "simulator": {
+      "id": "mujoco",
+      "version": "3.17.0",
+      "adapter": "livingproof-sim-mujoco",
+      "adapter_commit": "f9c326f370cc3e54bf38932bfb332455dc4b5ef1"
+    },
+    "runner": {
+      "version": "3.2.1",
+      "tag": "v3.2.1",
+      "commit": "f9c326f370cc3e54bf38932bfb332455dc4b5ef1"
+    },
+    "base_body": "pelvis",
+    "walls": [
+      "wall-outer-first",
+      "wall-outer-second",
+      "wall-inner-first",
+      "wall-inner-second"
+    ],
+    "source_commit": "68725986336c38d25a5ea421f895d9d796aed7f1"
+  },
+  "host": {
+    "wall_clock_s": 7.175,
+    "cpu": {
+      "sched_affinity": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "sched_affinity_count": 4,
+      "process_cpu_count": null,
+      "os_cpu_count": 4
+    }
+  },
+  "trials": {
+    "count": 1,
+    "results": [
+      {
+        "index": 1,
+        "path": "trials/trial-01.json",
+        "sha256": "8337886b0509110df270dc34c6a78d6c3632dad46c05aac733f55a2e813f5424",
+        "trajectory_sha256": "833c6c8df35c377d111b75b7c50eea9e6609202d686cfad92e8a05c6c7e5b487",
+        "outcome": "crossed_exit",
+        "wall_clock_s": 7.172
+      }
+    ],
+    "reproducibility": {
+      "compared": false,
+      "identical": null,
+      "finding": null
+    }
+  }
+}

@@ -1,0 +1,54 @@
+{
+  "format": "livingproof-world/0.2",
+  "id": "hallway-corner",
+  "content_version": "0.1.0",
+  "title": "Corner hallway",
+  "description": "Two straight hallways, each 1.50 m wide between the walls, meeting at a right angle so the route turns left. Floor and walls only, open at the entrance and exit ends. No doors, rooms, end walls, or ceiling.",
+  "specification": {
+    "repository": "Living-Proof-Labs/robot-capability-specs",
+    "path": "specs/worlds/README.md",
+    "tag": "v2.2.2",
+    "commit": "2ea6d302ef1ef4614f62ccd189545981cd0cb07e",
+    "document_revision": "0.3.0",
+    "world_contract_revision": "0.3.0"
+  },
+  "units": "m",
+  "frame": {
+    "handedness": "right",
+    "origin": "centre of the corner square, on the floor top surface",
+    "axes": {
+      "x": "along the first hallway, from the entrance towards the corner",
+      "y": "along the second hallway, from the corner towards the exit",
+      "z": "up"
+    },
+    "pose": "position (x, y, z) plus yaw in degrees, positive about +z"
+  },
+  "dimensions": {
+    "clear_width": 1.5,
+    "wall_height": 2.5,
+    "wall_thickness": 0.15,
+    "floor_thickness": 0.1
+  },
+  "geometry": [
+    {"name": "floor-first", "type": "box", "role": "floor", "centre": [-1.05, 0.0, -0.05], "size": [3.9, 1.8, 0.1]},
+    {"name": "floor-second", "type": "box", "role": "floor", "centre": [0.0, 1.95, -0.05], "size": [1.8, 2.1, 0.1]},
+    {"name": "wall-outer-first", "type": "box", "role": "wall", "centre": [-1.05, -0.825, 1.25], "size": [3.9, 0.15, 2.5]},
+    {"name": "wall-outer-second", "type": "box", "role": "wall", "centre": [0.825, 1.125, 1.25], "size": [0.15, 3.75, 2.5]},
+    {"name": "wall-inner-first", "type": "box", "role": "wall", "centre": [-1.875, 0.825, 1.25], "size": [2.25, 0.15, 2.5]},
+    {"name": "wall-inner-second", "type": "box", "role": "wall", "centre": [-0.825, 1.95, 1.25], "size": [0.15, 2.1, 2.5]}
+  ],
+  "places": [
+    {"name": "entrance", "type": "segment", "points": [[-3.0, -0.75, 0.0], [-3.0, 0.75, 0.0]], "reference": [-3.0, 0.0, 0.0]},
+    {"name": "exit", "type": "segment", "points": [[-0.75, 3.0, 0.0], [0.75, 3.0, 0.0]], "reference": [0.0, 3.0, 0.0]},
+    {"name": "corner", "type": "region", "x": [-0.75, 0.75], "y": [-0.75, 0.75]},
+    {"name": "route-centreline", "type": "polyline", "points": [[-3.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 3.0, 0.0]]},
+    {"name": "spawn-entrance", "type": "pose", "position": [-2.5, 0.0, 0.0], "yaw_deg": 0.0}
+  ],
+  "tolerances": {"distance_m": 0.01, "angle_deg": 0.5},
+  "provenance": {
+    "authors": ["Living Proof Labs contributors"],
+    "method": "Authored by hand from robot-capability-specs #40 (Part B step 10) and the world contract 0.3.0 layout rules, with the same geometry as the synthetic L-shaped test world; no third-party assets.",
+    "assets": []
+  },
+  "license": "Apache-2.0"
+}
