@@ -32,10 +32,10 @@
     },
     "verifier": {
       "repository": "Living-Proof-Labs/capability-verifier",
-      "tag": "v2.2.0",
-      "commit": "2add8b3cb37433d16fcf4d1283159782df67e4de",
+      "tag": "v2.3.0",
+      "commit": "39fc7b53f7e4342abf5be221165ae6e1694f56c4",
       "image": "ghcr.io/living-proof-labs/capability-verifier-hallway",
-      "digest": "sha256:bacefdac9b7ddee135a015361f82ddcf149df74365cb5d79b0f8a6780d5d303d"
+      "digest": "sha256:b59340ebc7a3ee96d67e105501f8ec13e692842177b70b96c42b8e3036d2a192"
     },
     "reporter": {
       "repository": "Living-Proof-Labs/livingproof-capability-report",
@@ -71,6 +71,16 @@
       "repository": "Living-Proof-Labs/livingproof-evaluator-scenario",
       "tag": "v1.3.0",
       "commit": "965629ab1e9508cb3090931abbae6a957bf5d294"
+    }
+  },
+  "sources": {
+    "world": {
+      "path": "worlds/hallway-corner/0.1.0/world.json",
+      "sha256": "8393881e8b38a090f51c3a424ca444623a901f642f75186cb4d41ac7482898f5"
+    },
+    "parameters": {
+      "path": "specs/scenarios/walk-corner/parameters.json",
+      "sha256": "62f2912c33b557d58cd454daf7d1eea543e919dec0e9b53e613d4101a5a12977"
     }
   }
 }

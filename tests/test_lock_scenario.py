@@ -196,6 +196,23 @@ def test_a_definition_that_owns_scenario_world_plan_and_specs_locks_a_thin_robot
     assert any(note.startswith("definition owns scenario") for note in notes)
 
 
+def test_generate_records_world_and_parameter_source_bindings(tmp_path, monkeypatch):
+    """Fail-first for livingproof-verification#119: generated locks bind the declared files."""
+    definition, _workflow, resolve, _commits, _verifier = _corner_project(tmp_path, monkeypatch)
+    lock, _notes = _corner_generate(tmp_path, definition, resolve)
+    world_path = f"worlds/{lock['world']['id']}/{lock['world']['version']}/world.json"
+    param_path = "specs/scenarios/walk-corner/parameters.json"
+    assert lock["sources"]["world"] == {
+        "path": world_path,
+        "sha256": lock["world"]["sha256"],
+    }
+    assert lock["sources"]["parameters"] == {
+        "path": param_path,
+        "sha256": lock["releases"]["specs"]["files"][param_path],
+    }
+    assert lock_tool.v2_problems(lock) == []
+
+
 def test_the_lock_is_the_same_when_written_twice(tmp_path, monkeypatch):
     definition, _workflow, resolve, _commits, _verifier = _corner_project(tmp_path, monkeypatch)
     first, _ = _corner_generate(tmp_path, definition, resolve)
