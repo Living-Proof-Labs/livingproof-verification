@@ -91,6 +91,9 @@ def local_links_resolve(site: Path):
         for href in re.findall(r"""(?:href|src)=["']([^"']+)["']""", page.read_text()):
             if href.startswith("https://"):
                 continue
+            href = href.split("#", 1)[0]
+            if not href:
+                continue
             target = (page.parent / href).resolve()
             if href.endswith("/"):
                 target = target / "index.html"
@@ -123,7 +126,8 @@ def test_second_run_updates_latest_and_keeps_the_first(tmp_path):
     names = sorted(path.name for path in (base / "latest").rglob("*") if path.is_file())
     assert names == ["index.html"]
     index = (site / "index.html").read_text()
-    assert "19/20 passed" in index and "history (2 runs)" in index
+    assert "PASS" in index and "History (2)" in index
+    assert "19/20 passed" not in index
     history = (base / "index.html").read_text()
     assert history.index("runs/200/") < history.index("runs/100/")
     latest = (base / "latest/index.html").read_text()
@@ -137,7 +141,7 @@ def test_second_run_updates_latest_and_keeps_the_first(tmp_path):
         f"{REPO}/commit/{'a' * 40}",
         f"capability-verifier/releases/tag/{releases['verifier']['tag']}",
         f"livingproof-capability-report/releases/tag/{releases['reporter']['tag']}",
-        f"livingproof-unitree-g1/tree/{lock['robot']['commit']}",
+        f"livingproof-unitree-g1/releases/tag/{lock['robot']['ref']}",
     ):
         assert link in history
     assert "/actions/" not in latest and "artifact" not in latest.lower()
@@ -176,7 +180,7 @@ def test_published_history_names_the_verifier_and_reporter_releases(tmp_path):
 
 
 def test_index_and_history_show_ci_runs_as_text(tmp_path):
-    """lpv #23: Actions pages 404 for logged-out evaluators, so the run id is text."""
+    """lpv #23 / #129: no /actions/ links, no raw run ids or CI run links on index/history."""
     site = tmp_path / "site"
     site_tool.build(
         site, reports_for(tmp_path, "one", 12, "FAIL"), run("100", "2026-11-02T00:00:00Z")
@@ -186,12 +190,13 @@ def test_index_and_history_show_ci_runs_as_text(tmp_path):
     )
     actions = f"https://github.com/{REPO}/actions/runs/"
     index = (site / "index.html").read_text()
-    assert "CI run 200-2</td>" in index and actions not in index
-    assert "CI run 100" not in index
+    assert actions not in index
+    assert "CI run" not in index
     history = (site / "unitree-g1/stock-mujoco-hallway/index.html").read_text()
-    for run_id, ci in (("100", "100"), ("200-2", "200")):
-        assert f'<a href="runs/{run_id}/">{run_id}</a>' in history
-        assert f"<td>CI run {run_id}</td>" in history and actions not in history
+    assert actions not in history
+    assert "CI run" not in history
+    for run_id in ("100", "200-2"):
+        assert f'<a href="runs/{run_id}/">Report</a>' in history
     local_links_resolve(site)
 
 
@@ -246,8 +251,9 @@ def test_history_uses_the_reproducibility_statement_when_counts_are_null(tmp_pat
     history = (site / "unitree-g1/stock-mujoco-hallway/index.html").read_text()
     for page in (home, history):
         assert "None/None passed (None needed)" not in page
-        assert statement in page
-        assert '<span class="PASS">PASS</span>' in page
+        assert '<span class="badge badge-pass">PASS</span>' in page
+    record = json.loads((site / "unitree-g1/stock-mujoco-hallway/runs/100/run.json").read_text())
+    assert statement in site_tool.outcome_cells(record)
 
 
 # A restored run.json from before this display fix has null counts and no statement.
@@ -292,10 +298,9 @@ def test_agreeing_repeats_preserve_the_statement_and_leave_counts_null(tmp_path)
     )
     history, index = history_and_index(site)
     for page in (history, index):
-        assert statement in page
         assert "None/None passed (None needed)" not in page
         assert " passed (" not in page
-        assert '<span class="FAIL">FAIL</span>' in page
+        assert '<span class="badge badge-fail">FAIL</span>' in page
     for target in site_tool.targets():
         folder = site / target["robot"] / target["variant"] / "runs" / "100"
         record = json.loads((folder / "run.json").read_text())
@@ -331,10 +336,9 @@ def test_restored_history_reads_the_statement_from_report_json(tmp_path):
     site_tool.render(site, now="2026-11-15T01:15:48Z")
     history, index = history_and_index(site)
     for page in (history, index):
-        assert statement in page
         assert "None/None" not in page
         assert "counts not stored" not in page
-        assert '<span class="FAIL">FAIL</span>' in page
+        assert '<span class="badge badge-fail">FAIL</span>' in page
     item = json.loads((site / "unitree-g1/stock-mujoco-hallway/runs/100/run.json").read_text())[
         "outcome"
     ][0]
@@ -370,12 +374,12 @@ def test_disagreeing_repeats_show_the_finding_and_keep_null_counts(tmp_path):
         run("100", "2026-11-15T01:15:48Z"),
     )
     history, index = history_and_index(site)
+    assert DISAGREEING_FINDING in history
     for page in (history, index):
-        assert DISAGREEING_FINDING in page
         assert "None/None passed (None needed)" not in page
         assert "repeats agree" not in page
         assert " passed (" not in page
-        assert '<span class="INSUFFICIENT_EVIDENCE">INSUFFICIENT_EVIDENCE</span>' in page
+        assert '<span class="badge badge-warn">Insufficient evidence</span>' in page
     folder = site / "unitree-g1/stock-mujoco-hallway/runs/100"
     item = json.loads((folder / "run.json").read_text())["outcome"][0]
     assert item["grade"] == "INSUFFICIENT_EVIDENCE"
@@ -390,7 +394,7 @@ def test_disagreeing_repeats_show_the_finding_and_keep_null_counts(tmp_path):
     (folder / "run.json").write_text(json.dumps(record, indent=2) + "\n")
     site_tool.render(site, now="2026-11-15T01:15:48Z")
     history, index = history_and_index(site)
-    assert DISAGREEING_FINDING in history and DISAGREEING_FINDING in index
+    assert DISAGREEING_FINDING in history
     restored = json.loads((folder / "run.json").read_text())["outcome"][0]
     assert restored["finding"] == DISAGREEING_FINDING
     assert restored["passed"] is None and "statement" not in restored
@@ -427,14 +431,13 @@ def test_legacy_null_counts_without_a_statement_say_counts_not_stored(tmp_path):
     site_tool.render(site, now="2026-11-15T01:15:48Z")
     history, index = history_and_index(site)
     for page in (history, index):
-        assert LEGACY_COUNTS in page
         assert "None/None passed (None needed)" not in page
         assert "None/None" not in page
-        assert '<span class="PASS">PASS</span>' in page
+        assert '<span class="badge badge-pass">PASS</span>' in page
         assert " passed (" not in page
-    item = json.loads((site / "unitree-g1/stock-mujoco-hallway/runs/100/run.json").read_text())[
-        "outcome"
-    ][0]
+    record = json.loads((site / "unitree-g1/stock-mujoco-hallway/runs/100/run.json").read_text())
+    assert LEGACY_COUNTS in site_tool.outcome_cells(record)
+    item = record["outcome"][0]
     assert "statement" not in item and "finding" not in item
     assert item["passed"] is None and item["trials"] is None and item["required"] is None
 
@@ -469,9 +472,9 @@ def test_seeded_and_single_trial_counts_still_render(tmp_path):
         run("200", "2026-11-15T02:00:00Z"),
     )
     history, index = history_and_index(site)
-    assert "1/1 passed (1 needed)" in history
-    assert "2/3 passed (3 needed)" in history
-    assert "2/3 passed (3 needed)" in index
+    assert '<span class="badge badge-pass">PASS</span>' in history
+    assert '<span class="badge badge-fail">FAIL</span>' in history
+    assert '<span class="badge badge-fail">FAIL</span>' in index
     assert "counts not stored" not in history and "None/None" not in history
     single_run = json.loads(
         (site / "unitree-g1/stock-mujoco-hallway/runs/100/run.json").read_text()
@@ -1361,7 +1364,11 @@ def test_no_published_page_links_to_github_actions(tmp_path):
 
 def test_the_build_refuses_a_site_that_links_to_github_actions(tmp_path, monkeypatch):
     """The site-build check: a page that still links to Actions fails the build."""
-    monkeypatch.setattr(site_tool, "ci_run", lambda r: f'<a href="{r["url"]}">CI run</a>')
+    monkeypatch.setattr(
+        site_tool,
+        "_index_page_html",
+        lambda history, now: f'<a href="https://github.com/{REPO}/actions/runs/7">CI run</a>',
+    )
     site = tmp_path / "site"
     with pytest.raises(site_tool.SiteError, match=r"link to GitHub Actions \(#23\): .*index\.html"):
         site_tool.build(
@@ -2101,4 +2108,116 @@ def test_left_right_adoption_keeps_retired_corner_evidence(tmp_path):
         ("unitree-go1", "playground"),
     ):
         assert (site / robot / f"{variant}-mujoco-corner/runs/1000/report.json").exists()
+    local_links_resolve(site)
+
+
+def test_failing_evaluators_chips_and_clean_history_view(tmp_path):
+    """Issue #129: failing evaluators speak via chips and one-line finding; passing rows stay quiet."""
+    site = tmp_path / "site"
+    failing_bundle = {
+        "results": [
+            {
+                "id": "trial-01",
+                "evaluator_results": [
+                    {
+                        "format": "livingproof-evaluator-result/1.1.0",
+                        "evaluator": {"id": "livingproof-scenario", "display_name": "Scenario"},
+                        "descriptor": {
+                            "title": "Scenario",
+                            "purpose": "Checks scenario steps.",
+                            "findings": [
+                                {
+                                    "text": "Drifted 0.66 m from the centreline, then touched the wall."
+                                }
+                            ],
+                        },
+                    }
+                ],
+            },
+            {
+                "id": "trial-02",
+                "evaluator_results": [
+                    {
+                        "format": "livingproof-evaluator-result/1.1.0",
+                        "evaluator": {"id": "livingproof-scenario", "display_name": "Scenario"},
+                        "descriptor": {
+                            "title": "Scenario",
+                            "purpose": "Checks scenario steps.",
+                            "findings": [{"text": "Second trial finding."}],
+                        },
+                    }
+                ],
+            },
+        ]
+    }
+    reports = tmp_path / "fail-reports"
+    for target in site_tool.targets():
+        folder = reports / target["artifact"]
+        folder.mkdir(parents=True)
+        (folder / "report.json").write_text(
+            json.dumps(
+                {
+                    "report_version": "1.0.0",
+                    "source_bundle": failing_bundle,
+                    "summaries": [
+                        {
+                            "capability": "walk-hallway",
+                            "system": {"id": f"{target['robot']}/{target['configuration']}"},
+                            "grade": "FAIL",
+                            "k": 0,
+                            "n": 2,
+                            "required_passes": 2,
+                        }
+                    ],
+                }
+            )
+        )
+        for name in ("report.html", "report.md", "report.txt"):
+            (folder / name).write_text(f"{name} fail\n")
+        restamp(folder)
+    site_tool.build(site, reports, run("100", "2026-11-18T05:00:00Z"))
+    # Second run passes with a bundle tag; passing row must stay quiet even if bundle has findings.
+    pass_run = {**run("200", "2026-11-18T05:20:00Z"), "tag": "v1.0.0"}
+    site_tool.build(site, reports_for(tmp_path, "pass-reports", 3, "PASS"), pass_run)
+
+    base = site / "booster-t1/stock-mujoco-hallway"
+    fail_record = json.loads((base / "runs/100/run.json").read_text())
+    assert fail_record["failing_evaluators"] == [
+        {
+            "id": "livingproof-scenario",
+            "title": "Scenario",
+            "href": "#evaluator-livingproof-scenario",
+            "summary": "Drifted 0.66 m from the centreline, then touched the wall.",
+        }
+    ]
+    assert fail_record["poster"] == {"type": "ci", "name": "CI"}
+    assert fail_record["robot"]["tag"] == "v2.2.10"
+    assert fail_record["robot"]["software_version"] == "1.0.0"
+
+    pass_record = json.loads((base / "runs/200/run.json").read_text())
+    assert "failing_evaluators" not in pass_record
+    assert pass_record["commit"]["tag"] == "v1.0.0"
+
+    history = (base / "index.html").read_text()
+    assert "Booster T1 · stock · MuJoCo" in history
+    assert "Walk the hallway" in history
+    assert "livingproof-booster-t1 @ v2.2.10" in history
+    assert "software stock 1.0.0" in history
+    assert 'href="runs/100/#evaluator-livingproof-scenario"' in history
+    assert ">Scenario</a>" in history
+    assert "Drifted 0.66 m from the centreline, then touched the wall." in history
+    assert f">{'a' * 8}</a>" in history
+    assert ">v1.0.0</a>" in history
+    assert '<time datetime="2026-11-18T05:00:00Z"' in history
+    assert "20 minutes ago</time>" in history
+    assert "SHA256SUMS" not in history
+    assert "CI run" not in history
+    assert "/actions/" not in history
+
+    index = (site / "index.html").read_text()
+    assert "All 10" in index and "latest results passed" in index
+    assert "History (2)" in index
+    assert "SHA256SUMS" not in index
+    assert "/actions/" not in index
+    assert (site / "styles.css").is_file()
     local_links_resolve(site)

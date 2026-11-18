@@ -653,7 +653,129 @@ def bundle_tag(commit: str, repository: Path = ROOT) -> str | None:
     return max(found, key=lambda name: tuple(map(int, name[1:].split(".")))) if found else None
 
 
-def provenance(target: dict, run: dict) -> dict:
+def _software_version(target: dict, report: object = None) -> str | None:
+    if isinstance(report, dict):
+        summaries = report.get("summaries")
+        if isinstance(summaries, list):
+            for summary in summaries:
+                if not isinstance(summary, dict):
+                    continue
+                system = summary.get("system")
+                if isinstance(system, dict):
+                    version = _stored_text(system.get("version"))
+                    if version is not None:
+                        return version
+    for entry in target.get("lock", {}).get("configurations") or []:
+        if isinstance(entry, dict) and entry.get("name") == target.get("configuration"):
+            version = _stored_text(entry.get("version"))
+            if version is not None:
+                return version
+    return None
+
+
+def _evaluator_documents(report: object) -> list[dict]:
+    if not isinstance(report, dict):
+        return []
+    docs: list[dict] = []
+    bundle = report.get("source_bundle")
+    if isinstance(bundle, dict):
+        results = bundle.get("results")
+        if isinstance(results, list):
+            for result in results:
+                if not isinstance(result, dict):
+                    continue
+                for key in ("evaluator_results",):
+                    items = result.get(key)
+                    if isinstance(items, list):
+                        docs.extend(d for d in items if isinstance(d, dict))
+                prov = result.get("provenance")
+                if isinstance(prov, dict):
+                    items = prov.get("evaluator_results")
+                    if isinstance(items, list):
+                        docs.extend(d for d in items if isinstance(d, dict))
+                    one = prov.get("evaluator_result")
+                    if isinstance(one, dict):
+                        docs.append(one)
+                original = result.get("original_result")
+                if isinstance(original, dict):
+                    docs.append(original)
+        assessment = bundle.get("assessment")
+        integrity = assessment.get("integrity_results") if isinstance(assessment, dict) else None
+        if isinstance(integrity, dict):
+            for item in integrity.values():
+                if isinstance(item, dict):
+                    docs.append(item)
+                elif isinstance(item, list):
+                    docs.extend(d for d in item if isinstance(d, dict))
+    summaries = report.get("summaries")
+    if isinstance(summaries, list):
+        for summary in summaries:
+            if not isinstance(summary, dict):
+                continue
+            items = summary.get("evaluator_results")
+            if isinstance(items, list):
+                docs.extend(d for d in items if isinstance(d, dict))
+    return docs
+
+
+def _finding_summary(findings: list, descriptor: dict) -> str | None:
+    for item in findings:
+        if isinstance(item, dict):
+            text = _stored_text(item.get("text")) or _stored_text(item.get("summary"))
+            if text is not None:
+                return text
+        elif isinstance(item, str):
+            text = _stored_text(item)
+            if text is not None:
+                return text
+    return _stored_text(descriptor.get("details_copy"))
+
+
+def failing_evaluators(report: object) -> list[dict]:
+    """Evaluators that spoke on a non-passing run, deduplicated by evaluator id."""
+    if not isinstance(report, dict):
+        return []
+    summaries = report.get("summaries")
+    if isinstance(summaries, list) and summaries:
+        grades = [s.get("grade") for s in summaries if isinstance(s, dict)]
+        if grades and all(g in ("PASS", "UNSUPPORTED") for g in grades):
+            return []
+    seen: dict[str, dict] = {}
+    for doc in _evaluator_documents(report):
+        ev = doc.get("evaluator") if isinstance(doc.get("evaluator"), dict) else {}
+        ev_id = _stored_text(ev.get("id"))
+        if ev_id is None:
+            continue
+        desc = doc.get("descriptor") if isinstance(doc.get("descriptor"), dict) else {}
+        raw_findings = (
+            desc.get("findings") if isinstance(desc.get("findings"), list) else doc.get("findings")
+        )
+        findings = raw_findings if isinstance(raw_findings, list) else []
+        grade = desc.get("grade") if "grade" in desc else doc.get("grade")
+        integrity = doc.get("integrity") if isinstance(doc.get("integrity"), dict) else {}
+        run_info = integrity.get("run") if isinstance(integrity.get("run"), dict) else {}
+        status = run_info.get("test_system_status")
+        spoke = (
+            bool(findings)
+            or grade == "FAIL"
+            or (isinstance(grade, (int, float)) and grade < 100)
+            or (isinstance(status, str) and status.upper() in {"ERROR", "WARN", "FAIL"})
+        )
+        if not spoke:
+            continue
+        title = _stored_text(ev.get("display_name")) or _stored_text(desc.get("title")) or ev_id
+        summary = _finding_summary(findings, desc)
+        if ev_id not in seen:
+            entry = {"id": ev_id, "title": title, "href": f"#evaluator-{ev_id}"}
+            if summary is not None:
+                entry["summary"] = summary
+            seen[ev_id] = entry
+        elif "summary" not in seen[ev_id] and summary is not None:
+            seen[ev_id]["summary"] = summary
+    return list(seen.values())
+
+
+def provenance(target: dict, run: dict, report: object = None) -> dict:
     lock, server = target["lock"], run["server"]
     releases = lock["releases"]
     robot = lock["robot"]
@@ -665,6 +787,26 @@ def provenance(target: dict, run: dict) -> dict:
         if not BUNDLE_TAG.fullmatch(run["tag"]):
             raise SiteError(f"Unexpected bundle tag {run['tag']!r}")
         commit["tag"] = run["tag"]
+    robot_ref = _stored_text(robot.get("tag") or robot.get("ref"))
+    robot_tag = robot_ref if robot_ref and not re.fullmatch(r"[0-9a-f]{40}", robot_ref) else None
+    robot_entry = {
+        "repository": robot["repository"],
+        "commit": robot["commit"],
+        "configuration": target["configuration"],
+        "url": (
+            f"{server}/{robot['repository']}/releases/tag/{robot_tag}"
+            if robot_tag
+            else f"{server}/{robot['repository']}/tree/{robot['commit']}"
+        ),
+    }
+    if robot_tag is not None:
+        robot_entry["tag"] = robot_tag
+    software_version = _software_version(target, report)
+    if software_version is not None:
+        robot_entry["software_version"] = software_version
+    poster = run.get("poster")
+    if not isinstance(poster, dict) or not _stored_text(poster.get("name")):
+        poster = {"type": "ci", "name": "CI"}
     return {
         "run": {
             "id": run["id"],
@@ -672,12 +814,8 @@ def provenance(target: dict, run: dict) -> dict:
             "created": run["created"],
         },
         "commit": commit,
-        "robot": {
-            "repository": robot["repository"],
-            "commit": robot["commit"],
-            "configuration": target["configuration"],
-            "url": f"{server}/{robot['repository']}/tree/{robot['commit']}",
-        },
+        "robot": robot_entry,
+        "poster": poster,
         "releases": {
             name: {**value, "url": f"{server}/{value['repository']}/releases/tag/{value['tag']}"}
             for name, value in releases.items()
@@ -793,13 +931,17 @@ def add_run(
         destination = folder.joinpath(*PurePosixPath(item["path"]).parts)
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_bytes(item["bytes"])
+    report_data = read_report(folder / "report.json")
     record = {
         "robot": target["robot"],
         "variant": target["variant"],
         "verification": target["id"],
-        "outcome": outcome(read_report(folder / "report.json"), str(folder / "report.json")),
-        **provenance(target, run),
+        "outcome": outcome(report_data, str(folder / "report.json")),
+        **provenance(target, run, report_data),
     }
+    failing = failing_evaluators(report_data)
+    if failing:
+        record["failing_evaluators"] = failing
     if inputs:
         record["grading_inputs"] = [
             {key: item[key] for key in ("role", "path", "sha256")} for item in inputs
@@ -1552,11 +1694,663 @@ def remember_stored_wording(folder: Path, record: dict) -> None:
     (folder / "run.json").write_text(json.dumps(stored, indent=2) + "\n")
 
 
+SITE_STYLES = """:root {
+  color-scheme: light;
+  --font-sans: "DM Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --navy: #01152d;
+  --teal: #0e8785;
+  --teal-bright: #64dfc7;
+  --text: #0f172a;
+  --text-muted: #475569;
+  --bg: #f4f7fb;
+  --bg-muted: #e8eef5;
+  --surface: #ffffff;
+  --border: #d5dee9;
+  --border-strong: #c3cedb;
+  --shadow: 0 12px 32px rgba(1, 21, 45, 0.06);
+  --chip-pass-fg: #0f5f5c;
+  --chip-pass-bg: #d7f3ef;
+  --chip-fail-fg: #9f1239;
+  --chip-fail-bg: #ffe4e6;
+  --chip-warn-fg: #92400e;
+  --chip-warn-bg: #fef3c7;
+  --chip-muted-fg: #334155;
+  --chip-muted-bg: #e2e8f0;
+  --header-text: #f8fafc;
+  --header-muted: #b7c5d6;
+  --link: #0b6e6c;
+  --speak: #8a6a32;
+  --speak-text: #6b5428;
+  --focus: #0e8785;
+}
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  font-family: var(--font-sans);
+  font-size: 1.0625rem;
+  line-height: 1.55;
+  color: var(--text);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  font-variant-numeric: tabular-nums;
+}
+a {
+  color: var(--link);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.15em;
+}
+a:hover { color: #08524f; }
+a:focus-visible, button:focus-visible, .row:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 3px;
+}
+.skip {
+  position: absolute;
+  left: -999px;
+  top: 0;
+}
+.skip:focus {
+  left: 1rem;
+  top: 1rem;
+  z-index: 10;
+  background: var(--surface);
+  padding: 0.4rem 0.7rem;
+  border-radius: 0.4rem;
+}
+.masthead {
+  background:
+    radial-gradient(ellipse 70% 80% at 88% 0%, rgba(14, 135, 133, 0.28), transparent 58%),
+    var(--navy);
+  color: var(--header-text);
+  border-bottom: 3px solid var(--teal);
+}
+.wrap {
+  width: min(72rem, 100% - 2.25rem);
+  margin-inline: auto;
+}
+.masthead-inner { padding: 1.2rem 0 1.45rem; }
+.eyebrow {
+  margin: 0 0 0.45rem;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 0.72rem;
+  font-weight: 650;
+  color: var(--teal-bright);
+}
+.masthead h1 {
+  margin: 0 0 0.35rem;
+  font-size: 1.7rem;
+  letter-spacing: -0.03em;
+  font-weight: 650;
+  line-height: 1.2;
+}
+.lede {
+  margin: 0;
+  max-width: 44rem;
+  color: var(--header-muted);
+  font-size: 0.98rem;
+}
+.lede a { color: var(--teal-bright); }
+.crumb {
+  margin: 0 0 0.7rem;
+  font-size: 0.9rem;
+}
+.crumb a { color: var(--teal-bright); }
+.meta-line {
+  margin: 0.55rem 0 0;
+  color: var(--header-muted);
+  font-size: 0.88rem;
+}
+.meta-line a { color: var(--teal-bright); }
+.meta-line .quiet { color: var(--header-muted); }
+.page { padding: 1.25rem 0 2.4rem; }
+.status {
+  margin: 0 0 1.15rem;
+  color: var(--text-muted);
+  font-size: 0.95rem;
+}
+.status strong { color: var(--text); font-weight: 650; }
+.robot-group { margin: 0 0 1.35rem; }
+.robot-group h2 {
+  margin: 0 0 0.5rem;
+  font-size: 0.72rem;
+  font-weight: 650;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 0.85rem;
+  box-shadow: var(--shadow);
+  padding: 0.85rem 1rem 0.9rem;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.card:hover, .card:focus-within {
+  background: color-mix(in srgb, var(--bg-muted) 65%, var(--surface));
+  border-color: var(--border-strong);
+}
+.card.is-fail {
+  border-left: 3px solid color-mix(in srgb, var(--chip-fail-fg) 70%, #fda4af);
+}
+.entry-main {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 0.65rem 0.85rem;
+  align-items: start;
+}
+.entry-body { min-width: 0; }
+.entry-side {
+  text-align: right;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.35rem;
+}
+.title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  line-height: 1.3;
+}
+.title a { color: inherit; text-decoration: none; }
+.title a:hover { color: var(--link); text-decoration: underline; }
+.sub {
+  margin: 0.15rem 0 0;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+.finding {
+  margin: 0.4rem 0 0;
+  padding: 0.35rem 0.55rem;
+  border-radius: 0.45rem;
+  border-left: 3px solid var(--speak);
+  background: color-mix(in srgb, var(--speak) 8%, var(--surface));
+  color: var(--text);
+  font-size: 0.92rem;
+  font-weight: 550;
+}
+.badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 3.6rem;
+  padding: 0.12rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1.4;
+}
+.badge-pass { color: var(--chip-pass-fg); background: var(--chip-pass-bg); }
+.badge-fail { color: var(--chip-fail-fg); background: var(--chip-fail-bg); }
+.badge-warn { color: var(--chip-warn-fg); background: var(--chip-warn-bg); }
+.badge-muted { color: var(--chip-muted-fg); background: var(--chip-muted-bg); }
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-top: 0.4rem;
+  justify-content: flex-start;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.12rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--speak) 40%, var(--border));
+  background: color-mix(in srgb, var(--speak) 12%, var(--surface));
+  color: var(--speak-text);
+  font-size: 0.78rem;
+  font-weight: 650;
+  text-decoration: none;
+  line-height: 1.4;
+}
+.chip:hover {
+  background: color-mix(in srgb, var(--speak) 20%, var(--surface));
+  color: var(--speak-text);
+  border-color: color-mix(in srgb, var(--speak) 65%, var(--border));
+}
+.when, .release, .poster, .links {
+  font-size: 0.88rem;
+  color: var(--text-muted);
+}
+.release {
+  font-weight: 650;
+  color: var(--text);
+  text-decoration: none;
+}
+.release.is-fallback {
+  font-weight: 500;
+  color: var(--text-muted);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.82rem;
+}
+a.release:hover { color: var(--link); text-decoration: underline; }
+.dot { margin: 0 0.35rem; color: #94a3b8; }
+.links a { margin-left: 0.7rem; }
+.links a:first-child { margin-left: 0; }
+.side-meta { color: var(--text-muted); font-size: 0.88rem; }
+.side-meta .release { margin-right: 0; }
+.history {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.row {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 0.85rem;
+  padding: 0.8rem 1rem 0.85rem;
+  text-decoration: none;
+  color: inherit;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.row:hover, .row:focus-within {
+  background: color-mix(in srgb, var(--bg-muted) 70%, var(--surface));
+  border-color: var(--border-strong);
+}
+.row.is-fail {
+  border-left: 3px solid color-mix(in srgb, var(--chip-fail-fg) 70%, #fda4af);
+}
+.row.is-pass {
+  border-left: 3px solid color-mix(in srgb, var(--teal) 45%, var(--border));
+}
+.row-top {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.65rem 0.85rem;
+  align-items: start;
+}
+.row-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.15rem 0;
+  margin-top: 0.35rem;
+  color: var(--text-muted);
+  font-size: 0.88rem;
+}
+.row-meta a { font-weight: 550; }
+@media (max-width: 720px) {
+  .entry-main, .row-top {
+    grid-template-columns: auto 1fr;
+  }
+  .entry-side {
+    grid-column: 2;
+    text-align: left;
+    align-items: flex-start;
+  }
+  .chips, .entry-body .chips { justify-content: flex-start; }
+  .links a { margin-left: 0; margin-right: 0.8rem; }
+  .masthead h1 { font-size: 1.4rem; }
+  .wrap { width: min(72rem, 100% - 1.5rem); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .card, .row { transition: none; }
+}
+"""
+
+_ROBOT_TITLES = {
+    "booster-t1": "Booster T1",
+    "unitree-g1": "Unitree G1",
+    "unitree-go1": "Unitree Go1",
+}
+
+
+def _robot_title(robot: str) -> str:
+    if robot in _ROBOT_TITLES:
+        return _ROBOT_TITLES[robot]
+    parts = []
+    for part in robot.split("-"):
+        if re.fullmatch(r"[a-z]+\d+", part) and len(part) <= 3:
+            parts.append(part.upper())
+        else:
+            parts.append(part.capitalize())
+    return " ".join(parts)
+
+
+def _scenario_title(record: dict, variant: str) -> str:
+    outcomes = record.get("outcome") or []
+    capability = outcomes[0].get("capability", "") if outcomes else ""
+    if variant.endswith("-corner-left") or capability == "walk-corner-left":
+        return "Walk around the corner (left)"
+    if variant.endswith("-corner-right") or capability == "walk-corner-right":
+        return "Walk around the corner (right)"
+    if capability == "walk-corner" or variant.endswith("-corner"):
+        return "Walk around the corner"
+    if capability == "walk-hallway" or variant.endswith("-hallway"):
+        return "Walk the hallway"
+    return (capability or variant).replace("-", " ").capitalize()
+
+
+def _variant_subtitle(record: dict, variant: str) -> str:
+    robot = record.get("robot") or {}
+    config = _stored_text(robot.get("configuration")) or variant.split("-", 1)[0]
+    tokens = variant.split("-")
+    sim = ""
+    if "mujoco" in tokens:
+        sim = "MuJoCo"
+    elif "gazebo" in tokens:
+        sim = "Gazebo"
+    return f"{config} · {sim}" if sim else config
+
+
+def _record_grade(record: dict) -> str:
+    outcomes = record.get("outcome") or []
+    grades = [o.get("grade", "") for o in outcomes if isinstance(o, dict)]
+    if "FAIL" in grades:
+        return "FAIL"
+    if "INSUFFICIENT_EVIDENCE" in grades:
+        return "INSUFFICIENT_EVIDENCE"
+    if grades and all(g == "UNSUPPORTED" for g in grades):
+        return "UNSUPPORTED"
+    if "PASS" in grades:
+        return "PASS"
+    return grades[0] if grades else "UNSUPPORTED"
+
+
+def _badge_html(grade: str) -> str:
+    if grade == "PASS":
+        return '<span class="badge badge-pass">PASS</span>'
+    if grade == "FAIL":
+        return '<span class="badge badge-fail">FAIL</span>'
+    if grade == "UNSUPPORTED":
+        return '<span class="badge badge-muted">Not supported</span>'
+    if grade == "INSUFFICIENT_EVIDENCE":
+        return '<span class="badge badge-warn">Insufficient evidence</span>'
+    return f'<span class="badge badge-muted">{html.escape(grade)}</span>'
+
+
+def _relative_time_html(created: str, now: str) -> str:
+    created_dt = _stamp(created)
+    now_dt = _stamp(now) if now else created_dt
+    seconds = max(0, int((now_dt - created_dt).total_seconds()))
+    if seconds < 60:
+        relative = "just now"
+    elif seconds < 3600:
+        minutes = seconds // 60
+        suffix = "s" if minutes != 1 else ""
+        relative = f"{minutes} minute{suffix} ago"
+    elif seconds < 86400:
+        hours = seconds // 3600
+        suffix = "s" if hours != 1 else ""
+        relative = f"{hours} hour{suffix} ago"
+    elif seconds < 172800:
+        relative = "yesterday"
+    elif seconds < 30 * 86400:
+        days = seconds // 86400
+        relative = f"{days} days ago"
+    else:
+        relative = f"{created_dt.day} {created_dt.strftime('%b %Y')}"
+    tooltip = f"{created_dt.day} {created_dt.strftime('%b %Y, %H:%M UTC')}"
+    return (
+        f'<time datetime="{html.escape(created, quote=True)}" '
+        f'title="{html.escape(tooltip, quote=True)}">{html.escape(relative)}</time>'
+    )
+
+
+def _release_html(record: dict) -> str:
+    commit = record.get("commit") or {}
+    tag = _stored_text(record.get("bundle_tag") or commit.get("tag"))
+    sha = commit.get("sha") or ""
+    commit_url = commit.get("url") or ""
+    if tag is not None:
+        if "/commit/" in commit_url:
+            tag_url = commit_url.split("/commit/", 1)[0] + f"/releases/tag/{tag}"
+        else:
+            tag_url = commit_url
+        title = f"Verification bundle release {tag}"
+        if tag_url:
+            return (
+                f'<a class="release" href="{html.escape(tag_url, quote=True)}" '
+                f'title="{html.escape(title, quote=True)}">{html.escape(tag)}</a>'
+            )
+        return (
+            f'<span class="release" title="{html.escape(title, quote=True)}">'
+            f"{html.escape(tag)}</span>"
+        )
+    short = sha[:8]
+    title = "No release tag on this livingproof-verification commit; short SHA shown"
+    if commit_url:
+        return (
+            f'<a class="release is-fallback" href="{html.escape(commit_url, quote=True)}" '
+            f'title="{html.escape(title, quote=True)}">{html.escape(short)}</a>'
+        )
+    return (
+        f'<span class="release is-fallback" title="{html.escape(title, quote=True)}">'
+        f"{html.escape(short)}</span>"
+    )
+
+
+def _chips_html(record: dict, prefix: str) -> str:
+    grade = _record_grade(record)
+    if grade in ("PASS", "UNSUPPORTED"):
+        return ""
+    evaluators = record.get("failing_evaluators") or []
+    if not isinstance(evaluators, list) or not evaluators:
+        return ""
+    links = []
+    for ev in evaluators:
+        if not isinstance(ev, dict):
+            continue
+        title = _stored_text(ev.get("title"))
+        href = _stored_text(ev.get("href"))
+        if title is None or href is None:
+            continue
+        tip = f"Open the {title} finding in the report"
+        links.append(
+            f'<a class="chip" href="{html.escape(prefix + href, quote=True)}" '
+            f'title="{html.escape(tip, quote=True)}">{html.escape(title)}</a>'
+        )
+    if not links:
+        return ""
+    return f'<div class="chips">{"".join(links)}</div>'
+
+
+def _finding_html(record: dict) -> str:
+    grade = _record_grade(record)
+    if grade in ("PASS", "UNSUPPORTED"):
+        return ""
+    for ev in record.get("failing_evaluators") or []:
+        if isinstance(ev, dict):
+            summary = _stored_text(ev.get("summary"))
+            if summary is not None:
+                return f'<p class="finding">{html.escape(summary)}</p>'
+    for item in record.get("outcome") or []:
+        if isinstance(item, dict):
+            finding = _stored_text(item.get("finding"))
+            if finding is not None:
+                return f'<p class="finding">{html.escape(finding)}</p>'
+    return ""
+
+
+def _styled_document(
+    title: str, css_href: str, skip_id: str, skip_label: str, masthead: str, main_body: str
+) -> str:
+    return (
+        "<!doctype html>\n"
+        '<html lang="en">\n'
+        '<meta charset="utf-8">\n'
+        '<meta name="viewport" content="width=device-width, initial-scale=1">\n'
+        f"<title>{html.escape(title)}</title>\n"
+        '<link rel="preconnect" href="https://fonts.googleapis.com">\n'
+        '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>\n'
+        '<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,650;0,9..40,700;1,9..40,400&display=swap" rel="stylesheet">\n'
+        f'<link rel="stylesheet" href="{html.escape(css_href, quote=True)}">\n'
+        "<body>\n"
+        f'<a class="skip" href="#{html.escape(skip_id, quote=True)}">{html.escape(skip_label)}</a>\n'
+        f'<header class="masthead"><div class="wrap masthead-inner">{masthead}</div></header>\n'
+        f'<main class="page wrap" id="{html.escape(skip_id, quote=True)}">{main_body}</main>\n'
+        "</body>\n"
+        "</html>\n"
+    )
+
+
+def _history_page_html(robot: str, variant: str, records: list[dict], now: str) -> str:
+    newest = records[0]
+    robot_title = _robot_title(robot)
+    scenario_title = _scenario_title(newest, variant)
+    subtitle = _variant_subtitle(newest, variant)
+    count = len(records)
+    plural = "s" if count != 1 else ""
+    ref_now = now or newest["run"]["created"]
+    releases = " · ".join(
+        f"{html.escape(name)} {a(release['url'], release['tag'])}"
+        for name, release in newest["releases"].items()
+    )
+    robot_info = newest["robot"]
+    repo_short = robot_info["repository"].rsplit("/", 1)[-1]
+    robot_tag = _stored_text(robot_info.get("tag"))
+    robot_ref_label = (
+        f"{repo_short} @ {robot_tag}" if robot_tag else f"{repo_short} @ {robot_info['commit'][:8]}"
+    )
+    robot_line = a(robot_info["url"], robot_ref_label)
+    software_version = _stored_text(robot_info.get("software_version"))
+    if software_version is not None:
+        config = _stored_text(robot_info.get("configuration")) or ""
+        sw_label = f"{config} {software_version}".strip()
+        robot_line += f'<span class="quiet"> · software {html.escape(sw_label)}</span>'
+    masthead = (
+        '<p class="crumb"><a href="../../index.html">← All verification reports</a></p>'
+        f'<p class="eyebrow">{html.escape(robot_title)} · {html.escape(subtitle)}</p>'
+        f"<h1>{html.escape(scenario_title)}</h1>"
+        f'<p class="lede">{count} run{plural}, newest first. A continuous list — no pagination.</p>'
+        f'<p class="meta-line">{a("latest/", "Latest report")}'
+        f'<span class="quiet"> · {releases}</span></p>'
+        f'<p class="meta-line">{robot_line}</p>'
+    )
+    row_cards = []
+    for record in records:
+        grade = _record_grade(record)
+        row_class = "row is-fail" if grade in ("FAIL", "INSUFFICIENT_EVIDENCE") else "row is-pass"
+        run_prefix = f"runs/{record['folder']}/"
+        poster = record.get("poster")
+        poster_name = (
+            _stored_text(poster.get("name")) if isinstance(poster, dict) else None
+        ) or "CI"
+        chips = _chips_html(record, run_prefix)
+        finding = _finding_html(record)
+        row_cards.append(
+            f'<article class="{row_class}">'
+            '<div class="row-top">'
+            f"{_badge_html(grade)}"
+            "<div>"
+            f'<h2 class="title">{html.escape(scenario_title)}</h2>'
+            f"{chips}{finding}"
+            '<div class="row-meta">'
+            f"{_release_html(record)}"
+            '<span class="dot">·</span>'
+            f"{_relative_time_html(record['run']['created'], ref_now)}"
+            '<span class="dot">·</span>'
+            f'<span class="poster">{html.escape(poster_name)}</span>'
+            '<span class="dot">·</span>'
+            f"{a(run_prefix, 'Report')}"
+            "</div>"
+            "</div>"
+            "</div>"
+            "</article>"
+        )
+    main_body = f'<div class="history">{"".join(row_cards)}</div>'
+    return _styled_document(
+        f"{robot_title} · {subtitle} · {scenario_title} · run history",
+        "../../styles.css",
+        "history",
+        "Skip to history",
+        masthead,
+        main_body,
+    )
+
+
+def _index_page_html(history: dict, now: str) -> str:
+    grouped: dict[str, list[tuple[str, list[dict]]]] = {}
+    all_latest: list[dict] = []
+    for (robot, variant), records in sorted(history.items()):
+        grouped.setdefault(robot, []).append((variant, records))
+        all_latest.append(records[0])
+    ref_now = now or max((r["run"]["created"] for r in all_latest), default="")
+    total_count = len(all_latest)
+    failed_count = sum(1 for r in all_latest if _record_grade(r) == "FAIL")
+    if failed_count:
+        status_html = (
+            f'<p class="status"><strong>{failed_count} of {total_count}</strong> '
+            "latest results failed. Failures list the evaluators that spoke; passing rows stay quiet.</p>"
+        )
+    elif total_count:
+        status_html = (
+            f'<p class="status"><strong>All {total_count}</strong> '
+            "latest results passed. Passing rows stay quiet.</p>"
+        )
+    else:
+        status_html = '<p class="status">No verification reports published yet.</p>'
+    sections = []
+    for robot, variants in grouped.items():
+        robot_title = _robot_title(robot)
+        heading_id = f"r-{robot}"
+        cards = []
+        for variant, records in variants:
+            newest = records[0]
+            grade = _record_grade(newest)
+            card_class = "card is-fail" if grade in ("FAIL", "INSUFFICIENT_EVIDENCE") else "card"
+            scenario_title = _scenario_title(newest, variant)
+            subtitle = _variant_subtitle(newest, variant)
+            latest_href = f"{robot}/{variant}/latest/"
+            history_href = f"{robot}/{variant}/"
+            run_prefix = f"{robot}/{variant}/runs/{newest['folder']}/"
+            chips = _chips_html(newest, run_prefix)
+            cards.append(
+                f'<article class="{card_class}">'
+                '<div class="entry-main">'
+                f"{_badge_html(grade)}"
+                '<div class="entry-body">'
+                f'<h3 class="title">{a(latest_href, scenario_title)}</h3>'
+                f'<p class="sub">{html.escape(subtitle)}</p>'
+                f"{chips}"
+                "</div>"
+                '<div class="entry-side">'
+                f'<div class="side-meta">{_release_html(newest)}'
+                f'<span class="dot">·</span>{_relative_time_html(newest["run"]["created"], ref_now)}</div>'
+                f'<div class="links">{a(latest_href, "Latest report")}'
+                f"{a(history_href, f'History ({len(records)})')}</div>"
+                "</div>"
+                "</div>"
+                "</article>"
+            )
+        sections.append(
+            f'<section class="robot-group" aria-labelledby="{html.escape(heading_id, quote=True)}">'
+            f'<h2 id="{html.escape(heading_id, quote=True)}">{html.escape(robot_title)}</h2>'
+            f'<div class="stack">{"".join(cards)}</div>'
+            "</section>"
+        )
+    masthead = (
+        '<p class="eyebrow">Living Proof Labs</p>'
+        "<h1>Verification reports</h1>"
+        '<p class="lede">The latest result for each robot and scenario. '
+        "Open a report for the evidence, or the history to scan what failed.</p>"
+    )
+    return _styled_document(
+        "Living Proof verification reports",
+        "styles.css",
+        "results",
+        "Skip to results",
+        masthead,
+        status_html + "".join(sections),
+    )
+
+
 def render(site: Path, now: str = ""):
     days = retention_days()
     prune_expired_evidence(site, now, days)
     history = runs(site)
-    rows = []
+    (site / "styles.css").write_text(SITE_STYLES)
     for (robot, variant), records in sorted(history.items()):
         base = site / robot / variant
         latest = base / "latest"
@@ -1580,48 +2374,8 @@ def render(site: Path, now: str = ""):
                 days=days,
                 trial=trials[record["folder"]],
             )
-        items = "".join(
-            f"<tr><td>{a('runs/' + record['folder'] + '/', record['run']['id'])}</td>"
-            f"<td>{ci_run(record['run'])}</td>"
-            f"<td>{html.escape(record['run']['created'])}</td><td>{outcome_cells(record)}</td>"
-            f"<td>{commit_cell(record['commit'])}</td>"
-            f"<td>{a('runs/' + record['folder'] + '/SHA256SUMS', 'SHA256SUMS')}</td></tr>"
-            for record in records
-        )
-        releases = " · ".join(
-            f"{html.escape(name)} {a(release['url'], release['tag'])}"
-            for name, release in newest["releases"].items()
-        )
-        robot_line = a(
-            newest["robot"]["url"],
-            f"{newest['robot']['repository']} @ {newest['robot']['commit'][:12]}",
-        )
-        (base / "index.html").write_text(
-            page(
-                f"{robot} · {variant} · run history",
-                f"<p>{a('latest/', 'Latest report')}</p><p>{releases}</p><p>{robot_line}</p>"
-                f"<table><tr><th>Run</th><th>CI</th><th>Created</th>"
-                f"<th>Outcome</th><th>Commit</th><th>Checksums</th></tr>{items}</table>",
-                up="../../index.html",
-            )
-        )
-        rows.append(
-            f"<tr><td>{html.escape(robot)}</td><td>{html.escape(variant)}</td>"
-            f"<td>{outcome_cells(newest)}<br>{ci_run(newest['run'])}</td>"
-            f"<td>{a(f'{robot}/{variant}/latest/', 'latest')} · "
-            f"{a(f'{robot}/{variant}/', f'history ({len(records)} run{"s" * (len(records) != 1)})')}</td></tr>"
-        )
-    body = (
-        "<p>The latest capability report for each robot and variant, generated only by CI "
-        "on <code>main</code> of "
-        '<a href="https://github.com/Living-Proof-Labs/livingproof-verification">'
-        "livingproof-verification</a>. The capability verifier grades; the reporter renders "
-        "the run page; this site lays the reports out and keeps the evidence copies.</p>"
-        "<table><tr><th>Robot</th><th>Variant</th><th>Latest outcome</th><th>Reports</th></tr>"
-        + "".join(rows)
-        + "</table>"
-    )
-    (site / "index.html").write_text(page("Living Proof verification reports", body))
+        (base / "index.html").write_text(_history_page_html(robot, variant, records, now))
+    (site / "index.html").write_text(_index_page_html(history, now))
 
 
 def build(
