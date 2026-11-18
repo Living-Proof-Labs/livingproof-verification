@@ -2,7 +2,7 @@
   "format": "livingproof-evaluator-result/1.1.0",
   "evaluator": {
     "id": "livingproof-run-integrity",
-    "version": "1.1.1",
+    "version": "1.5.1",
     "kind": "integrity",
     "execution": "deterministic",
     "display_name": "Run Integrity",
@@ -22,8 +22,8 @@
     }
   ],
   "timestamps": {
-    "started_at": "2026-11-18T08:27:09Z",
-    "completed_at": "2026-11-18T08:27:09Z"
+    "started_at": "2026-11-18T23:44:52Z",
+    "completed_at": "2026-11-18T23:44:52Z"
   },
   "integrity": {
     "run": {
@@ -43,7 +43,7 @@
     "checks": [
       {
         "id": "completeness",
-        "version": "1.0.0",
+        "version": "1.1.0",
         "applicable": true,
         "success": true,
         "percentage": 100.0,
@@ -51,23 +51,64 @@
       },
       {
         "id": "pins",
-        "version": "1.0.0",
+        "version": "1.1.0",
         "applicable": true,
         "success": true,
-        "percentage": 100,
-        "findings": []
+        "percentage": 100.0,
+        "findings": [],
+        "not_checked": [
+          {
+            "subject": "specs",
+            "reason": "not-recorded"
+          },
+          {
+            "subject": "verifier",
+            "reason": "not-recorded"
+          }
+        ]
+      },
+      {
+        "id": "plan-conformance",
+        "version": "1.1.0",
+        "applicable": true,
+        "success": true,
+        "percentage": 100.0,
+        "findings": [],
+        "not_checked": [
+          {
+            "subject": "lock-command-speed",
+            "reason": "not-declared"
+          }
+        ]
+      },
+      {
+        "id": "termination",
+        "version": "1.1.0",
+        "applicable": true,
+        "success": true,
+        "percentage": 100.0,
+        "findings": [],
+        "referrals": []
+      },
+      {
+        "id": "recording",
+        "version": "1.1.0",
+        "applicable": false,
+        "success": true,
+        "findings": [],
+        "not_checked": []
       }
     ]
   },
   "descriptor": {
     "title": "Run Integrity",
     "purpose": "Judges whether the run and the test system can be trusted.",
-    "version": "1.1.1",
+    "version": "1.5.1",
     "kind": "Test system",
     "source": "Living Proof Labs",
     "tier": "test_system_status",
     "icon": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\"><rect x=\"3.5\" y=\"4.5\" width=\"17\" height=\"15\" rx=\"3.5\" stroke=\"currentColor\" stroke-width=\"2\"/><path d=\"M6.5 12.5h3l1.2-3 2.2 7 1.6-4H17.5\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg>",
     "icon_accessible_name": "Run Integrity",
-    "success_copy": "Every planned trial has its observation file. Matched the verification lock: runner, world, configuration. Not checked: specs, verifier."
+    "success_copy": "Every planned trial has its observation file. Matched the verification lock: runner, world, configuration. The plan, the trials and the lock agree on the trial count. Every trial that ended on its own stopped for a reason the plan allows. Stop reasons: the default allowed list, which excludes simulation-broken (the plan declares none). Not checked: specs, verifier, lock command speed."
   }
 }
