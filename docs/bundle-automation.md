@@ -7,8 +7,11 @@ evidence, or published history. Those boundaries remain with #98 and #100.
 
 ## Central operations proposal (2026-11-18)
 
-The next infrastructure slice proposes an organization-owned selected-repository App
-with its key held only by `.github`'s trusted-main `bundle-operations` environment.
+The next infrastructure slice uses the confirmed name **CI Automation** for the
+organization-owned CI service identity. Renovate bundle completion is its first use
+case; the initial installation remains selected-repository access to verification
+only. Its key is proposed to be held solely by `.github`'s trusted-main
+`ci-automation` environment.
 The dormant central template and provisioning review are in
 [`.github/tools/automation`](https://github.com/Living-Proof-Labs/.github/tree/keel/105-central-bundle-operations/tools/automation).
 This branch link is temporary review navigation; replace it with the merged reference
