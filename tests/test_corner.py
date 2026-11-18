@@ -13,8 +13,10 @@ specs v2.3.0 (v2.0.2 has no parameters.json; capability-verifier v2.0.0 refuses 
 import hashlib
 import importlib.util
 import json
+import os
 from pathlib import Path
 import tomllib
+import urllib.request
 
 import pytest
 import yaml
@@ -267,6 +269,38 @@ def test_every_lock_pins_a_reporter_that_renders_walk_corner_places():
     for name in [*CORNER, *HALLWAY]:
         reporter = _lock(name)["releases"]["reporter"]
         assert (reporter["tag"], reporter["commit"]) == REPORTER_RELEASE, name
+
+
+def test_every_definition_pins_the_same_simulator_release():
+    """Hallways and corners share one runner: the release each robot's uv.lock installs."""
+    runners = [_lock(name)["releases"]["runner"] for name in [*CORNER, *HALLWAY]]
+    assert runners
+    assert all(runner == runners[0] for runner in runners)
+    assert runners[0] == {
+        "repository": "Living-Proof-Labs/livingproof-sim-mujoco",
+        "tag": "v3.4.1",
+        "commit": "4e97b6c1ee72a9f6598a91d0a1476116dc17ae13",
+    }
+
+
+@pytest.mark.skipif(not os.environ.get("LIVINGPROOF_NETWORK"), reason="set LIVINGPROOF_NETWORK=1")
+def test_pinned_robot_tags_uv_lock_installs_that_simulator(tmp_path):
+    """The published uv.lock at each pinned robot tag names the same sim tag as the locks."""
+    seen = set()
+    for name in [*CORNER, *HALLWAY]:
+        lock = _lock(name)
+        robot = lock["robot"]
+        key = (robot["repository"], robot["ref"])
+        if key in seen:
+            continue
+        seen.add(key)
+        url = f"https://raw.githubusercontent.com/{robot['repository']}/{robot['ref']}/uv.lock"
+        root = tmp_path / robot["repository"].replace("/", "_")
+        root.mkdir(parents=True, exist_ok=True)
+        with urllib.request.urlopen(url, timeout=30) as response:
+            (root / "uv.lock").write_bytes(response.read())
+        runner = lock_tool._runner_from_uv_lock(root, f"{robot['repository']} {robot['ref']}")
+        assert runner == lock["releases"]["runner"], key
 
 
 # ------------------------------------------------------------ walk-hallway current spec
