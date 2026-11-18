@@ -430,15 +430,19 @@ def test_the_field_names_match_the_history_design_in_129():
     assert set(record) >= {"run", "commit", "robot", "releases", "definition"}
 
 
-def test_history_shows_the_tag_then_the_commit_and_only_the_commit_without_one():
+def test_history_shows_the_tag_or_the_short_sha_fallback():
+    """#129: a recorded bundle tag is the release; otherwise an 8-character SHA in mono."""
     commit_url = f"https://github.com/{REPO}/commit/{'b' * 40}"
-    plain = site_tool.commit_cell({"sha": "b" * 40, "url": commit_url})
-    assert plain == f'<a href="{commit_url}">{"b" * 12}</a>'
-    tagged = site_tool.commit_cell({"sha": "b" * 40, "url": commit_url, "tag": "v1.2.3"})
-    assert tagged == (
-        f'<a href="https://github.com/{REPO}/releases/tag/v1.2.3">v1.2.3</a> · '
-        f'<a href="{commit_url}">{"b" * 12}</a>'
+    plain = site_tool._release_html({"commit": {"sha": "b" * 40, "url": commit_url}})
+    assert f">{'b' * 8}</a>" in plain
+    assert "is-fallback" in plain
+    assert f">{'b' * 12}</a>" not in plain
+    tagged = site_tool._release_html(
+        {"commit": {"sha": "b" * 40, "url": commit_url, "tag": "v1.2.3"}}
     )
+    assert ">v1.2.3</a>" in tagged
+    assert "releases/tag/v1.2.3" in tagged
+    assert "is-fallback" not in tagged
     assert "/actions/" not in tagged
 
 
@@ -460,9 +464,11 @@ def test_a_published_site_keeps_old_runs_untouched_when_a_later_run_has_a_tag(tm
     assert tagged and all(r["commit"]["tag"] == "v1.0.0" for r in tagged)
     assert all(r["run"]["id"] == "2000" for r in tagged)
     history = next(site.glob("*/*/index.html")).read_text()
-    assert "v1.0.0</a> · " in history  # the new row names the tag and its commit
+    assert ">v1.0.0</a>" in history  # the new row shows the tag, not tag-and-SHA
     assert history.count("releases/tag/v1.0.0") >= 1
-    assert ("a" * 12) in history  # old and new rows still show their commit
+    assert 'class="release is-fallback"' in history
+    assert f">{'a' * 8}</a>" in history  # the untagged older row falls back to the short SHA
+    assert f">{'a' * 12}</a>" not in history
 
 
 def test_the_build_command_records_a_tag_only_from_the_checkout(tmp_path, repo):

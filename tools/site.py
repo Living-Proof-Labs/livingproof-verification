@@ -40,6 +40,7 @@ drops those runs.
 
 import argparse
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 import hashlib
 import html
 import http.client
@@ -107,6 +108,7 @@ SEED_LABEL = re.compile(r"^seed (?=\d)")
 BUNDLE_TAG = re.compile(r"v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)")
 COMMIT_SHA = re.compile(r"[0-9a-f]{40}")
 MARKER = "site.json"  # written by every build; its presence on the live site means history
+LOCAL_TZ = ZoneInfo("Australia/Sydney")  # tooltip dates on the public site (#129)
 
 
 class SiteError(Exception):
@@ -1080,21 +1082,6 @@ def a(url: str, text: str) -> str:
     return f'<a href="{html.escape(url)}">{html.escape(text)}</a>'
 
 
-def commit_cell(commit: dict) -> str:
-    """The commit, with its bundle tag first when this run recorded one."""
-    cell = a(commit["url"], commit["sha"][:12])
-    tag = commit.get("tag")
-    if tag is None:
-        return cell
-    release = commit["url"].rsplit("/commit/", 1)[0] + f"/releases/tag/{tag}"
-    return f"{a(release, tag)} · {cell}"
-
-
-def ci_run(run: dict) -> str:
-    """The run id as text. The public page does not link to the run."""
-    return f"CI run {html.escape(run['id'])}"
-
-
 ACTIONS_HREF = re.compile(r"""(?:href|src)\s*=\s*["']?[^"'\s>]*/actions/""", re.I)
 
 
@@ -1810,14 +1797,15 @@ a:focus-visible, button:focus-visible, .row:focus-visible {
   font-size: 0.95rem;
 }
 .status strong { color: var(--text); font-weight: 650; }
-.robot-group { margin: 0 0 1.35rem; }
+.robot-group { margin: 1.35rem 0 0; }
+.robot-group:first-child { margin-top: 0; }
 .robot-group h2 {
-  margin: 0 0 0.5rem;
-  font-size: 0.72rem;
-  font-weight: 650;
-  letter-spacing: 0.1em;
+  margin: 0 0 0.65rem;
+  font-size: 0.88rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--text-muted);
+  color: var(--text);
 }
 .stack {
   display: flex;
@@ -1868,7 +1856,7 @@ a:focus-visible, button:focus-visible, .row:focus-visible {
   font-size: 0.9rem;
 }
 .finding {
-  margin: 0.4rem 0 0;
+  margin: 0.5rem 0 0;
   padding: 0.35rem 0.55rem;
   border-radius: 0.45rem;
   border-left: 3px solid var(--speak);
@@ -1931,8 +1919,10 @@ a:focus-visible, button:focus-visible, .row:focus-visible {
 .release.is-fallback {
   font-weight: 500;
   color: var(--text-muted);
-  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
   font-size: 0.82rem;
+  font-variant-numeric: normal;
+  letter-spacing: 0;
 }
 a.release:hover { color: var(--link); text-decoration: underline; }
 .dot { margin: 0 0.35rem; color: #94a3b8; }
@@ -1943,13 +1933,13 @@ a.release:hover { color: var(--link); text-decoration: underline; }
 .history {
   display: flex;
   flex-direction: column;
-  gap: 0.4rem;
+  gap: 0.5rem;
 }
 .row {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 0.85rem;
-  padding: 0.8rem 1rem 0.85rem;
+  padding: 1rem;
   text-decoration: none;
   color: inherit;
   transition: background 0.15s ease, border-color 0.15s ease;
@@ -1975,7 +1965,7 @@ a.release:hover { color: var(--link); text-decoration: underline; }
   flex-wrap: wrap;
   align-items: center;
   gap: 0.15rem 0;
-  margin-top: 0.35rem;
+  margin-top: 0.5rem;
   color: var(--text-muted);
   font-size: 0.88rem;
 }
@@ -2091,7 +2081,8 @@ def _relative_time_html(created: str, now: str) -> str:
         relative = f"{days} days ago"
     else:
         relative = f"{created_dt.day} {created_dt.strftime('%b %Y')}"
-    tooltip = f"{created_dt.day} {created_dt.strftime('%b %Y, %H:%M UTC')}"
+    local = created_dt.astimezone(LOCAL_TZ)
+    tooltip = f"{local.day} {local.strftime('%b %Y, %H:%M %Z')}"
     return (
         f'<time datetime="{html.escape(created, quote=True)}" '
         f'title="{html.escape(tooltip, quote=True)}">{html.escape(relative)}</time>'
@@ -2149,7 +2140,8 @@ def _chips_html(record: dict, prefix: str) -> str:
         tip = f"Open the {title} finding in the report"
         links.append(
             f'<a class="chip" href="{html.escape(prefix + href, quote=True)}" '
-            f'title="{html.escape(tip, quote=True)}">{html.escape(title)}</a>'
+            f'title="{html.escape(tip, quote=True)}" '
+            f'aria-label="{html.escape(tip, quote=True)}">{html.escape(title)}</a>'
         )
     if not links:
         return ""
@@ -2223,7 +2215,8 @@ def _history_page_html(robot: str, variant: str, records: list[dict], now: str) 
         '<p class="crumb"><a href="../../index.html">← All verification reports</a></p>'
         f'<p class="eyebrow">{html.escape(robot_title)} · {html.escape(subtitle)}</p>'
         f"<h1>{html.escape(scenario_title)}</h1>"
-        f'<p class="lede">{count} run{plural}, newest first. A continuous list — no pagination.</p>'
+        f'<p class="lede">{count} run{plural}, newest first. A continuous list — no pagination. '
+        "History is pruned holistically elsewhere.</p>"
         f'<p class="meta-line">{a("latest/", "Latest report")}'
         f'<span class="quiet"> · {releases}</span></p>'
         f'<p class="meta-line">{robot_line}</p>'

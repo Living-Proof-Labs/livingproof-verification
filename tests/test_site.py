@@ -2205,11 +2205,15 @@ def test_failing_evaluators_chips_and_clean_history_view(tmp_path):
     assert "software stock 1.0.0" in history
     assert 'href="runs/100/#evaluator-livingproof-scenario"' in history
     assert ">Scenario</a>" in history
+    assert 'aria-label="Open the Scenario finding in the report"' in history
     assert "Drifted 0.66 m from the centreline, then touched the wall." in history
     assert f">{'a' * 8}</a>" in history
+    assert 'class="release is-fallback"' in history
     assert ">v1.0.0</a>" in history
     assert '<time datetime="2026-11-18T05:00:00Z"' in history
+    assert 'title="18 Nov 2026, 16:00 AEDT"' in history
     assert "20 minutes ago</time>" in history
+    assert "History is pruned holistically elsewhere." in history
     assert "SHA256SUMS" not in history
     assert "CI run" not in history
     assert "/actions/" not in history
@@ -2221,3 +2225,94 @@ def test_failing_evaluators_chips_and_clean_history_view(tmp_path):
     assert "/actions/" not in index
     assert (site / "styles.css").is_file()
     local_links_resolve(site)
+
+
+def test_old_run_json_records_fall_back_without_new_fields(tmp_path):
+    """Pre-#129 run.json: no tag shows the short SHA, no poster is CI, no chips."""
+    site = tmp_path / "site"
+    site_tool.build(
+        site, reports_for(tmp_path, "old", 0, "FAIL"), run("100", "2026-11-18T05:00:00Z")
+    )
+    base = site / "booster-t1/stock-mujoco-hallway"
+    path = base / "runs/100/run.json"
+    record = json.loads(path.read_text())
+    record["commit"].pop("tag", None)
+    record.pop("poster", None)
+    record.pop("failing_evaluators", None)
+    path.write_text(json.dumps(record, indent=2) + "\n")
+    site_tool.render(site, now="2026-11-18T05:20:00Z")
+    history = (base / "index.html").read_text()
+    assert 'class="release is-fallback"' in history
+    assert f">{record['commit']['sha'][:8]}</a>" in history
+    assert 'class="poster">CI</span>' in history
+    assert 'class="chip"' not in history and "class='chip'" not in history
+    assert "SHA256SUMS" not in history
+    local_links_resolve(site)
+
+
+def test_time_tooltip_uses_australia_sydney(tmp_path):
+    """#129: the <time> tooltip is Australia/Sydney local time, not UTC."""
+    site = tmp_path / "site"
+    site_tool.build(
+        site, reports_for(tmp_path, "one", 19, "PASS"), run("100", "2026-11-18T05:00:00Z")
+    )
+    history = (site / "booster-t1/stock-mujoco-hallway/index.html").read_text()
+    assert '<time datetime="2026-11-18T05:00:00Z"' in history
+    assert 'title="18 Nov 2026, 16:00 AEDT"' in history
+    assert "UTC" not in history
+    path = site / "booster-t1/stock-mujoco-hallway/runs/100/run.json"
+    record = json.loads(path.read_text())
+    record["run"]["created"] = "2026-06-18T05:00:00Z"
+    path.write_text(json.dumps(record, indent=2) + "\n")
+    site_tool.render(site, now="2026-06-18T05:20:00Z")
+    winter = (site / "booster-t1/stock-mujoco-hallway/index.html").read_text()
+    assert '<time datetime="2026-06-18T05:00:00Z"' in winter
+    assert 'title="18 Jun 2026, 15:00 AEST"' in winter
+
+
+def test_human_reviewer_chip_renders_when_a_finding_was_stored(tmp_path):
+    """#129: each human reviewer who reports a problem is their own chip."""
+    site = tmp_path / "site"
+    poster = {"type": "human", "name": "Aaron Roller"}
+    site_tool.build(
+        site,
+        reports_for(tmp_path, "fail", 0, "FAIL"),
+        {**run("150", "2026-11-18T05:10:00Z"), "poster": poster},
+    )
+    base = site / "booster-t1/stock-mujoco-hallway"
+    path = base / "runs/150/run.json"
+    record = json.loads(path.read_text())
+    assert record["poster"] == poster
+    reviewers = list(record.get("failing_evaluators") or [])
+    reviewers.append(
+        {
+            "id": "aaron-roller",
+            "title": "Aaron Roller",
+            "href": "#evaluator-aaron-roller",
+            "summary": "The robot stepped through the wall.",
+        }
+    )
+    record["failing_evaluators"] = reviewers
+    path.write_text(json.dumps(record, indent=2) + "\n")
+    site_tool.render(site, now="2026-11-18T05:20:00Z")
+    history = (base / "index.html").read_text()
+    assert 'aria-label="Open the Aaron Roller finding in the report"' in history
+    assert 'href="runs/150/#evaluator-aaron-roller"' in history
+    assert ">Aaron Roller</a>" in history
+    assert 'class="poster">Aaron Roller</span>' in history
+    local_links_resolve(site)
+
+
+def test_history_styles_match_the_requested_rhythm():
+    """Art's #135 review: 16px row padding, 8px gaps, mono SHA, stronger group headings."""
+    css = site_tool.SITE_STYLES
+    assert "padding: 1rem;" in css
+    assert "gap: 0.5rem;" in css
+    assert ".finding {\n  margin: 0.5rem 0 0;" in css
+    assert ".row-meta" in css and "margin-top: 0.5rem;" in css
+    assert ".release.is-fallback" in css
+    assert "ui-monospace" in css and "monospace" in css
+    assert ".robot-group h2" in css
+    assert "font-size: 0.88rem;" in css
+    assert "font-weight: 700;" in css
+    assert ".robot-group:first-child" in css
