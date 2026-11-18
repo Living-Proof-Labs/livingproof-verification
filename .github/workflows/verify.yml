@@ -81,7 +81,7 @@ jobs:
       pull-requests: write
     with:
       repository: Living-Proof-Labs/livingproof-unitree-g1
-      ref: da7d9504cb5d4deaa509b92a1973490e43888f90
+      ref: 3c8a781dc42b56126cc599e00a7d7ed360ed6671
       configurations: '["stock"]'
       verification-lock: verifications/unitree-g1-stock-mujoco-hallway.lock.json
       artifact-prefix: unitree-g1-stock-mujoco-hallway-
@@ -95,7 +95,7 @@ jobs:
       pull-requests: write
     with:
       repository: Living-Proof-Labs/livingproof-unitree-g1
-      ref: da7d9504cb5d4deaa509b92a1973490e43888f90
+      ref: 3c8a781dc42b56126cc599e00a7d7ed360ed6671
       configurations: '["playground"]'
       verification-lock: verifications/unitree-g1-playground-mujoco-hallway.lock.json
       artifact-prefix: unitree-g1-playground-mujoco-hallway-
@@ -109,7 +109,7 @@ jobs:
       pull-requests: write
     with:
       repository: Living-Proof-Labs/livingproof-booster-t1
-      ref: 61b2559ebb401973ec7733b4c886753e6d2b704c
+      ref: a00c7d884b764c89404dc91be9232c0d55eb392c
       configurations: '["stock"]'
       verification-lock: verifications/booster-t1-stock-mujoco-hallway.lock.json
       artifact-prefix: booster-t1-stock-mujoco-hallway-
@@ -123,7 +123,7 @@ jobs:
       pull-requests: write
     with:
       repository: Living-Proof-Labs/livingproof-unitree-go1
-      ref: fa5383a64e6d351a7b592e75796bf1f32c107197
+      ref: f2aa573ded0d845897f2c7b7f1c02b645ad0ad3b
       configurations: '["playground"]'
       verification-lock: verifications/unitree-go1-playground-mujoco-hallway.lock.json
       artifact-prefix: unitree-go1-playground-mujoco-hallway-
@@ -139,7 +139,7 @@ jobs:
       pull-requests: write
     with:
       repository: Living-Proof-Labs/livingproof-unitree-g1
-      ref: 68725986336c38d25a5ea421f895d9d796aed7f1
+      ref: 3c8a781dc42b56126cc599e00a7d7ed360ed6671
       configurations: '["stock"]'
       verification-lock: verifications/unitree-g1-stock-mujoco-corner.lock.json
       artifact-prefix: unitree-g1-stock-mujoco-corner-
@@ -153,7 +153,7 @@ jobs:
       pull-requests: write
     with:
       repository: Living-Proof-Labs/livingproof-booster-t1
-      ref: 8e09bb82234742c3ce88aa5fe2e7e02afaf3858a
+      ref: a00c7d884b764c89404dc91be9232c0d55eb392c
       configurations: '["stock"]'
       verification-lock: verifications/booster-t1-stock-mujoco-corner.lock.json
       artifact-prefix: booster-t1-stock-mujoco-corner-
@@ -167,7 +167,7 @@ jobs:
       pull-requests: write
     with:
       repository: Living-Proof-Labs/livingproof-unitree-go1
-      ref: c2fc81f6d5c03206bde4ed858dee2074542bfe5d
+      ref: f2aa573ded0d845897f2c7b7f1c02b645ad0ad3b
       configurations: '["playground"]'
       verification-lock: verifications/unitree-go1-playground-mujoco-corner.lock.json
       artifact-prefix: unitree-go1-playground-mujoco-corner-

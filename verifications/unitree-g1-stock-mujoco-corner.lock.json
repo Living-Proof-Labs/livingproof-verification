@@ -2,14 +2,14 @@
   "format": "livingproof-verification-lock/0.2.0",
   "definition": {
     "path": "unitree-g1-stock-mujoco-corner.toml",
-    "sha256": "b3ad02fd4b3f53c333a1f4f9e371c038c8e387469313e391c1f913520695e1b5"
+    "sha256": "2de249ef068a595a99eb3918e55efbfdcfa55316a0bbb040dd3885aaf980feaf"
   },
   "procedure": "scenario",
   "scenario": "walk-corner@0.1.0",
   "robot": {
     "repository": "Living-Proof-Labs/livingproof-unitree-g1",
-    "ref": "v2.2.1",
-    "commit": "68725986336c38d25a5ea421f895d9d796aed7f1",
+    "ref": "v2.2.11",
+    "commit": "3c8a781dc42b56126cc599e00a7d7ed360ed6671",
     "configurations": [
       "stock"
     ],
@@ -27,8 +27,8 @@
     },
     "runner": {
       "repository": "Living-Proof-Labs/livingproof-sim-mujoco",
-      "tag": "v3.2.1",
-      "commit": "f9c326f370cc3e54bf38932bfb332455dc4b5ef1"
+      "tag": "v3.4.1",
+      "commit": "4e97b6c1ee72a9f6598a91d0a1476116dc17ae13"
     },
     "verifier": {
       "repository": "Living-Proof-Labs/capability-verifier",

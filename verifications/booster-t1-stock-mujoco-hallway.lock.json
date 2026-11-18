@@ -2,14 +2,14 @@
   "format": "livingproof-verification-lock/0.2.0",
   "definition": {
     "path": "booster-t1-stock-mujoco-hallway.toml",
-    "sha256": "2da51134f83543616e9973112e28fdae2e72d29159c6da04816969b265a3fce5"
+    "sha256": "bc6e864ca49d42fc14930fcfe302308c0a68be9dc350b0975feceee4a6a07ab7"
   },
   "procedure": "walk-hallway",
   "scenario": "walk-hallway@0.1.0",
   "robot": {
     "repository": "Living-Proof-Labs/livingproof-booster-t1",
-    "ref": "v1.0.0",
-    "commit": "61b2559ebb401973ec7733b4c886753e6d2b704c",
+    "ref": "v2.2.10",
+    "commit": "a00c7d884b764c89404dc91be9232c0d55eb392c",
     "configurations": [
       "stock"
     ],
@@ -27,8 +27,8 @@
     },
     "runner": {
       "repository": "Living-Proof-Labs/livingproof-sim-mujoco",
-      "tag": "v2.0.3",
-      "commit": "292589ad15582c26cff2bffcc851e3abaf4ea708"
+      "tag": "v3.4.1",
+      "commit": "4e97b6c1ee72a9f6598a91d0a1476116dc17ae13"
     },
     "verifier": {
       "repository": "Living-Proof-Labs/capability-verifier",
@@ -64,7 +64,7 @@
       "name": "playground",
       "version": "1.0.0",
       "path": "configurations/playground.json",
-      "sha256": "3ddd5408f875b70111ece48c2a26be01edae7e8eba09b3524a5cacc3d636f3f1"
+      "sha256": "beb97983a415b43f21e4cad0a715692e7d2b76bf1e55b58240871b754e0d4407"
     }
   ],
   "plan": {

@@ -2,14 +2,14 @@
   "format": "livingproof-verification-lock/0.2.0",
   "definition": {
     "path": "unitree-g1-stock-mujoco-hallway.toml",
-    "sha256": "885d33d20a8cd82d7fd41cabd99656c9446896e8a331d45bc48aaa451ebd2bea"
+    "sha256": "2fbb53fca6beeaa1f6662d4937a7fbeebccd81ed54bd2cae61ecd1dc3df6e829"
   },
   "procedure": "walk-hallway",
   "scenario": "walk-hallway@0.1.0",
   "robot": {
     "repository": "Living-Proof-Labs/livingproof-unitree-g1",
-    "ref": "v1.0.0",
-    "commit": "da7d9504cb5d4deaa509b92a1973490e43888f90",
+    "ref": "v2.2.11",
+    "commit": "3c8a781dc42b56126cc599e00a7d7ed360ed6671",
     "configurations": [
       "stock"
     ],
@@ -27,8 +27,8 @@
     },
     "runner": {
       "repository": "Living-Proof-Labs/livingproof-sim-mujoco",
-      "tag": "v2.0.3",
-      "commit": "292589ad15582c26cff2bffcc851e3abaf4ea708"
+      "tag": "v3.4.1",
+      "commit": "4e97b6c1ee72a9f6598a91d0a1476116dc17ae13"
     },
     "verifier": {
       "repository": "Living-Proof-Labs/capability-verifier",
@@ -56,15 +56,15 @@
   "configurations": [
     {
       "name": "stock",
-      "version": "1.1.0",
+      "version": "1.1.1",
       "path": "configurations/stock.json",
-      "sha256": "b8f8a6dd2e2286744359404eb6c46562b73875aef9de50276777ddccb2239770"
+      "sha256": "8baf584eb025fa4408aad20a81521b73bc068a3a7e613dfeeb8f03d24eb02b5e"
     },
     {
       "name": "playground",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "path": "configurations/playground.json",
-      "sha256": "d4e68f256c89a80e2b2ad815cf43c566ba7bb2ef6114fe22f71bd954f1f920a6"
+      "sha256": "1fef76d2e5b6eb0ab7627d1f93333e8ca2ec01249a5b1d1f68876186f0657e89"
     }
   ],
   "plan": {
