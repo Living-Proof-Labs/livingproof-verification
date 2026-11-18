@@ -160,10 +160,10 @@ test('CRLF settings keep their line endings and still change only the tag', asyn
   assert.match(output, /\r\n/);
 });
 
-test('the seven locks are not managed files and their pins do not match', () => {
+test('the ten active locks are not managed files and their pins do not match', () => {
   const manager = reporterManager(config);
-  // Four walk-hallway and three walk-corner definitions (robot-capability-specs#40).
-  assert.equal(locks.length, 7);
+  // Four walk-hallway and six left/right corner definitions (#103).
+  assert.equal(locks.length, 10);
   const files = [
     SETTINGS,
     ...locks,
@@ -316,7 +316,7 @@ test('two bumps in a row still find the one pin', async () => {
   assert.equal(extracted.deps[0].currentValue, `v${major}.${minor + 2}.0`);
 });
 
-test('excludeCommitPaths covers exactly the seven locks among tracked files', () => {
+test('excludeCommitPaths covers exactly the ten active locks among tracked files', () => {
   const tracked = execFileSync('git', ['ls-files'], { encoding: 'utf8' }).trim().split('\n');
   const matchers = config.excludeCommitPaths.map((pattern) => minimatch(pattern, { dot: true }));
   const excluded = tracked.filter((file) => matchers.some((matcher) => matcher.match(file)));
