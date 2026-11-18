@@ -292,11 +292,12 @@ def test_every_lock_pins_a_reporter_that_renders_walk_corner_places():
         assert (reporter["tag"], reporter["commit"]) == REPORTER_RELEASE, name
 
 
-def test_every_lock_pins_livingproof_evaluator_run_v1_1_1():
-    """Every lock pins livingproof-evaluator-run v1.1.1 so CI executes the pins check (#136)."""
+def test_every_lock_pins_livingproof_evaluator_run_v1_5_1():
+    """Every lock pins livingproof-evaluator-run v1.5.1, so CI runs all five Run Integrity
+    checks: pins, completeness, plan-conformance, termination and recording (#136)."""
     expected = {
         "repository": "Living-Proof-Labs/livingproof-evaluator-run",
-        "tag": "v1.1.1",
+        "tag": "v1.5.1",
     }
     for name in [*CORNER, *HALLWAY]:
         assert _lock(name)["evaluators"]["livingproof-evaluator-run"] == expected, name

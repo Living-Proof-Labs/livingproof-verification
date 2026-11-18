@@ -1000,7 +1000,7 @@ def test_settings_run_evaluator_is_resolved_and_recorded_tag_only(tmp_path, monk
         settings.read_text()
         + "\n[evaluators.livingproof-evaluator-run]\n"
         + 'repository = "Living-Proof-Labs/livingproof-evaluator-run"\n'
-        + 'tag = "v1.1.1"\n'
+        + 'tag = "v1.5.1"\n'
     )
     resolved = []
 
@@ -1009,10 +1009,10 @@ def test_settings_run_evaluator_is_resolved_and_recorded_tag_only(tmp_path, monk
         return "6" * 40 if repository.endswith("livingproof-evaluator-run") else EVALUATOR_COMMIT
 
     lock, _notes = _generate(tmp_path, definition, resolve=resolve)
-    assert ("Living-Proof-Labs/livingproof-evaluator-run", "v1.1.1") in resolved
+    assert ("Living-Proof-Labs/livingproof-evaluator-run", "v1.5.1") in resolved
     assert lock["evaluators"]["livingproof-evaluator-run"] == {
         "repository": "Living-Proof-Labs/livingproof-evaluator-run",
-        "tag": "v1.1.1",
+        "tag": "v1.5.1",
     }
     assert lock_tool.v2_problems(lock) == []
 
