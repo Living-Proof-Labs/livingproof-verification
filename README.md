@@ -22,7 +22,7 @@ The recommended path is the devcontainer (`.devcontainer/devcontainer.json`): th
 
 ```sh
 docker run --rm -u $(id -u):$(id -g) -v $PWD:/work \
-  ghcr.io/living-proof-labs/capability-verifier-hallway:2.2.0@sha256:bacefdac9b7ddee135a015361f82ddcf149df74365cb5d79b0f8a6780d5d303d \
+  ghcr.io/living-proof-labs/capability-verifier-hallway:2.3.0@sha256:b59340ebc7a3ee96d67e105501f8ec13e692842177b70b96c42b8e3036d2a192 \
   capability verify run --reporter source verifications/unitree-g1-stock-mujoco-hallway.toml
 ```
 
