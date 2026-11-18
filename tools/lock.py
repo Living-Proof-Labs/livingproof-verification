@@ -42,7 +42,10 @@ repository and tag, and the lock records the tag's commit and the sha256 of
 ``[releases.specs]`` names repository and tag, and the lock records the commit and
 the sha256 of that scenario's ``parameters.json`` and ``description.json`` at the
 commit (null when a file is absent; specs v2.0.2 has no walk-hallway
-``parameters.json``). Tags are not changed. The
+``parameters.json``). The lock also records ``sources.world`` and
+``sources.parameters`` (relative path and sha256) so a released verifier can
+place those files in the robot root (capability-verifier v2.3.0, #150). A
+missing parameters.json is omitted from ``sources``. Tags are not changed. The
 runner release is then the livingproof-sim-mujoco tag and commit the robot's
 ``uv.lock`` installs, so the lock names the simulator that actually runs.
 """
@@ -526,6 +529,73 @@ def scenario_file_paths(scenario: str) -> tuple[str, ...]:
     return tuple(f"specs/scenarios/{name}/{filename}" for filename in SCENARIO_SPEC_FILES)
 
 
+def world_source_path(world: object) -> str | None:
+    """Released ``world.json`` path, or ``None`` when id or version is missing."""
+    if not isinstance(world, dict):
+        return None
+    ident, version = world.get("id"), world.get("version")
+    if not isinstance(ident, str) or not ident or not isinstance(version, str) or not version:
+        return None
+    return f"worlds/{ident}/{version}/world.json"
+
+
+def parameters_source_path(scenario: object) -> str | None:
+    """Released ``parameters.json`` path, or ``None`` when the scenario id is unusable."""
+    if not isinstance(scenario, str) or not SCENARIO_ID.fullmatch(scenario):
+        return None
+    return f"specs/scenarios/{scenario.split('@', 1)[0]}/parameters.json"
+
+
+def source_bindings(lock: dict) -> dict:
+    """``sources`` entries the verifier places in the robot root.
+
+    Paths are the released files (``worlds/<id>/<version>/world.json`` and
+    ``specs/scenarios/<scenario>/parameters.json``). Digests are the ones the
+    lock already records. A missing parameters.json (digest null) is omitted.
+    """
+    sources: dict[str, dict[str, str]] = {}
+    world = lock.get("world")
+    path = world_source_path(world)
+    digest = world.get("sha256") if isinstance(world, dict) else None
+    if path and isinstance(digest, str) and FILE_SHA.fullmatch(digest):
+        sources["world"] = {"path": path, "sha256": digest}
+    releases = lock.get("releases")
+    files = (
+        releases.get("specs", {}).get("files")
+        if isinstance(releases, dict) and isinstance(releases.get("specs"), dict)
+        else None
+    )
+    param_path = parameters_source_path(lock.get("scenario"))
+    digest = files.get(param_path) if isinstance(files, dict) and param_path else None
+    if param_path and isinstance(digest, str) and FILE_SHA.fullmatch(digest):
+        sources["parameters"] = {"path": param_path, "sha256": digest}
+    return sources
+
+
+def _source_entry_problems(
+    kind: str, entry: object, expected_path: str | None, expected_sha: object
+) -> list[str]:
+    """Shape and digest problems for one ``sources.<kind>`` binding."""
+    label = f"sources.{kind}"
+    if not isinstance(entry, dict):
+        return [f"{label} must be an object with path and sha256"]
+    problems = []
+    if not _relative(entry.get("path")):
+        problems.append(f"{label} path must stay inside the robot repository")
+    digest = entry.get("sha256")
+    if not isinstance(digest, str) or not FILE_SHA.fullmatch(digest):
+        problems.append(f"{label} sha256 must be 64 hex characters")
+    if expected_path and entry.get("path") != expected_path:
+        problems.append(f"{label} path must be {expected_path}")
+    if (
+        isinstance(expected_sha, str)
+        and FILE_SHA.fullmatch(expected_sha)
+        and digest != expected_sha
+    ):
+        problems.append(f"{label} sha256 must match the recorded digest")
+    return problems
+
+
 def _file_digest(root: Path, rel: str) -> str | None:
     """sha256 of ``rel`` under ``root``, or ``None`` when the path is absent."""
     path = root / rel
@@ -714,6 +784,31 @@ def v2_problems(lock: dict) -> list[str]:
         problems.append(f"missing evaluators.{EVALUATOR}")
     else:
         problems.extend(_pin_problems(f"evaluators.{EVALUATOR}", evaluators[EVALUATOR]))
+    # Optional on locks that predate source bindings; when present they must match
+    # the recorded world and parameters digests and stay inside the robot root.
+    if "sources" in lock:
+        sources = lock.get("sources")
+        if not isinstance(sources, dict):
+            problems.append("sources must be an object")
+        else:
+            world_path = world_source_path(world)
+            world_sha = world.get("sha256") if isinstance(world, dict) else None
+            if "world" in sources:
+                problems.extend(
+                    _source_entry_problems("world", sources.get("world"), world_path, world_sha)
+                )
+            param_path = parameters_source_path(lock.get("scenario"))
+            files = specs.get("files") if isinstance(specs, dict) else None
+            param_sha = files.get(param_path) if isinstance(files, dict) and param_path else None
+            if "parameters" in sources:
+                problems.extend(
+                    _source_entry_problems(
+                        "parameters", sources.get("parameters"), param_path, param_sha
+                    )
+                )
+            extra = sorted(set(sources) - {"world", "parameters"})
+            if extra:
+                problems.append(f"sources names unknown kinds {extra}")
     return problems
 
 
@@ -1101,6 +1196,9 @@ def generate(
         "plan": owned["plan"],
         "evaluators": evaluators,
     }
+    bindings = source_bindings(lock)
+    if bindings:
+        lock["sources"] = bindings
     problems = v2_problems(lock)
     if problems:
         raise LockError(f"{definition.name}: " + "; ".join(problems))
@@ -1281,6 +1379,11 @@ def update_locks(
         if not isinstance(evaluators, dict):
             raise LockError(f"{path.name}: evaluators must be an object")
         evaluators[EVALUATOR] = evaluator
+        if json.dumps(lock.get("robot"), sort_keys=True) != robot:
+            raise LockError(f"{path.name}: --update must not change the robot pin")
+        bindings = source_bindings(lock)
+        if bindings:
+            lock["sources"] = bindings
         if json.dumps(lock.get("robot"), sort_keys=True) != robot:
             raise LockError(f"{path.name}: --update must not change the robot pin")
         problems = v2_problems(lock)

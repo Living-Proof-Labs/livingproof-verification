@@ -903,3 +903,27 @@ def test_the_maintainer_command_is_documented():
     assert lock_tool.UPDATE_COMMAND in readme
     assert any(lock_tool.UPDATE_COMMAND in note for note in notes)
     assert "fix:" in readme and "chore:" in readme
+
+
+def test_committed_locks_record_world_and_parameter_source_bindings():
+    """Fail-first for livingproof-verification#119: every published lock names the files."""
+    problems = []
+    for definition in DEFINITIONS:
+        document = lock_of(definition)
+        sources = document.get("sources")
+        label = definition.name
+        if not isinstance(sources, dict):
+            problems.append(f"{label}: missing sources")
+            continue
+        world = document["world"]
+        world_path = f"worlds/{world['id']}/{world['version']}/world.json"
+        if sources.get("world") != {"path": world_path, "sha256": world["sha256"]}:
+            problems.append(f"{label}: sources.world is {sources.get('world')!r}")
+        param_path = f"specs/scenarios/{document['scenario'].split('@', 1)[0]}/parameters.json"
+        digest = document["releases"]["specs"]["files"].get(param_path)
+        if not isinstance(digest, str):
+            problems.append(f"{label}: no parameters.json digest to bind")
+            continue
+        if sources.get("parameters") != {"path": param_path, "sha256": digest}:
+            problems.append(f"{label}: sources.parameters is {sources.get('parameters')!r}")
+    assert problems == []
