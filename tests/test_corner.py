@@ -283,7 +283,7 @@ def test_every_definition_pins_one_verifier_release():
 
 
 def test_every_lock_pins_a_reporter_that_renders_walk_corner_places():
-    """Each report job renders HTML from its lock's reporter, so all seven need #79's fix."""
+    """Each report job renders HTML from its lock's reporter, so all ten need #79's fix."""
     settings = tomllib.loads((ROOT / "verifications/settings.toml").read_text())
     assert settings["reporter"]["tag"] == REPORTER_RELEASE[0]
     for name in [*CORNER, *HALLWAY]:
