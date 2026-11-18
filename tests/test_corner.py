@@ -81,7 +81,7 @@ CORNER = {
     },
 }
 # hallway-open 0.1.0 at livingproof-worlds v1.1.0, the world livingproof-sim-mujoco
-# v2.0.3 vendors. The lock records the world.json sha256 v2.0.0 assessment requires.
+# v3.4.1 validates against its schema. The lock records the world.json sha256 v2.0.0 assessment requires.
 HALLWAY_WORLD = {
     "id": "hallway-open",
     "version": "0.1.0",
@@ -106,26 +106,26 @@ HALLWAY_SPECS = {
 HALLWAY_ROBOT = {
     "booster-t1-stock-mujoco-hallway": {
         "repository": "Living-Proof-Labs/livingproof-booster-t1",
-        "ref": "v1.0.0",
-        "commit": "61b2559ebb401973ec7733b4c886753e6d2b704c",
+        "ref": "v2.2.10",
+        "commit": "a00c7d884b764c89404dc91be9232c0d55eb392c",
         "configurations": ["stock"],
     },
     "unitree-g1-playground-mujoco-hallway": {
         "repository": "Living-Proof-Labs/livingproof-unitree-g1",
-        "ref": "v1.0.0",
-        "commit": "da7d9504cb5d4deaa509b92a1973490e43888f90",
+        "ref": "v2.2.11",
+        "commit": "3c8a781dc42b56126cc599e00a7d7ed360ed6671",
         "configurations": ["playground"],
     },
     "unitree-g1-stock-mujoco-hallway": {
         "repository": "Living-Proof-Labs/livingproof-unitree-g1",
-        "ref": "v1.0.0",
-        "commit": "da7d9504cb5d4deaa509b92a1973490e43888f90",
+        "ref": "v2.2.11",
+        "commit": "3c8a781dc42b56126cc599e00a7d7ed360ed6671",
         "configurations": ["stock"],
     },
     "unitree-go1-playground-mujoco-hallway": {
         "repository": "Living-Proof-Labs/livingproof-unitree-go1",
-        "ref": "v1.0.0",
-        "commit": "fa5383a64e6d351a7b592e75796bf1f32c107197",
+        "ref": "v2.2.11",
+        "commit": "f2aa573ded0d845897f2c7b7f1c02b645ad0ad3b",
         "configurations": ["playground"],
     },
 }
@@ -134,20 +134,20 @@ HALLWAY_ROBOT = {
 # specs and runner releases), as sorted-key JSON.
 HALLWAY = {
     "booster-t1-stock-mujoco-hallway": (
-        "2da51134f83543616e9973112e28fdae2e72d29159c6da04816969b265a3fce5",
-        "fc3088da8163e46ea12aa533fcb4bea5af1818b0bfbc325ba135c94cce4bf97a",
+        "bc6e864ca49d42fc14930fcfe302308c0a68be9dc350b0975feceee4a6a07ab7",
+        "5ed6fc97066dbff74b539866ec7fb53748ee76330006617881e812054db673f9",
     ),
     "unitree-g1-playground-mujoco-hallway": (
-        "67db35a30d7c078c6fa908818076f99de1475733f3b9d61ad5e81a916926bd79",
-        "fc7fda01d4f8d0878e31433e5ad987c5fa2a670d21f1e751dd6e59411add0a28",
+        "d8edb6b4d5b371f4672a2ae8b1595cb660718359cb9b3817eef6cdcef306e675",
+        "e5ef65f6fa0aa3e1b1487c171bf7bd47a38015d7b4285782e1deb31c1ba4186b",
     ),
     "unitree-g1-stock-mujoco-hallway": (
-        "885d33d20a8cd82d7fd41cabd99656c9446896e8a331d45bc48aaa451ebd2bea",
-        "2b1e80b5e1f4088d69b3fe1c3721b3b7da53796c46d71e4728ebdbe265094e74",
+        "2fbb53fca6beeaa1f6662d4937a7fbeebccd81ed54bd2cae61ecd1dc3df6e829",
+        "716f327edb5c33a8f0a48c64ac0daa054b0016560515bc9d0f0968b93f7a38d9",
     ),
     "unitree-go1-playground-mujoco-hallway": (
-        "ee01a8bf4849deb1297b9b0e83f603786ad6d591648277602f8bc1c415bb5495",
-        "b7129ba2c55d1826e5ad8203a3668d889b670e097378cafcd81b812b1d0fc6f4",
+        "8b92ebc98abae63574cd66685bdc2bc159aa213c67f4ef24f16d9eaa018a11a8",
+        "e3f7d3987434296fc12cdbde4b2afcdb0a0ae864514ca9d6af9b88d15957eaeb",
     ),
 }
 EVIDENCE_KEYS = ("procedure", "scenario", "robot", "world", "plan", "configurations")
@@ -313,8 +313,8 @@ def test_each_hallway_lock_pins_the_released_robot_world_runner_and_verifier(nam
     assert lock["releases"]["specs"] == HALLWAY_SPECS
     assert lock["releases"]["runner"] == {
         "repository": "Living-Proof-Labs/livingproof-sim-mujoco",
-        "tag": "v2.0.3",
-        "commit": "292589ad15582c26cff2bffcc851e3abaf4ea708",
+        "tag": "v3.4.1",
+        "commit": "4e97b6c1ee72a9f6598a91d0a1476116dc17ae13",
     }
     verifier = lock["releases"]["verifier"]
     assert (verifier["repository"], verifier["tag"], verifier["commit"]) == (
