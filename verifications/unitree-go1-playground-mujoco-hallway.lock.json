@@ -72,6 +72,10 @@
       "repository": "Living-Proof-Labs/livingproof-evaluator-scenario",
       "tag": "v1.3.0",
       "commit": "965629ab1e9508cb3090931abbae6a957bf5d294"
+    },
+    "livingproof-evaluator-run": {
+      "repository": "Living-Proof-Labs/livingproof-evaluator-run",
+      "tag": "v1.1.1"
     }
   },
   "sources": {

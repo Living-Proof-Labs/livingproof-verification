@@ -12,3 +12,9 @@ image = "ghcr.io/living-proof-labs/livingproof-capability-report"
 # the reporter. Report pages and run.json are kept.
 [site]
 evidence_retention_days = 7
+
+# Run-integrity evaluator release for capability-verifier's run-integrity job.
+# Recorded as evaluators.livingproof-evaluator-run (repository and tag) in every lock.
+[evaluators.livingproof-evaluator-run]
+repository = "Living-Proof-Labs/livingproof-evaluator-run"
+tag = "v1.1.1"

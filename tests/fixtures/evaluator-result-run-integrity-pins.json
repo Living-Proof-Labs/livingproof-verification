@@ -1,0 +1,73 @@
+{
+  "format": "livingproof-evaluator-result/1.1.0",
+  "evaluator": {
+    "id": "livingproof-run-integrity",
+    "version": "1.1.1",
+    "kind": "integrity",
+    "execution": "deterministic",
+    "display_name": "Run Integrity",
+    "publisher": "Living Proof Labs",
+    "icon": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\"><rect x=\"3.5\" y=\"4.5\" width=\"17\" height=\"15\" rx=\"3.5\" stroke=\"currentColor\" stroke-width=\"2\"/><path d=\"M6.5 12.5h3l1.2-3 2.2 7 1.6-4H17.5\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg>"
+  },
+  "inputs": [
+    {
+      "role": "manifest",
+      "uri": "manifest.json",
+      "sha256": "12a4273af2b5c8230ff65829a601660e0d0b43929e468d37e6702dd882d61575"
+    },
+    {
+      "role": "observations",
+      "uri": "trials/trial-01.json",
+      "sha256": "a5adcfe9c24a4a9b547ea3a209efebc245f0c512442e1c48ed537c643ea4b7c3"
+    }
+  ],
+  "timestamps": {
+    "started_at": "2026-11-18T08:27:09Z",
+    "completed_at": "2026-11-18T08:27:09Z"
+  },
+  "integrity": {
+    "run": {
+      "id": "walk-corner-left-unitree-go1-playground-20261118T064836Z",
+      "test_system_status": "COMPLETED",
+      "success": true,
+      "percentage": 100.0
+    },
+    "trials": [
+      {
+        "id": "trial-01",
+        "test_system_status": "COMPLETED",
+        "success": true,
+        "percentage": 100
+      }
+    ],
+    "checks": [
+      {
+        "id": "completeness",
+        "version": "1.0.0",
+        "applicable": true,
+        "success": true,
+        "percentage": 100.0,
+        "findings": []
+      },
+      {
+        "id": "pins",
+        "version": "1.0.0",
+        "applicable": true,
+        "success": true,
+        "percentage": 100,
+        "findings": []
+      }
+    ]
+  },
+  "descriptor": {
+    "title": "Run Integrity",
+    "purpose": "Judges whether the run and the test system can be trusted.",
+    "version": "1.1.1",
+    "kind": "Test system",
+    "source": "Living Proof Labs",
+    "tier": "test_system_status",
+    "icon": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\"><rect x=\"3.5\" y=\"4.5\" width=\"17\" height=\"15\" rx=\"3.5\" stroke=\"currentColor\" stroke-width=\"2\"/><path d=\"M6.5 12.5h3l1.2-3 2.2 7 1.6-4H17.5\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg>",
+    "icon_accessible_name": "Run Integrity",
+    "success_copy": "Every planned trial has its observation file. Matched the verification lock: runner, world, configuration. Not checked: specs, verifier."
+  }
+}
