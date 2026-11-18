@@ -1555,6 +1555,66 @@ def render_with_reporter(
         return destination.read_text()
 
 
+def spec_provenance_html(record: dict, report: object, prefix: str = "") -> str:
+    """Explain recorded spec roles without changing either saved document.
+
+    The caller pin is not proof that an old runner loaded a catalog. Assessment
+    identities come from the saved summaries, never the current verification lock.
+    Keep every distinct assessment identity (a report can contain several).
+    """
+    generation = (record.get("releases") or {}).get("specs")
+    summaries = report.get("summaries", []) if isinstance(report, dict) else []
+    assessed = []
+    for summary in summaries:
+        spec = summary.get("spec") if isinstance(summary, dict) else None
+        if isinstance(spec, dict) and spec and spec not in assessed:
+            assessed.append(spec)
+
+    def identity(spec):
+        if not isinstance(spec, dict) or not spec:
+            return "Not recorded"
+        fields = [
+            spec.get("repository"),
+            spec.get("tag"),
+            spec.get("commit"),
+        ]
+        if spec.get("capability"):
+            fields.append(spec["capability"])
+        if spec.get("revision"):
+            fields.append(f"revision {spec['revision']}")
+        return html.escape(" · ".join(str(value) for value in fields if value)) or "Not recorded"
+
+    anchor = "spec-provenance-" + record["folder"] if prefix else "spec-provenance"
+    return (
+        f'<section class="spec-provenance" id="{html.escape(anchor, quote=True)}">'
+        "<h2>Spec provenance</h2><dl>"
+        "<dt>Evidence-generation spec (recorded pin)</dt>"
+        f"<dd>{identity(generation)}</dd>"
+        "<dt>Assessment spec</dt>"
+        f"<dd>{'<br>'.join(identity(spec) for spec in assessed) or 'Not recorded'}</dd>"
+        "</dl><p>Generation source: "
+        f"{a(prefix + 'run.json', 'saved caller lock releases.specs')}. "
+        "Assessment source: "
+        f"{a(prefix + 'report.json', 'saved report summaries[].spec')}. "
+        "The report’s “Spec” field identifies the assessment catalog. "
+        "The generation pin alone does not establish which catalog bytes a historical runner loaded. "
+        "These labels describe the recorded run; they do not reassess it.</p></section>"
+    )
+
+
+def with_spec_provenance(public: str, record: dict, report: object) -> str:
+    """Add site provenance to the rendered view, leaving report downloads unchanged."""
+    section = spec_provenance_html(record, report)
+    # The pinned reporter owns the report layout; place this site-owned explanation
+    # at the start of its main region. Legacy HTML may have only a body (or be text).
+    opening = re.search(r"<main\b[^>]*>|<body\b[^>]*>", public, re.I)
+    main = re.search(r"<main\b[^>]*>", public, re.I)
+    opening = main or opening
+    if opening:
+        return public[: opening.end()] + section + public[opening.end() :]
+    return section + public
+
+
 def publish_run_page(folder: Path, record: dict, *, now: str, days: int, trial: bool) -> None:
     """The run directory's index is the styled report, not a frame around it."""
     html_text = reporter_html(folder)
@@ -1582,6 +1642,7 @@ def publish_run_page(folder: Path, record: dict, *, now: str, days: int, trial: 
         )
     else:
         public = scrub_reporter_html(html_text, record, trial=trial, expired=expired)
+    public = with_spec_provenance(public, record, report)
     if html_is_dirty(public):
         raise SiteError(
             f"{folder / 'index.html'}: public page still names an artifact or links to /actions/"
@@ -1681,7 +1742,12 @@ def remember_stored_wording(folder: Path, record: dict) -> None:
     (folder / "run.json").write_text(json.dumps(stored, indent=2) + "\n")
 
 
-SITE_STYLES = """:root {
+SITE_STYLES = """.spec-provenance { overflow-wrap: anywhere; }
+.spec-provenance h2 { font-size: 1rem; }
+.spec-provenance dt { font-weight: 600; }
+.spec-provenance dd { margin-left: 0; }
+.spec-provenance p { font-size: .875rem; }
+:root {
   color-scheme: light;
   --font-sans: "DM Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
   --navy: #01152d;
@@ -2232,7 +2298,9 @@ def _styled_document(
     )
 
 
-def _history_page_html(robot: str, variant: str, records: list[dict], now: str) -> str:
+def _history_page_html(
+    robot: str, variant: str, records: list[dict], now: str, reports: dict | None = None
+) -> str:
     newest = records[0]
     robot_title = _robot_title(robot)
     scenario_title = _scenario_title(newest, variant)
@@ -2243,6 +2311,7 @@ def _history_page_html(robot: str, variant: str, records: list[dict], now: str) 
     releases = " · ".join(
         f"{html.escape(name)} {a(release['url'], release['tag'])}"
         for name, release in newest["releases"].items()
+        if name != "specs"
     )
     robot_info = newest["robot"]
     repo_short = robot_info["repository"].rsplit("/", 1)[-1]
@@ -2284,7 +2353,8 @@ def _history_page_html(robot: str, variant: str, records: list[dict], now: str) 
             "<div>"
             f'<h2 class="title">{html.escape(scenario_title)}</h2>'
             f"{chips}{finding}"
-            '<div class="row-meta">'
+            + spec_provenance_html(record, (reports or {}).get(record["folder"]), run_prefix)
+            + '<div class="row-meta">'
             f"{_release_html(record)}"
             '<span class="dot">·</span>'
             f"{_relative_time_html(record['run']['created'], ref_now)}"
@@ -2396,12 +2466,11 @@ def render(site: Path, now: str = ""):
         latest = base / "latest"
         if latest.exists():
             shutil.rmtree(latest)
-        trials = {
-            record["folder"]: trial_model(
-                read_report(base / "runs" / record["folder"] / "report.json")
-            )
+        reports = {
+            record["folder"]: read_report(base / "runs" / record["folder"] / "report.json")
             for record in records
         }
+        trials = {folder: trial_model(report) for folder, report in reports.items()}
         newest = records[0]
         latest.mkdir(parents=True)
         (latest / "index.html").write_text(redirect_page(f"../runs/{newest['folder']}/"))
@@ -2414,7 +2483,7 @@ def render(site: Path, now: str = ""):
                 days=days,
                 trial=trials[record["folder"]],
             )
-        (base / "index.html").write_text(_history_page_html(robot, variant, records, now))
+        (base / "index.html").write_text(_history_page_html(robot, variant, records, now, reports))
     (site / "index.html").write_text(_index_page_html(history, now))
 
 
