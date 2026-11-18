@@ -2775,8 +2775,8 @@ def test_report_provenance_summary_is_one_line_and_hides_the_commit(tmp_path):
         "releases": {"specs": {**spec, "repository": "Living-Proof-Labs/robot-capability-specs"}}
     }
     block = site_tool.spec_provenance_html(record, {"summaries": [{"spec": spec}]})
-    assert block.startswith('<details class="spec-provenance" id="spec-provenance">')
-    summary = re.search(r"<summary>(.*?)</summary>", block, re.S).group(1)
+    assert block.startswith('<details class="spec-provenance" id="spec-provenance"')
+    summary = re.search(r"<summary[^>]*>(.*?)</summary>", block, re.S).group(1)
     assert "\n" not in summary
     assert re.sub(r"\s+", " ", visible_text(summary)).strip() == (
         "Spec v2.3.0 · walk-hallway · revision 0.1.0"
@@ -2796,8 +2796,8 @@ def test_report_provenance_shows_one_line_when_generation_and_assessment_match()
     block = site_tool.spec_provenance_html(
         {"releases": {"specs": generation}}, {"summaries": [{"spec": spec}, {"spec": spec}]}
     )
-    assert block.count("<dt>") == 1
-    assert "<dt>Generation and assessment</dt>" in block
+    assert len(re.findall(r"<dt[ >]", block)) == 1
+    assert re.search(r"<dt[^>]*>Generation and assessment</dt>", block)
     text = re.sub(r"\s+", " ", visible_text(block))
     assert "v2.3.0 · robot-capability-specs · " + spec["commit"][:8] in text
     assert f'href="{SPECS_REPOSITORY}/releases/tag/v2.3.0"' in block
@@ -2817,14 +2817,16 @@ def test_report_provenance_shows_both_lines_only_when_they_differ():
         {"releases": {"specs": {**generation, "url": f"{SPECS_REPOSITORY}/releases/tag/v2.0.2"}}},
         {"summaries": [{"spec": assessment}]},
     )
-    assert block.count("<dt>") == 2
-    assert "<dt>Generation</dt>" in block and "<dt>Assessment</dt>" in block
+    assert len(re.findall(r"<dt[ >]", block)) == 2
+    assert re.search(r"<dt[^>]*>Generation</dt>", block) and re.search(
+        r"<dt[^>]*>Assessment</dt>", block
+    )
     text = re.sub(r"\s+", " ", visible_text(block))
     assert generation["commit"][:8] in text and assessment["commit"][:8] in text
     assert generation["commit"] not in text and assessment["commit"] not in text
     assert generation["commit"] in block and assessment["commit"] in block
     # The summary names the assessed spec, the one the report's Spec field shows.
-    summary = re.search(r"<summary>(.*?)</summary>", block, re.S).group(1)
+    summary = re.search(r"<summary[^>]*>(.*?)</summary>", block, re.S).group(1)
     assert "v2.3.0" in summary and "v2.0.2" not in summary
     # Several distinct assessments each keep a line.
     other = spec_identity("v2.4.0", "0.2.0")
@@ -2832,7 +2834,7 @@ def test_report_provenance_shows_both_lines_only_when_they_differ():
         {"releases": {"specs": generation}},
         {"summaries": [{"spec": assessment}, {"spec": other}, {"spec": assessment}]},
     )
-    assert many.count("<dt>") == 3
+    assert len(re.findall(r"<dt[ >]", many)) == 3
     assert other["commit"][:8] in many and many.count(assessment["commit"][:8]) >= 1
 
 
