@@ -1,0 +1,55 @@
+{
+  "format": "livingproof-world/0.1",
+  "id": "hallway-open",
+  "content_version": "0.1.0",
+  "title": "Open hallway",
+  "description": "Straight hallway with a floor and two side walls, open at both ends. No doors, rooms, end walls, or ceiling.",
+  "specification": {
+    "repository": "Living-Proof-Labs/robot-capability-specs",
+    "path": "specs/worlds/hallways.md",
+    "tag": "v1.3.0",
+    "commit": "ad53368c11b322b787f6b71023bbe87dec839c0b",
+    "document_revision": "0.2.0",
+    "world_contract_revision": "0.2.0"
+  },
+  "units": "m",
+  "frame": {
+    "handedness": "right",
+    "origin": "centre of the floor top surface",
+    "axes": {
+      "x": "along the hallway from entrance to exit",
+      "y": "across the hallway",
+      "z": "up"
+    },
+    "pose": "position (x, y, z) plus yaw in degrees, positive about +z"
+  },
+  "dimensions": {
+    "clear_width": 1.5,
+    "length": 6.0,
+    "wall_height": 2.5,
+    "wall_thickness": 0.15,
+    "exterior_width": 1.8,
+    "floor_thickness": 0.1
+  },
+  "geometry": [
+    {"name": "floor", "type": "box", "role": "floor", "centre": [0.0, 0.0, -0.05], "size": [6.0, 1.8, 0.1]},
+    {"name": "wall-left", "type": "box", "role": "wall", "centre": [0.0, 0.825, 1.25], "size": [6.0, 0.15, 2.5]},
+    {"name": "wall-right", "type": "box", "role": "wall", "centre": [0.0, -0.825, 1.25], "size": [6.0, 0.15, 2.5]}
+  ],
+  "places": [
+    {"name": "entrance", "type": "segment", "points": [[-3.0, -0.75, 0.0], [-3.0, 0.75, 0.0]], "reference": [-3.0, 0.0, 0.0]},
+    {"name": "exit", "type": "segment", "points": [[3.0, -0.75, 0.0], [3.0, 0.75, 0.0]], "reference": [3.0, 0.0, 0.0]},
+    {"name": "passage", "type": "region", "x": [-3.0, 3.0], "y": [-0.5, 0.5]},
+    {"name": "passage-centreline", "type": "polyline", "points": [[-3.0, 0.0, 0.0], [3.0, 0.0, 0.0]]},
+    {"name": "spawn-entrance", "type": "pose", "position": [-2.5, 0.0, 0.0], "yaw_deg": 0.0},
+    {"name": "spawn-centre", "type": "pose", "position": [0.0, 0.0, 0.0], "yaw_deg": 0.0},
+    {"name": "spawn-exit", "type": "pose", "position": [2.5, 0.0, 0.0], "yaw_deg": 180.0}
+  ],
+  "tolerances": {"distance_m": 0.01, "angle_deg": 0.5},
+  "provenance": {
+    "authors": ["Living Proof Labs contributors"],
+    "method": "Authored by hand from the canonical tables of the referenced specification; no third-party assets.",
+    "assets": []
+  },
+  "license": "Apache-2.0"
+}

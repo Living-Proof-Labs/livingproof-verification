@@ -1,0 +1,6 @@
+{
+  "source": "https://github.com/Living-Proof-Labs/livingproof-verification/actions/runs/44141446534",
+  "artifact": "unitree-g1-playground-mujoco-hallway-evidence-playground",
+  "derived_from": "tests/fixtures/world-guard/g1-playground-hallway",
+  "edit": "Each trial's first trace sample x and y were set to 0.0 (the recorded start). No other field was changed. The manifest is the unmodified artifact."
+}

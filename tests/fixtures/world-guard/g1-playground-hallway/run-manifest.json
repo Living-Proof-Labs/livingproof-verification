@@ -1,0 +1,44 @@
+{
+  "format": "livingproof-run-manifest/0.1",
+  "run_id": "walk-hallway-unitree-g1-playground-20261117T175310Z",
+  "specification": {
+    "tag": "v2.3.0",
+    "commit": "57317e617014a6df97bb7fba9d92a890af8d42e5"
+  },
+  "scenario": "walk-hallway@0.1.0",
+  "world": {
+    "id": "hallway-open",
+    "version": "0.1.0",
+    "sha256": "d60bb8aa6a72c8403fb6674cc9d803962c1484bc3e163527988e8c57ccec775c"
+  },
+  "simulator": {
+    "engine": "mujoco",
+    "version": "3.17.0",
+    "adapter": "livingproof-sim-mujoco",
+    "adapter_commit": "292589ad15582c26cff2bffcc851e3abaf4ea708"
+  },
+  "robot": {
+    "id": "unitree-g1",
+    "repo": "https://github.com/Living-Proof-Labs/livingproof-unitree-g1",
+    "commit": "da7d9504cb5d4deaa509b92a1973490e43888f90",
+    "profile_sha256": "8f2468a82e833fe3bf349acb839a0e9e62595931a95cf3e1345ddc4e719b7ef1"
+  },
+  "configuration": {
+    "name": "playground",
+    "version": "1.0.0",
+    "sha256": "d4e68f256c89a80e2b2ad815cf43c566ba7bb2ef6114fe22f71bd954f1f920a6"
+  },
+  "parameters": {
+    "command_speed": 0.5,
+    "route_length": 5.5,
+    "time_limit": 27.0,
+    "fall_height": 0.5,
+    "wall_clearance": 0.05,
+    "lateral_limit": 0.49,
+    "exit_x": 3.0,
+    "spawn": "spawn-entrance"
+  },
+  "trials": {
+    "count": 3
+  }
+}
