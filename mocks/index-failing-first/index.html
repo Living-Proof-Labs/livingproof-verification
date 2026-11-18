@@ -1,0 +1,1105 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Verification reports · failing first (example mock)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,650;0,9..40,700;1,9..40,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<body>
+<a class="skip" href="#results">Skip to results</a>
+<header class="masthead">
+  <div class="wrap masthead-inner">
+    <p class="eyebrow">Living Proof Labs</p>
+    <h1>Verification reports</h1>
+    <p class="lede">The latest result for each robot and scenario. Failures come first, so they get fixed. Open a robot to see everything it runs.</p>
+  </div>
+</header>
+<main class="page wrap" id="results">
+  <p class="banner">Example mock, not the live catalog. 6 robots and 68 scenarios to show the index at scale. Three of the robots are illustrative (Apptronik Apollo, Fourier GR1, Unitree H1). Cards follow <a href="https://github.com/Living-Proof-Labs/livingproof-verification/issues/138">#138</a>: the whole card opens the latest report; History is the only explicit link.</p>
+  <section class="needs" aria-labelledby="needs-attention">
+  <h2 id="needs-attention">Needs attention</h2>
+  <p class="lede-section">3 latest results failed, newest first. Each card opens the latest report.</p>
+  <div class="stack">
+    <article class="card is-fail">
+  <div class="entry-main">
+    <span class="badge badge-fail">FAIL</span>
+    <div class="entry-body">
+      <h3 class="title"><a class="card-link" href="#fourier-gr1">Climb the stairs<span class="visually-hidden">, latest report (FAIL)</span></a></h3>
+      <p class="sub">Fourier GR1 · stock · Isaac Sim</p>
+      <div class="chips"><a class="chip" href="#fourier-gr1" title="Open the Scenario finding in the report">Scenario</a><a class="chip" href="#fourier-gr1" title="Open the Aaron Roller finding in the report">Aaron Roller</a></div><p class="finding">Missed the first step and did not recover upright.</p>
+    </div>
+    <div class="entry-side">
+      <div class="side-meta"><span class="release" title="Verification bundle release v1.1.0">v1.1.0</span><span class="dot">·</span><time datetime="2026-11-18T09:54:00Z" title="18 Nov 2026, 8:54 pm AEDT (Australia/Sydney)">10 minutes ago</time></div>
+      <div class="links"><a class="history" href="#fourier-gr1">History (16)</a></div>
+    </div>
+  </div>
+</article>
+<article class="card is-fail">
+  <div class="entry-main">
+    <span class="badge badge-fail">FAIL</span>
+    <div class="entry-body">
+      <h3 class="title"><a class="card-link" href="https://docs.livingprooflabs.com/livingproof-verification/unitree-g1/stock-mujoco-hallway/latest/">Walk the hallway<span class="visually-hidden">, latest report (FAIL)</span></a></h3>
+      <p class="sub">Unitree G1 · stock · MuJoCo</p>
+      <div class="chips"><a class="chip" href="https://docs.livingprooflabs.com/livingproof-verification/unitree-g1/stock-mujoco-hallway/latest/#evaluator-livingproof-scenario" title="Open the Scenario finding in the report">Scenario</a></div><p class="finding">Drifted 0.66 m from the centreline, then touched the right wall at 7.80 s.</p>
+    </div>
+    <div class="entry-side">
+      <div class="side-meta"><span class="release" title="Verification bundle release v1.1.0">v1.1.0</span><span class="dot">·</span><time datetime="2026-11-18T09:34:00Z" title="18 Nov 2026, 8:34 pm AEDT (Australia/Sydney)">30 minutes ago</time></div>
+      <div class="links"><a class="history" href="https://docs.livingprooflabs.com/livingproof-verification/unitree-g1/stock-mujoco-hallway/">History (87)</a></div>
+    </div>
+  </div>
+</article>
+<article class="card is-fail">
+  <div class="entry-main">
+    <span class="badge badge-fail">FAIL</span>
+    <div class="entry-body">
+      <h3 class="title"><a class="card-link" href="https://docs.livingprooflabs.com/livingproof-verification/booster-t1/stock-mujoco-hallway/latest/">Walk the hallway<span class="visually-hidden">, latest report (FAIL)</span></a></h3>
+      <p class="sub">Booster T1 · stock · MuJoCo</p>
+      <div class="chips"><a class="chip" href="https://docs.livingprooflabs.com/livingproof-verification/booster-t1/stock-mujoco-hallway/latest/#evaluator-livingproof-scenario" title="Open the Scenario finding in the report">Scenario</a></div><p class="finding">Left the hallway through the right wall at 8.56 s.</p>
+    </div>
+    <div class="entry-side">
+      <div class="side-meta"><span class="release" title="Verification bundle release v1.1.0">v1.1.0</span><span class="dot">·</span><time datetime="2026-11-18T08:04:00Z" title="18 Nov 2026, 7:04 pm AEDT (Australia/Sydney)">2 hours ago</time></div>
+      <div class="links"><a class="history" href="https://docs.livingprooflabs.com/livingproof-verification/booster-t1/stock-mujoco-hallway/">History (82)</a></div>
+    </div>
+  </div>
+</article>
+  </div>
+</section>
+  <h2 class="robots-label" id="robots">Robots</h2>
+  <div class="robots">
+    <details class="robot" id="apptronik-apollo">
+  <summary>
+    <span class="visually-hidden">Apptronik Apollo, 10 scenarios, 10 passed, latest v1.1.0, 20 minutes ago</span>
+    <div class="summary-row" aria-hidden="true">
+      <svg class="chevron" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path fill="currentColor" d="M6.2 3.2a.75.75 0 0 0 0 1.06L9.94 8 6.2 11.74a.75.75 0 1 0 1.06 1.06l4.27-4.27a.75.75 0 0 0 0-1.06L7.26 3.2a.75.75 0 0 0-1.06 0Z"/></svg>
+      <div class="summary-id"><span class="robot-name">Apptronik Apollo</span><span class="counts">10 scenarios<span class="count-sep">·</span><span class="pass-count">10 passed</span></span></div>
+      <span class="dots"><span class="pip pip-pass" title="Carry a load down the hallway: passed"></span><span class="pip pip-pass" title="Climb the stairs: passed"></span><span class="pip pip-pass" title="Cross the doorway: passed"></span><span class="pip pip-pass" title="Navigate a cluttered room: passed"></span><span class="pip pip-pass" title="Pick and place: passed"></span><span class="pip pip-pass" title="Sit down and stand up: passed"></span><span class="pip pip-pass" title="Step over a threshold: passed"></span><span class="pip pip-pass" title="Walk around the corner: passed"></span><span class="pip pip-pass" title="Walk the hallway: passed"></span><span class="pip pip-pass" title="Walk uneven terrain: passed"></span><span class="pip-more" hidden></span></span>
+      <span class="meta-latest"><span class="release" title="Verification bundle release v1.1.0">v1.1.0</span><span class="dot">·</span><time datetime="2026-11-18T09:44:00Z" title="18 Nov 2026, 8:44 pm AEDT (Australia/Sydney)">20 minutes ago</time></span>
+    </div>
+  </summary>
+  <div class="robot-body"><div class="stack">
+    <article class="card">
+  <div class="entry-main">
+    <span class="badge badge-pass">PASS</span>
+    <div class="entry-body">
+      <h3 class="title"><a class="card-link" href="#apptronik-apollo">Carry a load down the hallway<span class="visually-hidden">, latest report (PASS)</span></a></h3>
+      <p class="sub">stock · MuJoCo</p>
+      
+    </div>
+    <div class="entry-side">
+      <div class="side-meta"><span class="release" title="Verification bundle release v1.1.0">v1.1.0</span><span class="dot">·</span><time datetime="2026-11-18T09:44:00Z" title="18 Nov 2026, 8:44 pm AEDT (Australia/Sydney)">20 minutes ago</time></div>
+      <div class="links"><a class="history" href="#apptronik-apollo">History (11)</a></div>
+    </div>
+  </div>
+</article>
+<article class="card">
+  <div class="entry-main">
+    <span class="badge badge-pass">PASS</span>
+    <div class="entry-body">
+      <h3 class="title"><a class="card-link" href="#apptronik-apollo">Climb the stairs<span class="visually-hidden">, latest report (PASS)</span></a></h3>
+      <p class="sub">stock · MuJoCo</p>
+      
+    </div>
+    <div class="entry-side">
+      <div class="side-meta"><span class="release" title="Verification bundle release v1.1.0">v1.1.0</span><span class="dot">·</span><time datetime="2026-11-18T09:44:00Z" title="18 Nov 2026, 8:44 pm AEDT (Australia/Sydney)">20 minutes ago</time></div>
+      <div class="links"><a class="history" href="#apptronik-apollo">History (14)</a></div>
+    </div>
+  </div>
+</article>
+<article class="card">
+  <div class="entry-main">
+    <span class="badge badge-pass">PASS</span>
+    <div class="entry-body">
+      <h3 class="title"><a class="card-link" href="#apptronik-apollo">Cross the doorway<span class="visually-hidden">, latest report (PASS)</span></a></h3>
+      <p class="sub">stock · MuJoCo</p>
+      
+    </div>
+    <div class="entry-side">
+      <div class="side-meta"><span class="release" title="Verification bundle release v1.1.0">v1.1.0</span><span class="dot">·</span><time datetime="2026-11-18T09:44:00Z" title="18 Nov 2026, 8:44 pm AEDT (Australia/Sydney)">20 minutes ago</time></div>
+      <div class="links"><a class="history" href="#apptronik-apollo">History (17)</a></div>
+    </div>
+  </div>
+</article>
+<article class="card">
+  <div class="entry-main">
+    <span class="badge badge-pass">PASS</span>
+    <div class="entry-body">
+      <h3 class="title"><a class="card-link" href="#apptronik-apollo">Navigate a cluttered room<span class="visually-hidden">, latest report (PASS)</span></a></h3>
+      <p class="sub">stock · MuJoCo</p>
+      
+    </div>
+    <div class="entry-side">
+      <div class="side-meta"><span class="release" title="Verification bundle release v1.1.0">v1.1.0</span><span class="dot">·</span><time datetime="2026-11-18T09:44:00Z" title="18 Nov 2026, 8:44 pm AEDT (Australia/Sydney)">20 minutes ago</time></div>
+      <div class="links"><a class="history" href="#apptronik-apollo">History (20)</a></div>
+    </div>
+  </div>
+</article>
+<article class="card">
+  <div class="entry-main">
+    <span class="badge badge-pass">PASS</span>
+    <div class="entry-body">
+      <h3 class="title"><a class="card-link" href="#apptronik-apollo">Pick and place<span class="visually-hidden">, latest report (PASS)</span></a></h3>
+      <p class="sub">stock · MuJoCo</p>
+      
+    </div>
+    <div class="entry-side">
+      <div class="side-meta"><span class="release" title="Verification bundle release v1.1.0">v1.1.0</span><span class="dot">·</span><time datetime="2026-11-18T09:44:00Z" title="18 Nov 2026, 8:44 pm AEDT (Australia/Sydney)">20 minutes ago</time></div>
+      <div class="links"><a class="history" href="#apptronik-apollo">History (23)</a></div>
+    </div>
+  </div>
+</article>
+<article class="card">
+  <div class="entry-main">
+    <span class="badge badge-pass">PASS</span>
+    <div class="entry-body">
+      <h3 class="title"><a class="card-link" href="#apptronik-apollo">Sit down and stand up<span class="visually-hidden">, latest report (PASS)</span></a></h3>
+      <p class="sub">stock · MuJoCo</p>
+      
+    </div>
+    <div class="entry-side">
+      <div class="side-meta"><span class="release" title="Verification bundle release v1.1.0">v1.1.0</span><span class="dot">·</span><time datetime="2026-11-18T09:44:00Z" title="18 Nov 2026, 8:44 pm AEDT (Australia/Sydney)">20 minutes ago</time></div>
+      <div class="links"><a class="history" href="#apptronik-apollo">History (26)</a></div>
+    </div>
+  </div>
+</article>
+<article class="card">
+  <div class="entry-main">
+    <span class="badge badge-pass">PASS</span>
+    <div class="entry-body">
+      <h3 class="title"><a class="card-link" href="#apptronik-apollo">Step over a threshold<span class="visually-hidden">, latest report (PASS)</span></a></h3>
+      <p class="sub">stock · MuJoCo</p>
+      
+    </div>
+    <div class="entry-side">
+      <div class="side-meta"><span class="release" title="Verification bundle release v1.1.0">v1.1.0</span><span class="dot">·</span><time datetime="2026-11-18T09:44:00Z" title="18 Nov 2026, 8:44 pm AEDT (Australia/Sydney)">20 minutes ago</time></div>
+      <div class="links"><a class="history" href="#apptronik-apollo">History (12)</a></div>
+    </div>
+  </div>
+</article>
+<article class="card">
+  <div class="entry-main">
+    <span class="badge badge-pass">PASS</span>
+    <div class="entry-body">
+      <h3 class="title"><a class="card-link" href="#apptronik-apollo">Walk around the corner<span class="visually-hidden">, latest report (PASS)</span></a></h3>
+      <p class="sub">stock · MuJoCo</p>
+      
+    </div>
+    <div class="entry-side">
+      <div class="side-meta"><span class="release" title="Verification bundle release v1.1.0">v1.1.0</span><span class="dot">·</span><time datetime="2026-11-18T09:44:00Z" title="18 Nov 2026, 8:44 pm AEDT (Australia/Sydney)">20 minutes ago</time></div>
+      <div class="links"><a class="history" href="#apptronik-apollo">History (15)</a></div>
+    </div>
+  </div>
+</article>
+<article class="card">
+  <div class="entry-main">
+    <span class="badge badge-pass">PASS</span>
+    <div class="entry-body">
+      <h3 class="title"><a class="card-link" href="#apptronik-apollo">Walk the hallway<span class="visually-hidden">, latest report (PASS)</span></a></h3>
+      <p class="sub">stock · MuJoCo</p>
+      
+    </div>
+    <div class="entry-side">
+      <div class="side-meta"><span class="release" title="Verification bundle release v1.1.0">v1.1.0</span><span class="dot">·</span><time datetime="2026-11-18T09:44:00Z" title="18 Nov 2026, 8:44 pm AEDT (Australia/Sydney)">20 minutes ago</time></div>
+      <div class="links"><a class="history" href="#apptronik-apollo">History (18)</a></div>
+    </div>
+  </div>
+</article>
+<article class="card">
+  <div class="entry-main">
+    <span class="badge badge-pass">PASS</span>
+    <div class="entry-body">
+      <h3 class="title"><a class="card-link" href="#apptronik-apollo">Walk uneven terrain<span class="visually-hidden">, latest report (PASS)</span></a></h3>
+      <p class="sub">stock · MuJoCo</p>
+      
+    </div>
+    <div class="entry-side">
+      <div class="side-meta"><span class="release" title="Verification bundle release v1.1.0">v1.1.0</span><span class="dot">·</span><time datetime="2026-11-18T09:44:00Z" title="18 Nov 2026, 8:44 pm AEDT (Australia/Sydney)">20 minutes ago</time></div>
+      <div class="links"><a class="history" href="#apptronik-apollo">History (21)</a></div>
+    </div>
+  </div>
+</article>
+  </div></div>
+</details>
+<details class="robot" id="booster-t1">
+  <summary>
+    <span class="visually-hidden">Booster T1, 12 scenarios, 1 failed, 11 passed, latest v1.1.0, 20 minutes ago</span>
+    <div class="summary-row" aria-hidden="true">
+      <svg class="chevron" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path fill="currentColor" d="M6.2 3.2a.75.75 0 0 0 0 1.06L9.94 8 6.2 11.74a.75.75 0 1 0 1.06 1.06l4.27-4.27a.75.75 0 0 0 0-1.06L7.26 3.2a.75.75 0 0 0-1.06 0Z"/></svg>
+      <div class="summary-id"><span class="robot-name">Booster T1</span><span class="counts">12 scenarios<span class="count-sep">·</span><span class="fail-count">1 failed</span><span class="count-sep">·</span><span class="pass-count">11 passed</span></span></div>
+      <span class="dots"><span class="pip pip-fail" title="Walk the hallway: failed"></span><span class="pip pip-pass" title="Climb the stairs: passed"></span><span class="pip pip-pass" title="Cross the doorway: passed"></span><span class="pip pip-pass" title="Sit down and stand up: passed"></span><span class="pip pip-pass" title="Stand up from a fall: passed"></span><span class="pip pip-pass" title="Step over a threshold: passed"></span><span class="pip pip-pass" title="Turn in place: passed"></span><span class="pip pip-pass" title="Walk around the corner: passed"></span><span class="pip pip-pass" title="Walk around the corner (left): passed"></span><span class="pip pip-pass" title="Walk around the corner (right): passed"></span><span class="pip pip-pass" title="Walk backward: passed"></span><span class="pip pip-pass" title="Walk uneven terrain: passed"></span><span class="pip-more" hidden></span></span>
+      <span class="meta-latest"><span class="release" title="Verification bundle release v1.1.0">v1.1.0</span><span class="dot">·</span><time datetime="2026-11-18T09:44:00Z" title="18 Nov 2026, 8:44 pm AEDT (Australia/Sydney)">20 minutes ago</time></span>
+    </div>
+  </summary>
+  <div class="robot-body"><div class="stack">
+    <article class="card is-fail">
+  <div class="entry-main">
+    <span class="badge badge-fail">FAIL</span>
+    <div class="entry-body">
+      <h3 class="title"><a class="card-link" href="https://docs.livingprooflabs.com/livingproof-verification/booster-t1/stock-mujoco-hallway/latest/">Walk the hallway<span class="visually-hidden">, latest report (FAIL)</span></a></h3>
+      <p class="sub">stock · MuJoCo</p>
+      <div class="chips"><a class="chip" href="https://docs.livingprooflabs.com/livingproof-verification/booster-t1/stock-mujoco-hallway/latest/#evaluator-livingproof-scenario" title="Open the Scenario finding in the report">Scenario</a></div><p class="finding">Left the hallway through the right wall at 8.56 s.</p>
+    </div>
+    <div class="entry-side">
+      <div class="side-meta"><span class="release" title="Verification bundle release v1.1.0">v1.1.0</span><span class="dot">·</span><time datetime="2026-11-18T08:04:00Z" title="18 Nov 2026, 7:04 pm AEDT (Australia/Sydney)">2 hours ago</time></div>
+      <div class="links"><a class="history" href="https://docs.livingprooflabs.com/livingproof-verification/booster-t1/stock-mujoco-hallway/">History (82)</a></div>
+    </div>
+  </div>
+</article>
+<article class="card">
+  <div class="entry-main">
+    <span class="badge badge-pass">PASS</span>
+    <div class="entry-body">
+      <h3 class="title"><a class="card-link" href="#booster-t1">Climb the stairs<span class="visually-hidden">, latest report (PASS)</span></a></h3>
+      <p class="sub">stock · MuJoCo</p>
+      
+    </div>
+    <div class="entry-side">
+      <div class="side-meta"><span class="release" title="Verification bundle release v1.1.0">v1.1.0</span><span class="dot">·</span><time datetime="2026-11-18T09:44:00Z" title="18 Nov 2026, 8:44 pm AEDT (Australia/Sydney)">20 minutes ago</time></div>
+      <div class="links"><a class="history" href="#booster-t1">History (14)</a></div>
+    </div>
+  </div>
+</article>
+<article class="card">
+  <div class="entry-main">
+    <span class="badge badge-pass">PASS</span>
+    <div class="entry-body">
+      <h3 class="title"><a class="card-link" href="#booster-t1">Cross the doorway<span class="visually-hidden">, latest report (PASS)</span></a></h3>
+      <p class="sub">stock · MuJoCo</p>
+      
+    </div>
+    <div class="entry-side">
+      <div class="side-meta"><span class="release" title="Verification bundle release v1.1.0">v1.1.0</span><span class="dot">·</span><time datetime="2026-11-18T09:44:00Z" title="18 Nov 2026, 8:44 pm AEDT (Australia/Sydney)">20 minutes ago</time></div>
+      <div class="links"><a class="history" href="#booster-t1">History (11)</a></div>
+    </div>
+  </div>
+</article>
+<article class="card">
+  <div class="entry-main">
+    <span class="badge badge-pass">PASS</span>
+    <div class="entry-body">
+      <h3 class="title"><a class="card-link" href="#booster-t1">Sit down and stand up<span class="visually-hidden">, latest report (PASS)</span></a></h3>
+      <p class="sub">stock · MuJoCo</p>
+      
+    </div>
+    <div class="entry-side">
+      <div class="side-meta"><span class="release" title="Verification bundle release v1.1.0">v1.1.0</span><span class="dot">·</span><time datetime="2026-11-18T09:44:00Z" title="18 Nov 2026, 8:44 pm AEDT (Australia/Sydney)">20 minutes ago</time></div>
+      <div class="links"><a class="history" href="#booster-t1">History (6)</a></div>
+    </div>
+  </div>
+</article>
+<article class="card">
+  <div class="entry-main">
+    <span class="badge badge-pass">PASS</span>
+    <div class="entry-body">
+      <h3 class="title"><a class="card-link" href="#booster-t1">Stand up from a fall<span class="visually-hidden">, latest report (PASS)</span></a></h3>
+      <p class="sub">stock · MuJoCo</p>
+      
+    </div>
+    <div class="entry-side">
+      <div class="side-meta"><span class="release" title="Verification bundle release v1.1.0">v1.1.0</span><span class="dot">·</span><time datetime="2026-11-18T09:44:00Z" title="18 Nov 2026, 8:44 pm AEDT (Australia/Sydney)">20 minutes ago</time></div>
+      <div class="links"><a class="history" href="#booster-t1">History (9)</a></div>
+    </div>
+  </div>
+</article>
+<article class="card">
+  <div class="entry-main">
+    <span class="badge badge-pass">PASS</span>
+    <div class="entry-body">
+      <h3 class="title"><a class="card-link" href="#booster-t1">Step over a threshold<span class="visually-hidden">, latest report (PASS)</span></a></h3>
+      <p class="sub">stock · MuJoCo</p>
+      
+    </div>
+    <div class="entry-side">
+      <div class="side-meta"><span class="release" title="Verification bundle release v1.1.0">v1.1.0</span><span class="dot">·</span><time datetime="2026-11-18T09:44:00Z" title="18 Nov 2026, 8:44 pm AEDT (Australia/Sydney)">20 minutes ago</time></div>
+      <div class="links"><a class="history" href="#booster-t1">History (7)</a></div>
+    </div>
+  </div>
+</article>
+<article class="card">
+  <div class="entry-main">
+    <span class="badge badge-pass">PASS</span>
+    <div class="entry-body">
+      <h3 class="title"><a class="card-link" href="#booster-t1">Turn in place<span class="visually-hidden">, latest report (PASS)</span></a></h3>
+      <p class="sub">stock · MuJoCo</p>
+      
+    </div>
+    <div class="entry-side">
+      <div class="side-meta"><span class="release" title="Verification bundle release v1.1.0">v1.1.0</span><span class="dot">·</span><time datetime="2026-11-18T09:44:00Z" title="18 Nov 2026, 8:44 pm AEDT (Australia/Sydney)">20 minutes ago</time></div>
+      <div class="links"><a class="history" href="#booster-t1">History (12)</a></div>
+    </div>
+  </div>
+</article>
+<article class="card">
+  <div class="entry-main">
+    <span class="badge badge-pass">PASS</span>
+    <div class="entry-body">
+      <h3 class="title"><a class="card-link" href="https://docs.livingprooflabs.com/livingproof-verification/booster-t1/stock-mujoco-corner/latest/">Walk around the corner<span class="visually-hidden">, latest report (PASS)</span></a></h3>
+      <p class="sub">stock · MuJoCo</p>
+      
+    </div>
+    <div class="entry-side">
+      <div class="side-meta"><span class="release is-fallback" title="No release tag; short SHA shown">2363e612</span><span class="dot">·</span><time datetime="2026-11-18T07:04:00Z" title="18 Nov 2026, 6:04 pm AEDT (Australia/Sydney)">3 hours ago</time></div>
+      <div class="links"><a class="history" href="https://docs.livingprooflabs.com/livingproof-verification/booster-t1/stock-mujoco-corner/">History (21)</a></div>
+    </div>
+  </div>
+</article>
+<article class="card">
+  <div class="entry-main">
+    <span class="badge badge-pass">PASS</span>
+    <div class="entry-body">
+      <h3 class="title"><a class="card-link" href="https://docs.livingprooflabs.com/livingproof-verification/booster-t1/stock-mujoco-corner-left/latest/">Walk around the corner (left)<span class="visually-hidden">, latest report (PASS)</span></a></h3>
+      <p class="sub">stock · MuJoCo</p>
+      
+    </div>
+    <div class="entry-side">
+      <div class="side-meta"><span class="release" title="Verification bundle release v1.1.0">v1.1.0</span><span class="dot">·</span><time datetime="2026-11-18T09:44:00Z" title="18 Nov 2026, 8:44 pm AEDT (Australia/Sydney)">20 minutes ago</time></div>
+      <div class="links"><a class="history" href="https://docs.livingprooflabs.com/livingproof-verification/booster-t1/stock-mujoco-corner-left/">History (3)</a></div>
+    </div>
+  </div>
+</article>
+<article class="card">
+  <div class="entry-main">
+    <span class="badge badge-pass">PASS</span>
+    <div class="entry-body">
+      <h3 class="title"><a class="card-link" href="https://docs.livingprooflabs.com/livingproof-verification/booster-t1/stock-mujoco-corner-right/latest/">Walk around the corner (right)<span class="visually-hidden">, latest report (PASS)</span></a></h3>
+      <p class="sub">stock · MuJoCo</p>
+      
+    </div>
+    <div class="entry-side">
+      <div class="side-meta"><span class="release" title="Verification bundle release v1.1.0">v1.1.0</span><span class="dot">·</span><time datetime="2026-11-18T09:44:00Z" title="18 Nov 2026, 8:44 pm AEDT (Australia/Sydney)">20 minutes ago</time></div>
+      <div class="links"><a class="history" href="https://docs.livingprooflabs.com/livingproof-verification/booster-t1/stock-mujoco-corner-right/">History (3)</a></div>
+    </div>
+  </div>
+</article>
+<article class="card">
+  <div class="entry-main">
+    <span class="badge badge-pass">PASS</span>
+    <div class="entry-body">
+      <h3 class="title"><a class="card-link" href="#booster-t1">Walk backward<span class="visually-hidden">, latest report (PASS)</span></a></h3>
+      <p class="sub">stock · MuJoCo</p>
+      
+    </div>
+    <div class="entry-side">
+      <div class="side-meta"><span class="release" title="Verification bundle release v1.1.0">v1.1.0</span><span class="dot">·</span><time datetime="2026-11-18T09:44:00Z" title="18 Nov 2026, 8:44 pm AEDT (Australia/Sydney)">20 minutes ago</time></div>
+      <div class="links"><a class="history" href="#booster-t1">History (5)</a></div>
+    </div>
+  </div>
+</article>
+<article class="card">
+  <div class="entry-main">
+    <span class="badge badge-pass">PASS</span>
+    <div class="entry-body">
+      <h3 class="title"><a class="card-link" href="#booster-t1">Walk uneven terrain<span class="visually-hidden">, latest report (PASS)</span></a></h3>
+      <p class="sub">stock · MuJoCo</p>
+      
+    </div>
+    <div class="entry-side">
+      <div class="side-meta"><span class="release" title="Verification bundle release v1.1.0">v1.1.0</span><span class="dot">·</span><time datetime="2026-11-18T09:44:00Z" title="18 Nov 2026, 8:44 pm AEDT (Australia/Sydney)">20 minutes ago</time></div>
+      <div class="links"><a class="history" href="#booster-t1">History (10)</a></div>
+    </div>
+  </div>
+</article>
+  </div></div>
+</details>
+<details class="robot" id="fourier-gr1">
+  <summary>
+    <span class="visually-hidden">Fourier GR1, 14 scenarios, 1 failed, 13 passed, latest v1.1.0, 10 minutes ago</span>
+    <div class="summary-row" aria-hidden="true">
+      <svg class="chevron" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path fill="currentColor" d="M6.2 3.2a.75.75 0 0 0 0 1.06L9.94 8 6.2 11.74a.75.75 0 1 0 1.06 1.06l4.27-4.27a.75.75 0 0 0 0-1.06L7.26 3.2a.75.75 0 0 0-1.06 0Z"/></svg>
+      <div class="summary-id"><span class="robot-name">Fourier GR1</span><span class="counts">14 scenarios<span class="count-sep">·</span><span class="fail-count">1 failed</span><span class="count-sep">·</span><span class="pass-count">13 passed</span></span></div>
+      <span class="dots"><span class="pip pip-fail" title="Climb the stairs: failed"></span><span class="pip pip-pass" title="Carry a load down the hallway: passed"></span><span class="pip pip-pass" title="Cross the doorway: passed"></span><span class="pip pip-pass" title="Navigate a cluttered room: passed"></span><span class="pip pip-pass" title="Pick and place: passed"></span><span class="pip pip-pass" title="Sit down and stand up: passed"></span><span class="pip pip-pass" title="Stand up from a fall: passed"></span><span class="pip pip-pass" title="Step over a threshold: passed"></span><span class="pip pip-pass" title="Turn in place: passed"></span><span class="pip pip-pass" title="Walk around the corner: passed"></span><span class="pip pip-pass" title="Walk around the corner (left): passed"></span><span class="pip pip-pass" title="Walk around the corner (right): passed"></span><span class="pip pip-pass" title="Walk the hallway: passed"></span><span class="pip pip-pass" title="Walk uneven terrain: passed"></span><span class="pip-more" hidden></span></span>
+      <span class="meta-latest"><span class="release" title="Verification bundle release v1.1.0">v1.1.0</span><span class="dot">·</span><time datetime="2026-11-18T09:54:00Z" title="18 Nov 2026, 8:54 pm AEDT (Australia/Sydney)">10 minutes ago</time></span>
+    </div>
+  </summary>
+  <div class="robot-body"><div class="stack">
+    <article class="card is-fail">
+  <div class="entry-main">
+    <span class="badge badge-fail">FAIL</span>
+    <div class="entry-body">
+      <h3 class="title"><a class="card-link" href="#fourier-gr1">Climb the stairs<span class="visually-hidden">, latest report (FAIL)</span></a></h3>
+      <p class="sub">stock · Isaac Sim</p>
+      <div class="chips"><a class="chip" href="#fourier-gr1" title="Open the Scenario finding in the report">Scenario</a><a class="chip" href="#fourier-gr1" title="Open the Aaron Roller finding in the report">Aaron Roller</a></div><p class="finding">Missed the first step and did not recover upright.</p>
+    </div>
+    <div class="entry-side">
+      <div class="side-meta"><span class="release" title="Verification bundle release v1.1.0">v1.1.0</span><span class="dot">·</span><time datetime="2026-11-18T09:54:00Z" title="18 Nov 2026, 8:54 pm AEDT (Australia/Sydney)">10 minutes ago</time></div>
+      <div class="links"><a class="history" href="#fourier-gr1">History (16)</a></div>
+    </div>
+  </div>
+</article>
+<article class="card">
+  <div class="entry-main">
+    <span class="badge badge-pass">PASS</span>
+    <div class="entry-body">
+      <h3 class="title"><a class="card-link" href="#fourier-gr1">Carry a load down the hallway<span class="visually-hidden">, latest report (PASS)</span></a></h3>
+      <p class="sub">stock · Isaac Sim</p>
+      
+    </div>
+    <div class="entry-side">
+      <div class="side-meta"><span class="release" title="Verification bundle release v1.1.0">v1.1.0</span><span class="dot">·</span><time datetime="2026-11-18T09:44:00Z" title="18 Nov 2026, 8:44 pm AEDT (Australia/Sydney)">20 minutes ago</time></div>
+      <div class="links"><a class="history" href="#fourier-gr1">History (7)</a></div>
+    </div>
+  </div>
+</article>
+<article class="card">
+  <div class="entry-main">
+    <span class="badge badge-pass">PASS</span>
+    <div class="entry-body">
+      <h3 class="title"><a class="card-link" href="#fourier-gr1">Cross the doorway<span class="visually-hidden">, latest report (PASS)</span></a></h3>
+      <p class="sub">stock · Isaac Sim</p>
+      
+    </div>
+    <div class="entry-side">
+      <div class="side-meta"><span class="release" title="Verification bundle release v1.1.0">v1.1.0</span><span class="dot">·</span><time datetime="2026-11-18T09:44:00Z" title="18 Nov 2026, 8:44 pm AEDT (Australia/Sydney)">20 minutes ago</time></div>
+      <div class="links"><a class="history" href="#fourier-gr1">History (10)</a></div>
+    </div>
+  </div>
+</article>
+<article class="card">
+  <div class="entry-main">
+    <span class="badge badge-pass">PASS</span>
+    <div class="entry-body">
+      <h3 class="title"><a class="card-link" href="#fourier-gr1">Navigate a cluttered room<span class="visually-hidden">, latest report (PASS)</span></a></h3>
+      <p class="sub">stock · Isaac Sim</p>
+      
+    </div>
+    <div class="entry-side">
+      <div class="side-meta"><span class="release" title="Verification bundle release v1.1.0">v1.1.0</span><span class="dot">·</span><time datetime="2026-11-18T09:44:00Z" title="18 Nov 2026, 8:44 pm AEDT (Australia/Sydney)">20 minutes ago</time></div>
+      <div class="links"><a class="history" href="#fourier-gr1">History (13)</a></div>
+    </div>
+  </div>
+</article>
+<article class="card">
+  <div class="entry-main">
+    <span class="badge badge-pass">PASS</span>
+    <div class="entry-body">
+      <h3 class="title"><a class="card-link" href="#fourier-gr1">Pick and place<span class="visually-hidden">, latest report (PASS)</span></a></h3>
+      <p class="sub">stock · Isaac Sim</p>
+      
+    </div>
+    <div class="entry-side">
+      <div class="side-meta"><span class="release" title="Verification bundle release v1.1.0">v1.1.0</span><span class="dot">·</span><time datetime="2026-11-18T09:44:00Z" title="18 Nov 2026, 8:44 pm AEDT (Australia/Sydney)">20 minutes ago</time></div>
+      <div class="links"><a class="history" href="#fourier-gr1">History (16)</a></div>
+    </div>
+  </div>
+</article>
+<article class="card">
+  <div class="entry-main">
+    <span class="badge badge-pass">PASS</span>
+    <div class="entry-body">
+      <h3 class="title"><a class="card-link" href="#fourier-gr1">Sit down and stand up<span class="visually-hidden">, latest report (PASS)</span></a></h3>
+      <p class="sub">stock · Isaac Sim</p>
+      
+    </div>
+    <div class="entry-side">
+      <div class="side-meta"><span class="release" title="Verification bundle release v1.1.0">v1.1.0</span><span class="dot">·</span><time datetime="2026-11-18T09:44:00Z" title="18 Nov 2026, 8:44 pm AEDT (Australia/Sydney)">20 minutes ago</time></div>
+      <div class="links"><a class="history" href="#fourier-gr1">History (19)</a></div>
+    </div>
+  </div>
+</article>
+<article class="card">
+  <div class="entry-main">
+    <span class="badge badge-pass">PASS</span>
+    <div class="entry-body">
+      <h3 class="title"><a class="card-link" href="#fourier-gr1">Stand up from a fall<span class="visually-hidden">, latest report (PASS)</span></a></h3>
+      <p class="sub">stock · Isaac Sim</p>
+      
+    </div>
+    <div class="entry-side">
+      <div class="side-meta"><span class="release" title="Verification bundle release v1.1.0">v1.1.0</span><span class="dot">·</span><time datetime="2026-11-18T09:44:00Z" title="18 Nov 2026, 8:44 pm AEDT (Australia/Sydney)">20 minutes ago</time></div>
+      <div class="links"><a class="history" href="#fourier-gr1">History (22)</a></div>
+    </div>
+  </div>
+</article>
+<article class="card">
+  <div class="entry-main">
+    <span class="badge badge-pass">PASS</span>
+    <div class="entry-body">
+      <h3 class="title"><a class="card-link" href="#fourier-gr1">Step over a threshold<span class="visually-hidden">, latest report (PASS)</span></a></h3>
+      <p class="sub">stock · Isaac Sim</p>
+      
+    </div>
+    <div class="entry-side">
+      <div class="side-meta"><span class="release" title="Verification bundle release v1.1.0">v1.1.0</span><span class="dot">·</span><time datetime="2026-11-18T09:44:00Z" title="18 Nov 2026, 8:44 pm AEDT (Australia/Sydney)">20 minutes ago</time></div>
+      <div class="links"><a class="history" href="#fourier-gr1">History (8)</a></div>
+    </div>
+  </div>
+</article>
+<article class="card">
+  <div class="entry-main">
+    <span class="badge badge-pass">PASS</span>
+    <div class="entry-body">
+      <h3 class="title"><a class="card-link" href="#fourier-gr1">Turn in place<span class="visually-hidden">, latest report (PASS)</span></a></h3>
+      <p class="sub">stock · Isaac Sim</p>
+      
+    </div>
+    <div class="entry-side">
+      <div class="side-meta"><span class="release" title="Verification bundle release v1.1.0">v1.1.0</span><span class="dot">·</span><time datetime="2026-11-18T09:44:00Z" title="18 Nov 2026, 8:44 pm AEDT (Australia/Sydney)">20 minutes ago</time></div>
+      <div class="links"><a class="history" href="#fourier-gr1">History (11)</a></div>
+    </div>
+  </div>
+</article>
+<article class="card">
+  <div class="entry-main">
+    <span class="badge badge-pass">PASS</span>
+    <div class="entry-body">
+      <h3 class="title"><a class="card-link" href="#fourier-gr1">Walk around the corner<span class="visually-hidden">, latest report (PASS)</span></a></h3>
+      <p class="sub">stock · Isaac Sim</p>
+      
+    </div>
+    <div class="entry-side">
+      <div class="side-meta"><span class="release" title="Verification bundle release v1.1.0">v1.1.0</span><span class="dot">·</span><time datetime="2026-11-18T09:44:00Z" title="18 Nov 2026, 8:44 pm AEDT (Australia/Sydney)">20 minutes ago</time></div>
+      <div class="links"><a class="history" href="#fourier-gr1">History (14)</a></div>
+    </div>
+  </div>
+</article>
+<article class="card">
+  <div class="entry-main">
+    <span class="badge badge-pass">PASS</span>
+    <div class="entry-body">
+      <h3 class="title"><a class="card-link" href="#fourier-gr1">Walk around the corner (left)<span class="visually-hidden">, latest report (PASS)</span></a></h3>
+      <p class="sub">stock · Isaac Sim</p>
+      
+    </div>
+    <div class="entry-side">
+      <div class="side-meta"><span class="release" title="Verification bundle release v1.1.0">v1.1.0</span><span class="dot">·</span><time datetime="2026-11-18T09:44:00Z" title="18 Nov 2026, 8:44 pm AEDT (Australia/Sydney)">20 minutes ago</time></div>
+      <div class="links"><a class="history" href="#fourier-gr1">History (17)</a></div>
+    </div>
+  </div>
+</article>
+<article class="card">
+  <div class="entry-main">
+    <span class="badge badge-pass">PASS</span>
+    <div class="entry-body">
+      <h3 class="title"><a class="card-link" href="#fourier-gr1">Walk around the corner (right)<span class="visually-hidden">, latest report (PASS)</span></a></h3>
+      <p class="sub">stock · Isaac Sim</p>
+      
+    </div>
+    <div class="entry-side">
+      <div class="side-meta"><span class="release" title="Verification bundle release v1.1.0">v1.1.0</span><span class="dot">·</span><time datetime="2026-11-18T09:44:00Z" title="18 Nov 2026, 8:44 pm AEDT (Australia/Sydney)">20 minutes ago</time></div>
+      <div class="links"><a class="history" href="#fourier-gr1">History (20)</a></div>
+    </div>
+  </div>
+</article>
+<article class="card">
+  <div class="entry-main">
+    <span class="badge badge-pass">PASS</span>
+    <div class="entry-body">
+      <h3 class="title"><a class="card-link" href="#fourier-gr1">Walk the hallway<span class="visually-hidden">, latest report (PASS)</span></a></h3>
+      <p class="sub">stock · Isaac Sim</p>
+      
+    </div>
+    <div class="entry-side">
+      <div class="side-meta"><span class="release" title="Verification bundle release v1.1.0">v1.1.0</span><span class="dot">·</span><time datetime="2026-11-18T09:44:00Z" title="18 Nov 2026, 8:44 pm AEDT (Australia/Sydney)">20 minutes ago</time></div>
+      <div class="links"><a class="history" href="#fourier-gr1">History (23)</a></div>
+    </div>
+  </div>
+</article>
+<article class="card">
+  <div class="entry-main">
+    <span class="badge badge-pass">PASS</span>
+    <div class="entry-body">
+      <h3 class="title"><a class="card-link" href="#fourier-gr1">Walk uneven terrain<span class="visually-hidden">, latest report (PASS)</span></a></h3>
+      <p class="sub">stock · Isaac Sim</p>
+      
+    </div>
+    <div class="entry-side">
+      <div class="side-meta"><span class="release" title="Verification bundle release v1.1.0">v1.1.0</span><span class="dot">·</span><time datetime="2026-11-18T09:44:00Z" title="18 Nov 2026, 8:44 pm AEDT (Australia/Sydney)">20 minutes ago</time></div>
+      <div class="links"><a class="history" href="#fourier-gr1">History (9)</a></div>
+    </div>
+  </div>
+</article>
+  </div></div>
+</details>
+<details class="robot" id="unitree-g1">
+  <summary>
+    <span class="visually-hidden">Unitree G1, 15 scenarios, 1 failed, 14 passed, latest v1.1.0, 20 minutes ago</span>
+    <div class="summary-row" aria-hidden="true">
+      <svg class="chevron" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path fill="currentColor" d="M6.2 3.2a.75.75 0 0 0 0 1.06L9.94 8 6.2 11.74a.75.75 0 1 0 1.06 1.06l4.27-4.27a.75.75 0 0 0 0-1.06L7.26 3.2a.75.75 0 0 0-1.06 0Z"/></svg>
+      <div class="summary-id"><span class="robot-name">Unitree G1</span><span class="counts">15 scenarios<span class="count-sep">·</span><span class="fail-count">1 failed</span><span class="count-sep">·</span><span class="pass-count">14 passed</span></span></div>
+      <span class="dots"><span class="pip pip-fail" title="Walk the hallway: failed"></span><span class="pip pip-pass" title="Climb the stairs: passed"></span><span class="pip pip-pass" title="Cross the doorway: passed"></span><span class="pip pip-pass" title="Navigate a cluttered room: passed"></span><span class="pip pip-pass" title="Pick and place: passed"></span><span class="pip pip-pass" title="Sit down and stand up: passed"></span><span class="pip pip-pass" title="Stand up from a fall: passed"></span><span class="pip pip-pass" title="Step over a threshold: passed"></span><span class="pip pip-pass" title="Walk around the corner: passed"></span><span class="pip pip-pass" title="Walk around the corner: passed"></span><span class="pip pip-pass" title="Walk around the corner (left): passed"></span><span class="pip pip-pass" title="Walk around the corner (right): passed"></span><span class="pip pip-pass" title="Walk backward: passed"></span><span class="pip pip-pass" title="Walk the hallway: passed"></span><span class="pip pip-pass" title="Walk uneven terrain: passed"></span><span class="pip-more" hidden></span></span>
+      <span class="meta-latest"><span class="release" title="Verification bundle release v1.1.0">v1.1.0</span><span class="dot">·</span><time datetime="2026-11-18T09:44:00Z" title="18 Nov 2026, 8:44 pm AEDT (Australia/Sydney)">20 minutes ago</time></span>
+    </div>
+  </summary>
+  <div class="robot-body"><div class="stack">
+    <article class="card is-fail">
+  <div class="entry-main">
+    <span class="badge badge-fail">FAIL</span>
+    <div class="entry-body">
+      <h3 class="title"><a class="card-link" href="https://docs.livingprooflabs.com/livingproof-verification/unitree-g1/stock-mujoco-hallway/latest/">Walk the hallway<span class="visually-hidden">, latest report (FAIL)</span></a></h3>
+      <p class="sub">stock · MuJoCo</p>
+      <div class="chips"><a class="chip" href="https://docs.livingprooflabs.com/livingproof-verification/unitree-g1/stock-mujoco-hallway/latest/#evaluator-livingproof-scenario" title="Open the Scenario finding in the report">Scenario</a></div><p class="finding">Drifted 0.66 m from the centreline, then touched the right wall at 7.80 s.</p>
+    </div>
+    <div class="entry-side">
+      <div class="side-meta"><span class="release" title="Verification bundle release v1.1.0">v1.1.0</span><span class="dot">·</span><time datetime="2026-11-18T09:34:00Z" title="18 Nov 2026, 8:34 pm AEDT (Australia/Sydney)">30 minutes ago</time></div>
+      <div class="links"><a class="history" href="https://docs.livingprooflabs.com/livingproof-verification/unitree-g1/stock-mujoco-hallway/">History (87)</a></div>
+    </div>
+  </div>
+</article>
+<article class="card">
+  <div class="entry-main">
+    <span class="badge badge-pass">PASS</span>
+    <div class="entry-body">
+      <h3 class="title"><a class="card-link" href="#unitree-g1">Climb the stairs<span class="visually-hidden">, latest report (PASS)</span></a></h3>
+      <p class="sub">stock · MuJoCo</p>
+      
+    </div>
+    <div class="entry-side">
+      <div class="side-meta"><span class="release" title="Verification bundle release v1.1.0">v1.1.0</span><span class="dot">·</span><time datetime="2026-11-18T09:44:00Z" title="18 Nov 2026, 8:44 pm AEDT (Australia/Sydney)">20 minutes ago</time></div>
+      <div class="links"><a class="history" href="#unitree-g1">History (8)</a></div>
+    </div>
+  </div>
+</article>
+<article class="card">
+  <div class="entry-main">
+    <span class="badge badge-pass">PASS</span>
+    <div class="entry-body">
+      <h3 class="title"><a class="card-link" href="#unitree-g1">Cross the doorway<span class="visually-hidden">, latest report (PASS)</span></a></h3>
+      <p class="sub">stock · MuJoCo</p>
+      
+    </div>
+    <div class="entry-side">
+      <div class="side-meta"><span class="release" title="Verification bundle release v1.1.0">v1.1.0</span><span class="dot">·</span><time datetime="2026-11-18T09:44:00Z" title="18 Nov 2026, 8:44 pm AEDT (Australia/Sydney)">20 minutes ago</time></div>
+      <div class="links"><a class="history" href="#unitree-g1">History (7)</a></div>
+    </div>
+  </div>
+</article>
+<article class="card">
+  <div class="entry-main">
+    <span class="badge badge-pass">PASS</span>
+    <div class="entry-body">
+      <h3 class="title"><a class="card-link" href="#unitree-g1">Navigate a cluttered room<span class="visually-hidden">, latest report (PASS)</span></a></h3>
+      <p class="sub">stock · MuJoCo</p>
+      
+    </div>
+    <div class="entry-side">
+      <div class="side-meta"><span class="release" title="Verification bundle release v1.1.0">v1.1.0</span><span class="dot">·</span><time datetime="2026-11-18T09:44:00Z" title="18 Nov 2026, 8:44 pm AEDT (Australia/Sydney)">20 minutes ago</time></div>
+      <div class="links"><a class="history" href="#unitree-g1">History (5)</a></div>
+    </div>
+  </div>
+</article>
+<article class="card">
+  <div class="entry-main">
+    <span class="badge badge-pass">PASS</span>
+    <div class="entry-body">
+      <h3 class="title"><a class="card-link" href="#unitree-g1">Pick and place<span class="visually-hidden">, latest report (PASS)</span></a></h3>
+      <p class="sub">stock · MuJoCo</p>
+      
+    </div>
+    <div class="entry-side">
+      <div class="side-meta"><span class="release" title="Verification bundle release v1.1.0">v1.1.0</span><span class="dot">·</span><time datetime="2026-11-18T09:44:00Z" title="18 Nov 2026, 8:44 pm AEDT (Australia/Sydney)">20 minutes ago</time></div>
+      <div class="links"><a class="history" href="#unitree-g1">History (6)</a></div>
+    </div>
+  </div>
+</article>
+<article class="card">
+  <div class="entry-main">
+    <span class="badge badge-pass">PASS</span>
+    <div class="entry-body">
+      <h3 class="title"><a class="card-link" href="#unitree-g1">Sit down and stand up<span class="visually-hidden">, latest report (PASS)</span></a></h3>
+      <p class="sub">stock · MuJoCo</p>
+      
+    </div>
+    <div class="entry-side">
+      <div class="side-meta"><span class="release" title="Verification bundle release v1.1.0">v1.1.0</span><span class="dot">·</span><time datetime="2026-11-18T09:44:00Z" title="18 Nov 2026, 8:44 pm AEDT (Australia/Sydney)">20 minutes ago</time></div>
+      <div class="links"><a class="history" href="#unitree-g1">History (4)</a></div>
+    </div>
+  </div>
+</article>
+<article class="card">
+  <div class="entry-main">
+    <span class="badge badge-pass">PASS</span>
+    <div class="entry-body">
+      <h3 class="title"><a class="card-link" href="#unitree-g1">Stand up from a fall<span class="visually-hidden">, latest report (PASS)</span></a></h3>
+      <p class="sub">stock · MuJoCo</p>
+      
+    </div>
+    <div class="entry-side">
+      <div class="side-meta"><span class="release" title="Verification bundle release v1.1.0">v1.1.0</span><span class="dot">·</span><time datetime="2026-11-18T09:44:00Z" title="18 Nov 2026, 8:44 pm AEDT (Australia/Sydney)">20 minutes ago</time></div>
+      <div class="links"><a class="history" href="#unitree-g1">History (9)</a></div>
+    </div>
+  </div>
+</article>
+<article class="card">
+  <div class="entry-main">
+    <span class="badge badge-pass">PASS</span>
+    <div class="entry-body">
+      <h3 class="title"><a class="card-link" href="#unitree-g1">Step over a threshold<span class="visually-hidden">, latest report (PASS)</span></a></h3>
+      <p class="sub">stock · MuJoCo</p>
+      
+    </div>
+    <div class="entry-side">
+      <div class="side-meta"><span class="release" title="Verification bundle release v1.1.0">v1.1.0</span><span class="dot">·</span><time datetime="2026-11-18T09:44:00Z" title="18 Nov 2026, 8:44 pm AEDT (Australia/Sydney)">20 minutes ago</time></div>
+      <div class="links"><a class="history" href="#unitree-g1">History (5)</a></div>
+    </div>
+  </div>
+</article>
+<article class="card">
+  <div class="entry-main">
+    <span class="badge badge-pass">PASS</span>
+    <div class="entry-body">
+      <h3 class="title"><a class="card-link" href="https://docs.livingprooflabs.com/livingproof-verification/unitree-g1/playground-mujoco-corner/latest/">Walk around the corner<span class="visually-hidden">, latest report (PASS)</span></a></h3>
+      <p class="sub">playground · MuJoCo</p>
+      
+    </div>
+    <div class="entry-side">
+      <div class="side-meta"><span class="release is-fallback" title="No release tag; short SHA shown">2363e612</span><span class="dot">·</span><time datetime="2026-11-18T07:04:00Z" title="18 Nov 2026, 6:04 pm AEDT (Australia/Sydney)">3 hours ago</time></div>
+      <div class="links"><a class="history" href="https://docs.livingprooflabs.com/livingproof-verification/unitree-g1/playground-mujoco-corner/">History (18)</a></div>
+    </div>
+  </div>
+</article>
+<article class="card">
+  <div class="entry-main">
+    <span class="badge badge-pass">PASS</span>
+    <div class="entry-body">
+      <h3 class="title"><a class="card-link" href="https://docs.livingprooflabs.com/livingproof-verification/unitree-g1/stock-mujoco-corner/latest/">Walk around the corner<span class="visually-hidden">, latest report (PASS)</span></a></h3>
+      <p class="sub">stock · MuJoCo</p>
+      
+    </div>
+    <div class="entry-side">
+      <div class="side-meta"><span class="release is-fallback" title="No release tag; short SHA shown">2363e612</span><span class="dot">·</span><time datetime="2026-11-18T07:04:00Z" title="18 Nov 2026, 6:04 pm AEDT (Australia/Sydney)">3 hours ago</time></div>
+      <div class="links"><a class="history" href="https://docs.livingprooflabs.com/livingproof-verification/unitree-g1/stock-mujoco-corner/">History (21)</a></div>
+    </div>
+  </div>
+</article>
+<article class="card">
+  <div class="entry-main">
+    <span class="badge badge-pass">PASS</span>
+    <div class="entry-body">
+      <h3 class="title"><a class="card-link" href="https://docs.livingprooflabs.com/livingproof-verification/unitree-g1/stock-mujoco-corner-left/latest/">Walk around the corner (left)<span class="visually-hidden">, latest report (PASS)</span></a></h3>
+      <p class="sub">stock · MuJoCo</p>
+      
+    </div>
+    <div class="entry-side">
+      <div class="side-meta"><span class="release" title="Verification bundle release v1.1.0">v1.1.0</span><span class="dot">·</span><time datetime="2026-11-18T09:44:00Z" title="18 Nov 2026, 8:44 pm AEDT (Australia/Sydney)">20 minutes ago</time></div>
+      <div class="links"><a class="history" href="https://docs.livingprooflabs.com/livingproof-verification/unitree-g1/stock-mujoco-corner-left/">History (3)</a></div>
+    </div>
+  </div>
+</article>
+<article class="card">
+  <div class="entry-main">
+    <span class="badge badge-pass">PASS</span>
+    <div class="entry-body">
+      <h3 class="title"><a class="card-link" href="https://docs.livingprooflabs.com/livingproof-verification/unitree-g1/stock-mujoco-corner-right/latest/">Walk around the corner (right)<span class="visually-hidden">, latest report (PASS)</span></a></h3>
+      <p class="sub">stock · MuJoCo</p>
+      
+    </div>
+    <div class="entry-side">
+      <div class="side-meta"><span class="release" title="Verification bundle release v1.1.0">v1.1.0</span><span class="dot">·</span><time datetime="2026-11-18T09:44:00Z" title="18 Nov 2026, 8:44 pm AEDT (Australia/Sydney)">20 minutes ago</time></div>
+      <div class="links"><a class="history" href="https://docs.livingprooflabs.com/livingproof-verification/unitree-g1/stock-mujoco-corner-right/">History (3)</a></div>
+    </div>
+  </div>
+</article>
+<article class="card">
+  <div class="entry-main">
+    <span class="badge badge-pass">PASS</span>
+    <div class="entry-body">
+      <h3 class="title"><a class="card-link" href="#unitree-g1">Walk backward<span class="visually-hidden">, latest report (PASS)</span></a></h3>
+      <p class="sub">stock · MuJoCo</p>
+      
+    </div>
+    <div class="entry-side">
+      <div class="side-meta"><span class="release" title="Verification bundle release v1.1.0">v1.1.0</span><span class="dot">·</span><time datetime="2026-11-18T09:44:00Z" title="18 Nov 2026, 8:44 pm AEDT (Australia/Sydney)">20 minutes ago</time></div>
+      <div class="links"><a class="history" href="#unitree-g1">History (6)</a></div>
+    </div>
+  </div>
+</article>
+<article class="card">
+  <div class="entry-main">
+    <span class="badge badge-pass">PASS</span>
+    <div class="entry-body">
+      <h3 class="title"><a class="card-link" href="https://docs.livingprooflabs.com/livingproof-verification/unitree-g1/playground-mujoco-hallway/latest/">Walk the hallway<span class="visually-hidden">, latest report (PASS)</span></a></h3>
+      <p class="sub">playground · MuJoCo</p>
+      
+    </div>
+    <div class="entry-side">
+      <div class="side-meta"><span class="release" title="Verification bundle release v1.1.0">v1.1.0</span><span class="dot">·</span><time datetime="2026-11-18T09:44:00Z" title="18 Nov 2026, 8:44 pm AEDT (Australia/Sydney)">20 minutes ago</time></div>
+      <div class="links"><a class="history" href="https://docs.livingprooflabs.com/livingproof-verification/unitree-g1/playground-mujoco-hallway/">History (66)</a></div>
+    </div>
+  </div>
+</article>
+<article class="card">
+  <div class="entry-main">
+    <span class="badge badge-pass">PASS</span>
+    <div class="entry-body">
+      <h3 class="title"><a class="card-link" href="#unitree-g1">Walk uneven terrain<span class="visually-hidden">, latest report (PASS)</span></a></h3>
+      <p class="sub">stock · MuJoCo</p>
+      
+    </div>
+    <div class="entry-side">
+      <div class="side-meta"><span class="release" title="Verification bundle release v1.1.0">v1.1.0</span><span class="dot">·</span><time datetime="2026-11-18T09:44:00Z" title="18 Nov 2026, 8:44 pm AEDT (Australia/Sydney)">20 minutes ago</time></div>
+      <div class="links"><a class="history" href="#unitree-g1">History (8)</a></div>
+    </div>
+  </div>
+</article>
+  </div></div>
+</details>
+<details class="robot" id="unitree-go1">
+  <summary>
+    <span class="visually-hidden">Unitree Go1, 9 scenarios, 9 passed, latest v1.1.0, 20 minutes ago</span>
+    <div class="summary-row" aria-hidden="true">
+      <svg class="chevron" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path fill="currentColor" d="M6.2 3.2a.75.75 0 0 0 0 1.06L9.94 8 6.2 11.74a.75.75 0 1 0 1.06 1.06l4.27-4.27a.75.75 0 0 0 0-1.06L7.26 3.2a.75.75 0 0 0-1.06 0Z"/></svg>
+      <div class="summary-id"><span class="robot-name">Unitree Go1</span><span class="counts">9 scenarios<span class="count-sep">·</span><span class="pass-count">9 passed</span></span></div>
+      <span class="dots"><span class="pip pip-pass" title="Climb the stairs: passed"></span><span class="pip pip-pass" title="Cross the doorway: passed"></span><span class="pip pip-pass" title="Step over a threshold: passed"></span><span class="pip pip-pass" title="Turn in place: passed"></span><span class="pip pip-pass" title="Walk around the corner: passed"></span><span class="pip pip-pass" title="Walk around the corner (left): passed"></span><span class="pip pip-pass" title="Walk around the corner (right): passed"></span><span class="pip pip-pass" title="Walk the hallway: passed"></span><span class="pip pip-pass" title="Walk uneven terrain: passed"></span><span class="pip-more" hidden></span></span>
+      <span class="meta-latest"><span class="release" title="Verification bundle release v1.1.0">v1.1.0</span><span class="dot">·</span><time datetime="2026-11-18T09:44:00Z" title="18 Nov 2026, 8:44 pm AEDT (Australia/Sydney)">20 minutes ago</time></span>
+    </div>
+  </summary>
+  <div class="robot-body"><div class="stack">
+    <article class="card">
+  <div class="entry-main">
+    <span class="badge badge-pass">PASS</span>
+    <div class="entry-body">
+      <h3 class="title"><a class="card-link" href="#unitree-go1">Climb the stairs<span class="visually-hidden">, latest report (PASS)</span></a></h3>
+      <p class="sub">playground · MuJoCo</p>
+      
+    </div>
+    <div class="entry-side">
+      <div class="side-meta"><span class="release" title="Verification bundle release v1.1.0">v1.1.0</span><span class="dot">·</span><time datetime="2026-11-18T09:44:00Z" title="18 Nov 2026, 8:44 pm AEDT (Australia/Sydney)">20 minutes ago</time></div>
+      <div class="links"><a class="history" href="#unitree-go1">History (15)</a></div>
+    </div>
+  </div>
+</article>
+<article class="card">
+  <div class="entry-main">
+    <span class="badge badge-pass">PASS</span>
+    <div class="entry-body">
+      <h3 class="title"><a class="card-link" href="#unitree-go1">Cross the doorway<span class="visually-hidden">, latest report (PASS)</span></a></h3>
+      <p class="sub">playground · MuJoCo</p>
+      
+    </div>
+    <div class="entry-side">
+      <div class="side-meta"><span class="release" title="Verification bundle release v1.1.0">v1.1.0</span><span class="dot">·</span><time datetime="2026-11-18T09:44:00Z" title="18 Nov 2026, 8:44 pm AEDT (Australia/Sydney)">20 minutes ago</time></div>
+      <div class="links"><a class="history" href="#unitree-go1">History (18)</a></div>
+    </div>
+  </div>
+</article>
+<article class="card">
+  <div class="entry-main">
+    <span class="badge badge-pass">PASS</span>
+    <div class="entry-body">
+      <h3 class="title"><a class="card-link" href="#unitree-go1">Step over a threshold<span class="visually-hidden">, latest report (PASS)</span></a></h3>
+      <p class="sub">playground · MuJoCo</p>
+      
+    </div>
+    <div class="entry-side">
+      <div class="side-meta"><span class="release" title="Verification bundle release v1.1.0">v1.1.0</span><span class="dot">·</span><time datetime="2026-11-18T09:44:00Z" title="18 Nov 2026, 8:44 pm AEDT (Australia/Sydney)">20 minutes ago</time></div>
+      <div class="links"><a class="history" href="#unitree-go1">History (21)</a></div>
+    </div>
+  </div>
+</article>
+<article class="card">
+  <div class="entry-main">
+    <span class="badge badge-pass">PASS</span>
+    <div class="entry-body">
+      <h3 class="title"><a class="card-link" href="#unitree-go1">Turn in place<span class="visually-hidden">, latest report (PASS)</span></a></h3>
+      <p class="sub">playground · MuJoCo</p>
+      
+    </div>
+    <div class="entry-side">
+      <div class="side-meta"><span class="release" title="Verification bundle release v1.1.0">v1.1.0</span><span class="dot">·</span><time datetime="2026-11-18T09:44:00Z" title="18 Nov 2026, 8:44 pm AEDT (Australia/Sydney)">20 minutes ago</time></div>
+      <div class="links"><a class="history" href="#unitree-go1">History (24)</a></div>
+    </div>
+  </div>
+</article>
+<article class="card">
+  <div class="entry-main">
+    <span class="badge badge-pass">PASS</span>
+    <div class="entry-body">
+      <h3 class="title"><a class="card-link" href="https://docs.livingprooflabs.com/livingproof-verification/unitree-go1/playground-mujoco-corner/latest/">Walk around the corner<span class="visually-hidden">, latest report (PASS)</span></a></h3>
+      <p class="sub">playground · MuJoCo</p>
+      
+    </div>
+    <div class="entry-side">
+      <div class="side-meta"><span class="release is-fallback" title="No release tag; short SHA shown">2363e612</span><span class="dot">·</span><time datetime="2026-11-18T07:04:00Z" title="18 Nov 2026, 6:04 pm AEDT (Australia/Sydney)">3 hours ago</time></div>
+      <div class="links"><a class="history" href="https://docs.livingprooflabs.com/livingproof-verification/unitree-go1/playground-mujoco-corner/">History (21)</a></div>
+    </div>
+  </div>
+</article>
+<article class="card">
+  <div class="entry-main">
+    <span class="badge badge-pass">PASS</span>
+    <div class="entry-body">
+      <h3 class="title"><a class="card-link" href="https://docs.livingprooflabs.com/livingproof-verification/unitree-go1/playground-mujoco-corner-left/latest/">Walk around the corner (left)<span class="visually-hidden">, latest report (PASS)</span></a></h3>
+      <p class="sub">playground · MuJoCo</p>
+      
+    </div>
+    <div class="entry-side">
+      <div class="side-meta"><span class="release" title="Verification bundle release v1.1.0">v1.1.0</span><span class="dot">·</span><time datetime="2026-11-18T09:44:00Z" title="18 Nov 2026, 8:44 pm AEDT (Australia/Sydney)">20 minutes ago</time></div>
+      <div class="links"><a class="history" href="https://docs.livingprooflabs.com/livingproof-verification/unitree-go1/playground-mujoco-corner-left/">History (30)</a></div>
+    </div>
+  </div>
+</article>
+<article class="card">
+  <div class="entry-main">
+    <span class="badge badge-pass">PASS</span>
+    <div class="entry-body">
+      <h3 class="title"><a class="card-link" href="https://docs.livingprooflabs.com/livingproof-verification/unitree-go1/playground-mujoco-corner-right/latest/">Walk around the corner (right)<span class="visually-hidden">, latest report (PASS)</span></a></h3>
+      <p class="sub">playground · MuJoCo</p>
+      
+    </div>
+    <div class="entry-side">
+      <div class="side-meta"><span class="release" title="Verification bundle release v1.1.0">v1.1.0</span><span class="dot">·</span><time datetime="2026-11-18T09:44:00Z" title="18 Nov 2026, 8:44 pm AEDT (Australia/Sydney)">20 minutes ago</time></div>
+      <div class="links"><a class="history" href="https://docs.livingprooflabs.com/livingproof-verification/unitree-go1/playground-mujoco-corner-right/">History (16)</a></div>
+    </div>
+  </div>
+</article>
+<article class="card">
+  <div class="entry-main">
+    <span class="badge badge-pass">PASS</span>
+    <div class="entry-body">
+      <h3 class="title"><a class="card-link" href="https://docs.livingprooflabs.com/livingproof-verification/unitree-go1/playground-mujoco-hallway/latest/">Walk the hallway<span class="visually-hidden">, latest report (PASS)</span></a></h3>
+      <p class="sub">playground · MuJoCo</p>
+      
+    </div>
+    <div class="entry-side">
+      <div class="side-meta"><span class="release" title="Verification bundle release v1.1.0">v1.1.0</span><span class="dot">·</span><time datetime="2026-11-18T09:44:00Z" title="18 Nov 2026, 8:44 pm AEDT (Australia/Sydney)">20 minutes ago</time></div>
+      <div class="links"><a class="history" href="https://docs.livingprooflabs.com/livingproof-verification/unitree-go1/playground-mujoco-hallway/">History (19)</a></div>
+    </div>
+  </div>
+</article>
+<article class="card">
+  <div class="entry-main">
+    <span class="badge badge-pass">PASS</span>
+    <div class="entry-body">
+      <h3 class="title"><a class="card-link" href="#unitree-go1">Walk uneven terrain<span class="visually-hidden">, latest report (PASS)</span></a></h3>
+      <p class="sub">playground · MuJoCo</p>
+      
+    </div>
+    <div class="entry-side">
+      <div class="side-meta"><span class="release" title="Verification bundle release v1.1.0">v1.1.0</span><span class="dot">·</span><time datetime="2026-11-18T09:44:00Z" title="18 Nov 2026, 8:44 pm AEDT (Australia/Sydney)">20 minutes ago</time></div>
+      <div class="links"><a class="history" href="#unitree-go1">History (22)</a></div>
+    </div>
+  </div>
+</article>
+  </div></div>
+</details>
+<details class="robot" id="unitree-h1">
+  <summary>
+    <span class="visually-hidden">Unitree H1, 8 scenarios, 8 passed, latest v1.1.0, 20 minutes ago</span>
+    <div class="summary-row" aria-hidden="true">
+      <svg class="chevron" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path fill="currentColor" d="M6.2 3.2a.75.75 0 0 0 0 1.06L9.94 8 6.2 11.74a.75.75 0 1 0 1.06 1.06l4.27-4.27a.75.75 0 0 0 0-1.06L7.26 3.2a.75.75 0 0 0-1.06 0Z"/></svg>
+      <div class="summary-id"><span class="robot-name">Unitree H1</span><span class="counts">8 scenarios<span class="count-sep">·</span><span class="pass-count">8 passed</span></span></div>
+      <span class="dots"><span class="pip pip-pass" title="Climb the stairs: passed"></span><span class="pip pip-pass" title="Cross the doorway: passed"></span><span class="pip pip-pass" title="Pick and place: passed"></span><span class="pip pip-pass" title="Walk around the corner: passed"></span><span class="pip pip-pass" title="Walk around the corner (left): passed"></span><span class="pip pip-pass" title="Walk around the corner (right): passed"></span><span class="pip pip-pass" title="Walk the hallway: passed"></span><span class="pip pip-pass" title="Walk uneven terrain: passed"></span><span class="pip-more" hidden></span></span>
+      <span class="meta-latest"><span class="release" title="Verification bundle release v1.1.0">v1.1.0</span><span class="dot">·</span><time datetime="2026-11-18T09:44:00Z" title="18 Nov 2026, 8:44 pm AEDT (Australia/Sydney)">20 minutes ago</time></span>
+    </div>
+  </summary>
+  <div class="robot-body"><div class="stack">
+    <article class="card">
+  <div class="entry-main">
+    <span class="badge badge-pass">PASS</span>
+    <div class="entry-body">
+      <h3 class="title"><a class="card-link" href="#unitree-h1">Climb the stairs<span class="visually-hidden">, latest report (PASS)</span></a></h3>
+      <p class="sub">stock · MuJoCo</p>
+      
+    </div>
+    <div class="entry-side">
+      <div class="side-meta"><span class="release" title="Verification bundle release v1.1.0">v1.1.0</span><span class="dot">·</span><time datetime="2026-11-18T09:44:00Z" title="18 Nov 2026, 8:44 pm AEDT (Australia/Sydney)">20 minutes ago</time></div>
+      <div class="links"><a class="history" href="#unitree-h1">History (8)</a></div>
+    </div>
+  </div>
+</article>
+<article class="card">
+  <div class="entry-main">
+    <span class="badge badge-pass">PASS</span>
+    <div class="entry-body">
+      <h3 class="title"><a class="card-link" href="#unitree-h1">Cross the doorway<span class="visually-hidden">, latest report (PASS)</span></a></h3>
+      <p class="sub">stock · MuJoCo</p>
+      
+    </div>
+    <div class="entry-side">
+      <div class="side-meta"><span class="release" title="Verification bundle release v1.1.0">v1.1.0</span><span class="dot">·</span><time datetime="2026-11-18T09:44:00Z" title="18 Nov 2026, 8:44 pm AEDT (Australia/Sydney)">20 minutes ago</time></div>
+      <div class="links"><a class="history" href="#unitree-h1">History (11)</a></div>
+    </div>
+  </div>
+</article>
+<article class="card">
+  <div class="entry-main">
+    <span class="badge badge-pass">PASS</span>
+    <div class="entry-body">
+      <h3 class="title"><a class="card-link" href="#unitree-h1">Pick and place<span class="visually-hidden">, latest report (PASS)</span></a></h3>
+      <p class="sub">stock · MuJoCo</p>
+      
+    </div>
+    <div class="entry-side">
+      <div class="side-meta"><span class="release" title="Verification bundle release v1.1.0">v1.1.0</span><span class="dot">·</span><time datetime="2026-11-18T09:44:00Z" title="18 Nov 2026, 8:44 pm AEDT (Australia/Sydney)">20 minutes ago</time></div>
+      <div class="links"><a class="history" href="#unitree-h1">History (14)</a></div>
+    </div>
+  </div>
+</article>
+<article class="card">
+  <div class="entry-main">
+    <span class="badge badge-pass">PASS</span>
+    <div class="entry-body">
+      <h3 class="title"><a class="card-link" href="#unitree-h1">Walk around the corner<span class="visually-hidden">, latest report (PASS)</span></a></h3>
+      <p class="sub">stock · MuJoCo</p>
+      
+    </div>
+    <div class="entry-side">
+      <div class="side-meta"><span class="release" title="Verification bundle release v1.1.0">v1.1.0</span><span class="dot">·</span><time datetime="2026-11-18T09:44:00Z" title="18 Nov 2026, 8:44 pm AEDT (Australia/Sydney)">20 minutes ago</time></div>
+      <div class="links"><a class="history" href="#unitree-h1">History (17)</a></div>
+    </div>
+  </div>
+</article>
+<article class="card">
+  <div class="entry-main">
+    <span class="badge badge-pass">PASS</span>
+    <div class="entry-body">
+      <h3 class="title"><a class="card-link" href="#unitree-h1">Walk around the corner (left)<span class="visually-hidden">, latest report (PASS)</span></a></h3>
+      <p class="sub">stock · MuJoCo</p>
+      
+    </div>
+    <div class="entry-side">
+      <div class="side-meta"><span class="release" title="Verification bundle release v1.1.0">v1.1.0</span><span class="dot">·</span><time datetime="2026-11-18T09:44:00Z" title="18 Nov 2026, 8:44 pm AEDT (Australia/Sydney)">20 minutes ago</time></div>
+      <div class="links"><a class="history" href="#unitree-h1">History (20)</a></div>
+    </div>
+  </div>
+</article>
+<article class="card">
+  <div class="entry-main">
+    <span class="badge badge-pass">PASS</span>
+    <div class="entry-body">
+      <h3 class="title"><a class="card-link" href="#unitree-h1">Walk around the corner (right)<span class="visually-hidden">, latest report (PASS)</span></a></h3>
+      <p class="sub">stock · MuJoCo</p>
+      
+    </div>
+    <div class="entry-side">
+      <div class="side-meta"><span class="release" title="Verification bundle release v1.1.0">v1.1.0</span><span class="dot">·</span><time datetime="2026-11-18T09:44:00Z" title="18 Nov 2026, 8:44 pm AEDT (Australia/Sydney)">20 minutes ago</time></div>
+      <div class="links"><a class="history" href="#unitree-h1">History (23)</a></div>
+    </div>
+  </div>
+</article>
+<article class="card">
+  <div class="entry-main">
+    <span class="badge badge-pass">PASS</span>
+    <div class="entry-body">
+      <h3 class="title"><a class="card-link" href="#unitree-h1">Walk the hallway<span class="visually-hidden">, latest report (PASS)</span></a></h3>
+      <p class="sub">stock · MuJoCo</p>
+      
+    </div>
+    <div class="entry-side">
+      <div class="side-meta"><span class="release" title="Verification bundle release v1.1.0">v1.1.0</span><span class="dot">·</span><time datetime="2026-11-18T09:44:00Z" title="18 Nov 2026, 8:44 pm AEDT (Australia/Sydney)">20 minutes ago</time></div>
+      <div class="links"><a class="history" href="#unitree-h1">History (9)</a></div>
+    </div>
+  </div>
+</article>
+<article class="card">
+  <div class="entry-main">
+    <span class="badge badge-pass">PASS</span>
+    <div class="entry-body">
+      <h3 class="title"><a class="card-link" href="#unitree-h1">Walk uneven terrain<span class="visually-hidden">, latest report (PASS)</span></a></h3>
+      <p class="sub">stock · MuJoCo</p>
+      
+    </div>
+    <div class="entry-side">
+      <div class="side-meta"><span class="release" title="Verification bundle release v1.1.0">v1.1.0</span><span class="dot">·</span><time datetime="2026-11-18T09:44:00Z" title="18 Nov 2026, 8:44 pm AEDT (Australia/Sydney)">20 minutes ago</time></div>
+      <div class="links"><a class="history" href="#unitree-h1">History (12)</a></div>
+    </div>
+  </div>
+</article>
+  </div></div>
+</details>
+  </div>
+</main>
+<script src="open.js"></script>
+</body>
+</html>
