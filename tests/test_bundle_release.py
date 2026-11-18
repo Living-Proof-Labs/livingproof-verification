@@ -6,9 +6,11 @@ Gating is checked three ways, none of which needs a hosted run:
 * the workflow is parsed, so a pin, `needs`, permission or `if` that drifts fails here;
 * the `if:` expressions are evaluated for every event and verification result, and the
   `verification` job's own check script is executed for every result a job can end with;
-* the shared semantic-release workflow's side of the contract (it never moves or recreates
-  a tag) is documented in docs/bundle-releases.md and, with LIVINGPROOF_NETWORK=1, compared
-  with the pinned tag.
+* the shared semantic-release engine is run in tests/bundle_release_rerun.test.mjs
+  (CI job `bundle-release-engine`): a re-run on an already tagged commit, including an
+  old tagged commit after main has moved on, publishes nothing and does not move or
+  recreate the tag. docs/bundle-releases.md describes the cases; with
+  LIVINGPROOF_NETWORK=1 the call and tag format are also compared with the pinned tag.
 """
 
 from __future__ import annotations

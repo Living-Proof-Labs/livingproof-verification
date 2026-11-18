@@ -43,27 +43,41 @@ the first notes are long. Later releases only list commits since the previous ta
 | Pull request, merge group, manual run | `if` needs `push` on `refs/heads/main` | `test_only_a_push_to_main_with_verification_passed_publishes` evaluates the `if` for every event |
 | A verification job failed, was cancelled or skipped | `release` needs `verification`, and that job fails unless every job it needs succeeded; with no status function in the `if`, GitHub skips a job whose need did not succeed | `test_the_verification_job_gates_on_every_job_it_needs` runs the job's own check for each result of each needed job |
 | Verification passed on `main`, push | the release runs and publishes only when there are releasable commits | the shared workflow's own tests and the repeat-run cases below |
-| Re-run on a commit that is already tagged | semantic-release finds the tag in the history, sees no new releasable commits and returns `published=false`; it never retags or moves an existing tag | repeat-run cases below |
+| Re-run on a commit that is already tagged | semantic-release finds the tag in the history, sees no new releasable commits and returns `published=false`; it never retags or moves an existing tag | `tests/bundle_release_rerun.test.mjs`, run by the `bundle-release-engine` job |
 
 The shared job serialises releases per repository and never cancels one that has started
 (`concurrency.cancel-in-progress: false`). Its own `if` repeats the `main` rule.
 
-### Repeat-run cases (run against the shared engine, no publishing)
+### Repeat-run cases (automated, shared engine, no publishing)
 
-`.github/actions/semantic-release` at `v9.6.10` was run against a disposable repository and
-bare remote with the shared `release.config.mjs`, the commit analyser and the notes generator
-(only the GitHub plugin is left out, as in the guidelines' own `engine.test.mjs`):
+`tests/bundle_release_rerun.test.mjs` runs `.github/actions/semantic-release` at the same
+reviewed collaboration-guidelines release this repository calls (`v9.6.10`, commit
+`54dcb297c628a4853c79bb31b5155e859afb7e93`) against a disposable repository and bare remote,
+with the shared `release.config.mjs`, the commit analyser and the notes generator (only the
+GitHub plugin is left out, as in the guidelines' own `engine.test.mjs`). The
+`bundle-release-engine` job in `.github/workflows/checks.yml` checks out that commit, installs
+the engine from the action's `package-lock.json`, and runs the test on every pull request and
+merge group. The run itself is git-only: no GitHub plugin, no token, and remotes are local.
+Setup needs the network only to fetch the pinned Node tarball (sha256-verified, same pin as
+the `renovate` job), the public guidelines checkout, and `npm ci` from the lockfile.
 
 ```text
 1. first push to main (no tags yet)                            published=true v1.0.0
-   tags: v1.0.0 cb2c3de | v1.0.0 resolves to HEAD: true
 2. re-run on the already tagged commit                         published=false
 3. second re-run on the already tagged commit                  published=false
-   tag unchanged: true | tags: v1.0.0 cb2c3de
 4. re-run of the OLD tagged commit after main moved on         published=false
-   tags: v1.0.0 cb2c3de | v1.0.0 still at first commit: true
+                                                               v1.0.0 still at the first commit
 5. next push to main (new fix commit) releases once            published=true v1.0.1
 6. re-run of that run                                          published=false
+```
+
+To run it locally, check out `Living-Proof-Labs/collaboration-guidelines` at
+`54dcb297c628a4853c79bb31b5155e859afb7e93`, run `npm ci --omit=dev --ignore-scripts` in
+`.github/actions/semantic-release`, and invoke:
+
+```sh
+SHARED_RELEASE_ACTION=/path/to/.github/actions/semantic-release \
+  node --test tests/bundle_release_rerun.test.mjs
 ```
 
 ## Provenance: the tag and the commit
@@ -99,9 +113,11 @@ in `renovate.json`; `tests/test_guidelines_pins.py` fails if the two differ. Ado
 PRs record the tag's resolved commit as evidence in the PR description, not in the workflow:
 a tag names one commit, and a second identity in code would only drift. Read the diff of
 `semantic-release.yml`, its `inputs` and `outputs` between the old and new tag, and update
-`SHARED_RELEASE_*` in that test if the interface changed. `LIVINGPROOF_NETWORK=1 pytest
-tests/test_guidelines_pins.py tests/test_bundle_release.py` compares the call and the
-tag format with the pinned release.
+`SHARED_RELEASE_*` in that test if the interface changed. Update `SHARED_RELEASE_TAG` and
+`SHARED_RELEASE_SHA` in `.github/workflows/checks.yml` (and the guidelines checkout `ref`)
+to the new tag's resolved commit so the engine job stays on the same release. `LIVINGPROOF_NETWORK=1 pytest
+tests/test_guidelines_pins.py tests/test_bundle_release.py tests/test_bundle_release_engine.py`
+compares the call, the tag format and the recorded commit with the pinned release.
 
 If the release job fails, the evidence still publishes with the commit alone, the run shows the
 failure, and the next push to `main` batches the unreleased commits.

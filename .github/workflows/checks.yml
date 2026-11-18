@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Lightweight pull request checks: lint, format, tests, workflow lint, a site build from
-# fixture reports, and the Renovate reporter extraction test. Read-only: no deploy, no Pages
-# permissions, no artifacts published.
+# fixture reports, the Renovate reporter extraction test, and the offline bundle-release
+# engine re-run. Read-only: no deploy, no Pages permissions, no artifacts published.
 name: checks
 on:
   pull_request:
@@ -58,6 +58,48 @@ jobs:
             --run-id "$RUN_ID" --commit "$COMMIT" \
             --created "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           python3 tools/site_fixture.py check "$RUNNER_TEMP/site"
+  # Shared semantic-release engine, same pin as verify.yml's release job. Git-only: the
+  # GitHub plugin is not loaded, no token is passed, and git remotes are local. Node is
+  # the same pinned tarball as the renovate job; the engine comes from the action's
+  # package-lock.json at the recorded collaboration-guidelines commit.
+  bundle-release-engine:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    env:
+      NODE_VERSION: 24.22.3
+      # sha256 of node-v24.22.3-linux-x64.tar.xz (nodejs.org SHASUMS256.txt).
+      NODE_SHA256: 4f2b175a6d53a5c617a80dba2676238a0688cef28c6da4eba35c7d844e66fcfb
+      # Reviewed collaboration-guidelines tag (same as verify.yml) and its resolved commit.
+      SHARED_RELEASE_TAG: v9.6.10
+      SHARED_RELEASE_SHA: 54dcb297c628a4853c79bb31b5155e859afb7e93
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: Living-Proof-Labs/collaboration-guidelines
+          ref: 54dcb297c628a4853c79bb31b5155e859afb7e93
+          persist-credentials: false
+          path: collaboration-guidelines
+      - name: Install Node.js
+        run: |
+          archive="node-v${NODE_VERSION}-linux-x64.tar.xz"
+          curl -fsSL -o "$RUNNER_TEMP/$archive" "https://nodejs.org/dist/v${NODE_VERSION}/$archive"
+          echo "$NODE_SHA256  $RUNNER_TEMP/$archive" | sha256sum -c -
+          tar -xJf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/node-v${NODE_VERSION}-linux-x64/bin" >> "$GITHUB_PATH"
+      - name: Install the pinned shared release engine
+        run: |
+          test "$(git -C collaboration-guidelines rev-parse HEAD)" = "$SHARED_RELEASE_SHA"
+          npm ci --prefix collaboration-guidelines/.github/actions/semantic-release \
+            --omit=dev --ignore-scripts
+      - name: Re-run of an already tagged commit publishes nothing
+        env:
+          SHARED_RELEASE_ACTION: ${{ github.workspace }}/collaboration-guidelines/.github/actions/semantic-release
+        run: node --test tests/bundle_release_rerun.test.mjs
   renovate:
     runs-on: ubuntu-26.04
     timeout-minutes: 15
