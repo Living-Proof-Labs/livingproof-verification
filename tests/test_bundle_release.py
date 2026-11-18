@@ -336,6 +336,55 @@ def test_a_branch_with_a_tag_like_name_is_not_a_tag(repo):
     assert site_tool.bundle_tag(sha, repo) is None
 
 
+def site_job_checkout(origin: Path, sha: str, dest: Path) -> Path:
+    """What the `site` job has: actions/checkout at depth 1 with `fetch-tags: true`, detached."""
+    dest.mkdir()
+    git(dest, "init", "-q")
+    git(dest, "remote", "add", "origin", origin.as_uri())
+    git(
+        dest, "fetch", "-q", "--no-tags", "--prune", "--depth=1", "origin",
+        f"+{sha}:refs/remotes/origin/main", "+refs/tags/*:refs/tags/*",
+    )  # fmt: skip
+    git(dest, "checkout", "-q", "--detach", sha)
+    assert git(dest, "rev-parse", "--is-shallow-repository") == "true"
+    return dest
+
+
+def test_the_shallow_detached_checkout_of_the_site_job_resolves_each_runs_own_tag(tmp_path, repo):
+    """bundle_tag() must work in the checkout the hosted job really has, not only in a clone.
+
+    One run per commit: a released commit, an untagged commit between two releases, an
+    annotated release carrying a prerelease and a non-bundle tag, and a commit after the last
+    release. The untagged commit must not borrow the later release's tag.
+    """
+    first = commit(repo, "feat: first bundle")
+    git(repo, "tag", "v1.0.0")
+    between = commit(repo, "chore: nothing released for this run")
+    second = commit(repo, "fix: second bundle")
+    git(repo, "tag", "-a", "v1.0.1", "-m", "release")
+    git(repo, "tag", "v1.0.1-rc.1")
+    git(repo, "tag", "latest")
+    after = commit(repo, "Merge branch 'odd'")
+    expected = {first: "v1.0.0", between: None, second: "v1.0.1", after: None}
+    for sha, tag in expected.items():  # full history: a later release is not an earlier run's
+        assert site_tool.bundle_tag(sha, repo) == tag, (sha[:7], tag)
+    for number, (sha, tag) in enumerate(expected.items()):
+        checkout = site_job_checkout(repo, sha, tmp_path / f"site-job-{number}")
+        assert site_tool.bundle_tag(sha, checkout) == tag, (sha[:7], tag)
+        assert site_tool.bundle_tag(git(checkout, "rev-parse", "HEAD"), checkout) == tag
+
+
+def test_a_detached_head_is_judged_by_its_commit_not_by_a_nearby_tag(repo):
+    tagged = commit(repo, "feat: first bundle")
+    git(repo, "tag", "v1.0.0")
+    git(repo, "checkout", "-q", "--detach")
+    assert site_tool.bundle_tag(git(repo, "rev-parse", "HEAD"), repo) == "v1.0.0"
+    child = commit(repo, "fix: on a detached head")
+    assert git(repo, "rev-parse", "--abbrev-ref", "HEAD") == "HEAD"
+    assert site_tool.bundle_tag(child, repo) is None  # the parent's tag is not the child's
+    assert site_tool.bundle_tag(tagged, repo) == "v1.0.0"
+
+
 def target() -> dict:
     return site_tool.targets()[0]
 
