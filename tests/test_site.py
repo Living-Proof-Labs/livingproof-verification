@@ -984,12 +984,15 @@ def test_publishing_runs_only_on_push_to_main_with_scoped_permissions():
         if any(f"/{name}@" in str(j.get("uses")) for name in ("walk-hallway.yml", "scenario.yml"))
     }
     assert len(verifications) == 10
-    assert set(jobs["site"]["needs"]) == verifications
-    for name in ("site", "pages"):
-        assert jobs[name]["if"] == (
-            "github.ref == 'refs/heads/main' && (github.event_name == 'push' || "
-            "(github.event_name == 'workflow_dispatch' && inputs.reset-history))"
-        )
+    assert set(jobs["site"]["needs"]) == verifications | {"release"}  # ordering only, #131
+    assert jobs["pages"]["if"] == (
+        "github.ref == 'refs/heads/main' && (github.event_name == 'push' || "
+        "(github.event_name == 'workflow_dispatch' && inputs.reset-history))"
+    )
+    assert str(jobs["site"]["if"]).startswith(
+        "!cancelled() && github.ref == 'refs/heads/main' && (github.event_name == 'push' || "
+        "(github.event_name == 'workflow_dispatch' && inputs.reset-history))"
+    )  # test_bundle_release.py evaluates the rest
     assert jobs["pages"]["needs"] == "site"
     assert jobs["pages"]["permissions"] == {"pages": "write", "id-token": "write"}
     assert jobs["pages"]["environment"]["name"] == "github-pages"

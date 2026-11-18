@@ -28,6 +28,10 @@ verification and configuration:
     index.html                         every robot/variant with grade and counts,
                                        or the stored statement for compared repeats
 
+A run's commit carries the bundle release tag (`commit.tag`) only when a vX.Y.Z tag resolves
+to that same commit in the checkout (`bundle_tag`); otherwise the commit stands alone. Runs
+already published are never retagged.
+
 Earlier runs come from the previous Pages artifact (`restore`), so history survives
 without committing anything to git. If that artifact is listed but the download
 fails or the archive is corrupt, restore fails instead of publishing a site that
@@ -98,6 +102,10 @@ HISTORY_LABEL = "Run history"
 # livingproof-capability-report v3.3.0 writes "trial N". Older reporters write "seed N".
 # Rewrite only a leading "seed ", so a report that already says "trial N" is not labelled twice.
 SEED_LABEL = re.compile(r"^seed (?=\d)")
+# A bundle release is a plain vX.Y.Z tag of this repository (the shared semantic-release
+# workflow's tagFormat). Anything else, a prerelease or a branch-like name, is never shown.
+BUNDLE_TAG = re.compile(r"v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)")
+COMMIT_SHA = re.compile(r"[0-9a-f]{40}")
 MARKER = "site.json"  # written by every build; its presence on the live site means history
 
 
@@ -617,20 +625,53 @@ def outcome(report: dict, where: str = "report.json") -> list[dict]:
     return rows
 
 
+def bundle_tag(commit: str, repository: Path = ROOT) -> str | None:
+    """The bundle release tag that resolves to ``commit`` itself, or None.
+
+    Ordering is explicit: a run shows a tag only when the tag names the run's own commit
+    in this checkout, annotated or lightweight. A tag for another commit, no tag, a name that
+    is not a plain vX.Y.Z or a commit missing from the checkout all give None, and the run
+    keeps its commit alone. Nothing is guessed from a branch or from the newest tag.
+    """
+    if not COMMIT_SHA.fullmatch(commit):
+        return None
+
+    def git(*args: str) -> str:
+        done = subprocess.run(
+            ["git", "-C", str(repository), *args], capture_output=True, text=True, check=False
+        )
+        return done.stdout.strip() if done.returncode == 0 else ""
+
+    found = []
+    for name in git("tag", "--list", "--points-at", commit).splitlines():
+        if (
+            BUNDLE_TAG.fullmatch(name)
+            and git("rev-parse", f"refs/tags/{name}^{{commit}}") == commit
+        ):
+            found.append(name)
+    # Several tags on one commit are not expected; the highest version is the release.
+    return max(found, key=lambda name: tuple(map(int, name[1:].split(".")))) if found else None
+
+
 def provenance(target: dict, run: dict) -> dict:
     lock, server = target["lock"], run["server"]
     releases = lock["releases"]
     robot = lock["robot"]
+    commit = {
+        "sha": run["commit"],
+        "url": f"{server}/{run['repository']}/commit/{run['commit']}",
+    }
+    if run.get("tag") is not None:  # bundle_tag() resolved it to this commit
+        if not BUNDLE_TAG.fullmatch(run["tag"]):
+            raise SiteError(f"Unexpected bundle tag {run['tag']!r}")
+        commit["tag"] = run["tag"]
     return {
         "run": {
             "id": run["id"],
             "url": f"{server}/{run['repository']}/actions/runs/{run['id'].split('-')[0]}",
             "created": run["created"],
         },
-        "commit": {
-            "sha": run["commit"],
-            "url": f"{server}/{run['repository']}/commit/{run['commit']}",
-        },
+        "commit": commit,
         "robot": {
             "repository": robot["repository"],
             "commit": robot["commit"],
@@ -895,6 +936,16 @@ def page(title: str, body: str, up: str = "") -> str:
 
 def a(url: str, text: str) -> str:
     return f'<a href="{html.escape(url)}">{html.escape(text)}</a>'
+
+
+def commit_cell(commit: dict) -> str:
+    """The commit, with its bundle tag first when this run recorded one."""
+    cell = a(commit["url"], commit["sha"][:12])
+    tag = commit.get("tag")
+    if tag is None:
+        return cell
+    release = commit["url"].rsplit("/commit/", 1)[0] + f"/releases/tag/{tag}"
+    return f"{a(release, tag)} · {cell}"
 
 
 def ci_run(run: dict) -> str:
@@ -1533,7 +1584,7 @@ def render(site: Path, now: str = ""):
             f"<tr><td>{a('runs/' + record['folder'] + '/', record['run']['id'])}</td>"
             f"<td>{ci_run(record['run'])}</td>"
             f"<td>{html.escape(record['run']['created'])}</td><td>{outcome_cells(record)}</td>"
-            f"<td>{a(record['commit']['url'], record['commit']['sha'][:12])}</td>"
+            f"<td>{commit_cell(record['commit'])}</td>"
             f"<td>{a('runs/' + record['folder'] + '/SHA256SUMS', 'SHA256SUMS')}</td></tr>"
             for record in records
         )
@@ -1623,6 +1674,12 @@ def main(argv=None):
         type=Path,
         help="downloaded links, MCAP and video artifacts to copy into the site",
     )
+    b.add_argument(
+        "--git-dir",
+        type=Path,
+        default=ROOT,
+        help="checkout whose tags name --commit; a bundle tag is recorded only if it resolves to it",
+    )
     b.add_argument("--repository", default=os.environ.get("GITHUB_REPOSITORY"))
     b.add_argument("--server", default=os.environ.get("GITHUB_SERVER_URL", "https://github.com"))
     args = parser.parse_args(argv)
@@ -1643,6 +1700,8 @@ def main(argv=None):
             if args.evidence
             else None
         )
+        tag = bundle_tag(args.commit, args.git_dir)
+        print(f"Bundle tag for {args.commit}: {tag or 'none (the run keeps its commit alone)'}")
         added = build(
             args.site,
             args.reports,
@@ -1652,6 +1711,7 @@ def main(argv=None):
                 "created": args.created,
                 "repository": args.repository,
                 "server": args.server,
+                "tag": tag,
             },
             evidence=args.evidence,
             artifacts=artifacts,
