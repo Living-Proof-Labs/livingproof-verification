@@ -1,0 +1,25 @@
+# SPDX-License-Identifier: Apache-2.0
+# Caller-owned left traversal of the shared corner world.
+# Both directions use identical world bytes; only the scenario's place selection differs.
+format = "livingproof-verification-definition/0.1.0"
+id = "booster-t1-stock-mujoco-corner-left"
+procedure = "scenario"
+scenario = "walk-corner-left@0.2.0"
+
+[robot]
+repository = "Living-Proof-Labs/livingproof-booster-t1"
+ref = "v2.3.0"
+configurations = ["stock"]
+
+[world]
+id = "hallway-corner"
+version = "0.2.0"
+repository = "Living-Proof-Labs/livingproof-worlds"
+tag = "v1.4.0"
+
+[plan]
+trials = { count = 1 }
+
+[releases.specs]
+repository = "Living-Proof-Labs/robot-capability-specs"
+tag = "v3.1.0"

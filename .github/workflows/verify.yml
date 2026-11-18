@@ -131,7 +131,7 @@ jobs:
       comment: false
   # walk-corner (robot-capability-specs#40): scenario.yml runs the scenario and world each
   # lock names. The walk-hallway jobs above keep walk-hallway.yml, the wrapper around it.
-  unitree-g1-stock-mujoco-corner:
+  unitree-g1-stock-mujoco-corner-left:
     needs: locks
     uses: Living-Proof-Labs/capability-verifier/.github/workflows/scenario.yml@39fc7b53f7e4342abf5be221165ae6e1694f56c4  # v2.3.0
     permissions:
@@ -139,13 +139,27 @@ jobs:
       pull-requests: write
     with:
       repository: Living-Proof-Labs/livingproof-unitree-g1
-      ref: 3c8a781dc42b56126cc599e00a7d7ed360ed6671
+      ref: 7bad621eb044a5389743e5d101cf404721934a59
       configurations: '["stock"]'
-      verification-lock: verifications/unitree-g1-stock-mujoco-corner.lock.json
-      artifact-prefix: unitree-g1-stock-mujoco-corner-
+      verification-lock: verifications/unitree-g1-stock-mujoco-corner-left.lock.json
+      artifact-prefix: unitree-g1-stock-mujoco-corner-left-
       check: false  # the robot repository's own CI tests the robot
       comment: false
-  booster-t1-stock-mujoco-corner:
+  unitree-g1-stock-mujoco-corner-right:
+    needs: locks
+    uses: Living-Proof-Labs/capability-verifier/.github/workflows/scenario.yml@39fc7b53f7e4342abf5be221165ae6e1694f56c4  # v2.3.0
+    permissions:
+      contents: read
+      pull-requests: write
+    with:
+      repository: Living-Proof-Labs/livingproof-unitree-g1
+      ref: 7bad621eb044a5389743e5d101cf404721934a59
+      configurations: '["stock"]'
+      verification-lock: verifications/unitree-g1-stock-mujoco-corner-right.lock.json
+      artifact-prefix: unitree-g1-stock-mujoco-corner-right-
+      check: false  # the robot repository's own CI tests the robot
+      comment: false
+  booster-t1-stock-mujoco-corner-left:
     needs: locks
     uses: Living-Proof-Labs/capability-verifier/.github/workflows/scenario.yml@39fc7b53f7e4342abf5be221165ae6e1694f56c4  # v2.3.0
     permissions:
@@ -153,13 +167,27 @@ jobs:
       pull-requests: write
     with:
       repository: Living-Proof-Labs/livingproof-booster-t1
-      ref: a00c7d884b764c89404dc91be9232c0d55eb392c
+      ref: 2774c1a34853bc68fd86575e5084514749424976
       configurations: '["stock"]'
-      verification-lock: verifications/booster-t1-stock-mujoco-corner.lock.json
-      artifact-prefix: booster-t1-stock-mujoco-corner-
+      verification-lock: verifications/booster-t1-stock-mujoco-corner-left.lock.json
+      artifact-prefix: booster-t1-stock-mujoco-corner-left-
       check: false  # the robot repository's own CI tests the robot
       comment: false
-  unitree-go1-playground-mujoco-corner:
+  booster-t1-stock-mujoco-corner-right:
+    needs: locks
+    uses: Living-Proof-Labs/capability-verifier/.github/workflows/scenario.yml@39fc7b53f7e4342abf5be221165ae6e1694f56c4  # v2.3.0
+    permissions:
+      contents: read
+      pull-requests: write
+    with:
+      repository: Living-Proof-Labs/livingproof-booster-t1
+      ref: 2774c1a34853bc68fd86575e5084514749424976
+      configurations: '["stock"]'
+      verification-lock: verifications/booster-t1-stock-mujoco-corner-right.lock.json
+      artifact-prefix: booster-t1-stock-mujoco-corner-right-
+      check: false  # the robot repository's own CI tests the robot
+      comment: false
+  unitree-go1-playground-mujoco-corner-left:
     needs: locks
     uses: Living-Proof-Labs/capability-verifier/.github/workflows/scenario.yml@39fc7b53f7e4342abf5be221165ae6e1694f56c4  # v2.3.0
     permissions:
@@ -167,10 +195,24 @@ jobs:
       pull-requests: write
     with:
       repository: Living-Proof-Labs/livingproof-unitree-go1
-      ref: f2aa573ded0d845897f2c7b7f1c02b645ad0ad3b
+      ref: 5d95e5a1d00a81c711eb4f83e259b82126ec6592
       configurations: '["playground"]'
-      verification-lock: verifications/unitree-go1-playground-mujoco-corner.lock.json
-      artifact-prefix: unitree-go1-playground-mujoco-corner-
+      verification-lock: verifications/unitree-go1-playground-mujoco-corner-left.lock.json
+      artifact-prefix: unitree-go1-playground-mujoco-corner-left-
+      check: false  # the robot repository's own CI tests the robot
+      comment: false
+  unitree-go1-playground-mujoco-corner-right:
+    needs: locks
+    uses: Living-Proof-Labs/capability-verifier/.github/workflows/scenario.yml@39fc7b53f7e4342abf5be221165ae6e1694f56c4  # v2.3.0
+    permissions:
+      contents: read
+      pull-requests: write
+    with:
+      repository: Living-Proof-Labs/livingproof-unitree-go1
+      ref: 5d95e5a1d00a81c711eb4f83e259b82126ec6592
+      configurations: '["playground"]'
+      verification-lock: verifications/unitree-go1-playground-mujoco-corner-right.lock.json
+      artifact-prefix: unitree-go1-playground-mujoco-corner-right-
       check: false  # the robot repository's own CI tests the robot
       comment: false
   # Stable queue gate: pipeline/integrity success, not the robot capability verdict.
@@ -184,9 +226,12 @@ jobs:
       - unitree-g1-playground-mujoco-hallway
       - booster-t1-stock-mujoco-hallway
       - unitree-go1-playground-mujoco-hallway
-      - unitree-g1-stock-mujoco-corner
-      - booster-t1-stock-mujoco-corner
-      - unitree-go1-playground-mujoco-corner
+      - unitree-g1-stock-mujoco-corner-left
+      - unitree-g1-stock-mujoco-corner-right
+      - booster-t1-stock-mujoco-corner-left
+      - booster-t1-stock-mujoco-corner-right
+      - unitree-go1-playground-mujoco-corner-left
+      - unitree-go1-playground-mujoco-corner-right
     if: always()
     runs-on: ubuntu-26.04
     timeout-minutes: 10
@@ -217,9 +262,12 @@ jobs:
       - unitree-g1-playground-mujoco-hallway
       - booster-t1-stock-mujoco-hallway
       - unitree-go1-playground-mujoco-hallway
-      - unitree-g1-stock-mujoco-corner
-      - booster-t1-stock-mujoco-corner
-      - unitree-go1-playground-mujoco-corner
+      - unitree-g1-stock-mujoco-corner-left
+      - unitree-g1-stock-mujoco-corner-right
+      - booster-t1-stock-mujoco-corner-left
+      - booster-t1-stock-mujoco-corner-right
+      - unitree-go1-playground-mujoco-corner-left
+      - unitree-go1-playground-mujoco-corner-right
     if: >-
       github.ref == 'refs/heads/main' && (github.event_name == 'push' ||
       (github.event_name == 'workflow_dispatch' && inputs.reset-history))
