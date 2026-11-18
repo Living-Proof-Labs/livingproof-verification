@@ -116,9 +116,17 @@ python3 tools/lock.py verifications/unitree-go1-playground-mujoco-hallway.toml
 
 Never hand-edit hashes, commits or digests. `python3 tools/lock.py --update` refreshes the verifier and scenario evaluator and leaves the reporter pin as committed, so it does not complete a reporter proposal. Review the diff before staging. The generator writes the reporter tag, commit and digest from `verifications/settings.toml`. Robot, verifier and evaluator pins stay as they are when their sources have not changed; if the diff moves one of those, stop and reconcile it instead of editing a hash by hand. Record that release's published wheel sha256 in `tools/install_reporter.py` the same way the existing tags are recorded. That is the wheel hash, not a lock hash; the checks job refuses a tag with no hash. Commit with a `fix:` or `chore:` prefix. Automerge stays off.
 
+## Bundle releases
+
+After the verification job passes on a push to `main`, the `release` job tags the verification
+bundle (definitions, locks and publishing configuration) with the shared semantic-release
+workflow, and the published history names that tag next to the commit. Pull requests, manual
+runs and failed verification never release. See [bundle releases](docs/bundle-releases.md).
+
 ## Published reports
 
-On every push to `main`, after the verification jobs pass, the `site` job lays this run's
+On every push to `main`, after the verification jobs pass (and the `release` job has finished,
+whatever it published), the `site` job lays this run's
 capability-report artifacts out as a static site and the `pages` job deploys it to GitHub Pages
 (`actions/upload-pages-artifact` and `actions/deploy-pages`, pinned by commit; only `pages` has
 `pages: write` and `id-token: write`). Pull requests never publish. Layout, for each definition

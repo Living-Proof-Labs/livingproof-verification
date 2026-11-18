@@ -266,7 +266,8 @@ def test_the_site_publishes_the_corner_reports_with_the_hallway_ones():
         if path.name != "settings.toml"
     )
     assert set(CORNER) | set(HALLWAY) == set(definitions)
-    assert sorted(jobs["site"]["needs"]) == definitions
+    # `release` (#131) is an ordering dependency, not a verification.
+    assert sorted(set(jobs["site"]["needs"]) - {"release"}) == definitions
 
 
 def test_every_definition_pins_one_verifier_release():

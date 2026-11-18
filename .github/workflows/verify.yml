@@ -5,6 +5,10 @@
 # commit is the capability-verifier release named in that line's `# vX.Y.Z` comment, and
 # it must equal the locked verifier. verification-lock is this repository's 0.2.0 lock.
 # The pinned release reads that lock even when the robot commit still publishes its own.
+# Release (push to main only): after the verification job passes for the same commit, the
+# shared semantic-release workflow of collaboration-guidelines tags this repository's bundle
+# (definitions, locks and publishing configuration). The site job waits for that outcome so a
+# run records the bundle tag only when the tag resolves to the run's own commit.
 name: verify
 on:
   pull_request:
@@ -253,6 +257,20 @@ jobs:
           path: evidence
       - name: Refuse a silent world fallback
         run: python3 tools/world_guard.py evidence
+  # Bundle release (push to main only). `needs: verification` is the whole gate: that job's
+  # check fails unless every verification job succeeded, and with no status function in this
+  # `if` GitHub's default success() skips the release when it failed, was skipped or the run was
+  # cancelled. Pull requests, merge groups and manual runs never match. The shared workflow
+  # tags HEAD only when new releasable commits exist and never moves a published tag, so a
+  # re-run on an already tagged commit publishes nothing (published=false).
+  # The tag is the reviewed collaboration-guidelines release; docs/bundle-releases.md has
+  # the resolved commit, the gating cases and the rule for bumping it.
+  release:
+    needs: verification
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: write
+    uses: Living-Proof-Labs/collaboration-guidelines/.github/workflows/semantic-release.yml@v9.6.10
   # Publishing (push to main only): lay this run's reports out into the Pages site, keeping
   # every earlier run from the previous Pages artifact. Layout and index only (tools/site.py):
   # the verifier graded and the reporter rendered; nothing is committed.
@@ -268,9 +286,23 @@ jobs:
       - booster-t1-stock-mujoco-corner-right
       - unitree-go1-playground-mujoco-corner-left
       - unitree-go1-playground-mujoco-corner-right
+      - release
+    # `release` is a dependency only for ordering: it may be skipped, fail or publish nothing
+    # and the evidence still publishes, so success() is replaced by !cancelled() plus the
+    # explicit success of every verification job (what success() required before).
     if: >-
-      github.ref == 'refs/heads/main' && (github.event_name == 'push' ||
-      (github.event_name == 'workflow_dispatch' && inputs.reset-history))
+      !cancelled() && github.ref == 'refs/heads/main' && (github.event_name == 'push' ||
+      (github.event_name == 'workflow_dispatch' && inputs.reset-history)) &&
+      needs.unitree-g1-stock-mujoco-hallway.result == 'success' &&
+      needs.unitree-g1-playground-mujoco-hallway.result == 'success' &&
+      needs.booster-t1-stock-mujoco-hallway.result == 'success' &&
+      needs.unitree-go1-playground-mujoco-hallway.result == 'success' &&
+      needs.unitree-g1-stock-mujoco-corner-left.result == 'success' &&
+      needs.unitree-g1-stock-mujoco-corner-right.result == 'success' &&
+      needs.booster-t1-stock-mujoco-corner-left.result == 'success' &&
+      needs.booster-t1-stock-mujoco-corner-right.result == 'success' &&
+      needs.unitree-go1-playground-mujoco-corner-left.result == 'success' &&
+      needs.unitree-go1-playground-mujoco-corner-right.result == 'success'
     runs-on: ubuntu-26.04
     timeout-minutes: 15
     # One publish at a time, in order, so no run restores a site that misses its predecessor.
@@ -284,6 +316,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
+          fetch-tags: true  # the bundle tag tools/site.py resolves for this commit
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           pattern: '*-capability-report-*'

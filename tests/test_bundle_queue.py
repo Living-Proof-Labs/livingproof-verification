@@ -128,8 +128,8 @@ def test_aggregate_gate_runs_and_refuses_incomplete_pipeline(result):
     gate = verify["jobs"]["verification"]
     assert gate["if"] == "always()"
     assert set(gate["needs"]) == {"locks"} | {
-        name for name, job in verify["jobs"].items() if "uses" in job
-    }
+        name for name, job in verify["jobs"].items() if "uses" in job and name != "release"
+    }  # the release job (#131) runs after this gate and cannot be one of its needs
     outcomes = {name: {"result": "success"} for name in gate["needs"]}
     outcomes["locks"]["result"] = result
     process = subprocess.run(
