@@ -14,7 +14,9 @@ Scope and acceptance criteria: [Living-Proof-Labs/.github#11](https://github.com
 
 The first definition is `unitree-g1-stock-mujoco-hallway`: Unitree G1 with its stock controller in the MuJoCo hallway, 3 trials.
 
-The walk-corner definitions ([robot-capability-specs#40](https://github.com/Living-Proof-Labs/robot-capability-specs/issues/40)) run walk-corner 0.1.0 on hallway-corner 0.1.0 (livingproof-worlds v1.3.0), one trial each, through the verifier's `scenario.yml`: `unitree-g1-stock-mujoco-corner` (G1 v2.2.1), `booster-t1-stock-mujoco-corner` (T1 v2.2.0) and `unitree-go1-playground-mujoco-corner` (Go1 v2.2.0). The site publishes their reports beside the walk-hallway ones, as their own robot/variant pages.
+The left/right corner definitions ([#103](https://github.com/Living-Proof-Labs/livingproof-verification/issues/103)) run `walk-corner-left@0.2.0` and `walk-corner-right@0.1.0`, one trial per direction for G1 stock, T1 stock and Go1 playground. All six select the **same** `hallway-corner@0.2.0` world from livingproof-worlds v1.4.0; specs v3.1.0 selects its forward or reverse traversal. Each definition owns its complete bundle, and the verifier's `scenario.yml` consumes that lock. These are simulated policy-control trials, not physical-robot or perception tests.
+
+The old `*-mujoco-corner` definitions are retired into `tests/fixtures/historical-corner/`. Their published immutable run URLs and evidence remain unchanged; new results publish under separate `*-mujoco-corner-left` and `*-mujoco-corner-right` variants. A direction's report must come from its own execution, never a relabeled historical run.
 
 ## Run a verification locally
 
@@ -22,7 +24,7 @@ The recommended path is the devcontainer (`.devcontainer/devcontainer.json`): th
 
 ```sh
 docker run --rm -u $(id -u):$(id -g) -v $PWD:/work \
-  ghcr.io/living-proof-labs/capability-verifier-hallway:2.3.0@sha256:b59340ebc7a3ee96d67e105501f8ec13e692842177b70b96c42b8e3036d2a192 \
+  ghcr.io/living-proof-labs/capability-verifier-hallway:2.3.1@sha256:335586ee98474681ab63f45c154bcf615b1c6ec56ab39e77ba168c6a292fd108 \
   capability verify run --reporter source verifications/unitree-g1-stock-mujoco-hallway.toml
 ```
 
@@ -100,12 +102,15 @@ Renovate proposes a new `Living-Proof-Labs/livingproof-capability-report` releas
 Hosted Mend Renovate cannot run the lock generator. Check out the proposal's exact head and regenerate every lock with the existing generator:
 
 ```sh
-python3 tools/lock.py verifications/booster-t1-stock-mujoco-corner.toml
+python3 tools/lock.py verifications/booster-t1-stock-mujoco-corner-left.toml
+python3 tools/lock.py verifications/booster-t1-stock-mujoco-corner-right.toml
 python3 tools/lock.py verifications/booster-t1-stock-mujoco-hallway.toml
 python3 tools/lock.py verifications/unitree-g1-playground-mujoco-hallway.toml
-python3 tools/lock.py verifications/unitree-g1-stock-mujoco-corner.toml
+python3 tools/lock.py verifications/unitree-g1-stock-mujoco-corner-left.toml
+python3 tools/lock.py verifications/unitree-g1-stock-mujoco-corner-right.toml
 python3 tools/lock.py verifications/unitree-g1-stock-mujoco-hallway.toml
-python3 tools/lock.py verifications/unitree-go1-playground-mujoco-corner.toml
+python3 tools/lock.py verifications/unitree-go1-playground-mujoco-corner-left.toml
+python3 tools/lock.py verifications/unitree-go1-playground-mujoco-corner-right.toml
 python3 tools/lock.py verifications/unitree-go1-playground-mujoco-hallway.toml
 ```
 

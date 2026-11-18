@@ -9,12 +9,15 @@ from pathlib import Path
 ROOT = Path(__file__).parents[1]
 REPORTER = "Living-Proof-Labs/livingproof-capability-report"
 DEFINITIONS = (
-    "verifications/booster-t1-stock-mujoco-corner.toml",
+    "verifications/booster-t1-stock-mujoco-corner-left.toml",
+    "verifications/booster-t1-stock-mujoco-corner-right.toml",
     "verifications/booster-t1-stock-mujoco-hallway.toml",
-    "verifications/unitree-g1-stock-mujoco-corner.toml",
+    "verifications/unitree-g1-stock-mujoco-corner-left.toml",
+    "verifications/unitree-g1-stock-mujoco-corner-right.toml",
     "verifications/unitree-g1-playground-mujoco-hallway.toml",
     "verifications/unitree-g1-stock-mujoco-hallway.toml",
-    "verifications/unitree-go1-playground-mujoco-corner.toml",
+    "verifications/unitree-go1-playground-mujoco-corner-left.toml",
+    "verifications/unitree-go1-playground-mujoco-corner-right.toml",
     "verifications/unitree-go1-playground-mujoco-hallway.toml",
 )
 
@@ -122,7 +125,7 @@ def test_every_lock_names_the_settings_reporter_tag():
     definitions = [
         path for path in (ROOT / "verifications").glob("*.toml") if path.name != "settings.toml"
     ]
-    assert len(locks) == len(definitions) == 7
+    assert len(locks) == len(definitions) == 10
     for path in locks:
         reporter = json.loads(path.read_text())["releases"]["reporter"]
         assert (reporter["repository"], reporter["tag"]) == (REPORTER, _current()), path.name

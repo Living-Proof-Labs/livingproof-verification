@@ -1,0 +1,92 @@
+{
+  "format": "livingproof-verification-lock/0.2.0",
+  "definition": {
+    "path": "unitree-g1-stock-mujoco-corner-right.toml",
+    "sha256": "b3d2db5627963288df9780ae3668fbf82b4f6e39fdf70a6b4be2876612a54482"
+  },
+  "procedure": "scenario",
+  "scenario": "walk-corner-right@0.1.0",
+  "robot": {
+    "repository": "Living-Proof-Labs/livingproof-unitree-g1",
+    "ref": "v2.3.0",
+    "commit": "7bad621eb044a5389743e5d101cf404721934a59",
+    "configurations": [
+      "stock"
+    ],
+    "adapter": "lpl_g1.adapter:ROBOT"
+  },
+  "releases": {
+    "specs": {
+      "repository": "Living-Proof-Labs/robot-capability-specs",
+      "tag": "v3.1.0",
+      "commit": "9ee830201f05943feb2b9787eea2ea747431d935",
+      "files": {
+        "specs/scenarios/walk-corner-right/description.json": "67fb212f837427583c6db5cefaf29d58186ed6e4cd3e97b1520d34191034c143",
+        "specs/scenarios/walk-corner-right/parameters.json": "01e7666a3310f8d30c77ce9f5589ccb960fc495099df57e02be7724bbac880aa"
+      }
+    },
+    "runner": {
+      "repository": "Living-Proof-Labs/livingproof-sim-mujoco",
+      "tag": "v3.4.1",
+      "commit": "4e97b6c1ee72a9f6598a91d0a1476116dc17ae13"
+    },
+    "verifier": {
+      "repository": "Living-Proof-Labs/capability-verifier",
+      "tag": "v2.3.1",
+      "commit": "2450098fe21c504f640021669fd0fabf57d6dbb0",
+      "image": "ghcr.io/living-proof-labs/capability-verifier-hallway",
+      "digest": "sha256:335586ee98474681ab63f45c154bcf615b1c6ec56ab39e77ba168c6a292fd108"
+    },
+    "reporter": {
+      "repository": "Living-Proof-Labs/livingproof-capability-report",
+      "tag": "v3.11.6",
+      "commit": "bc1a05eaeb5c27fd084cd29d2cd399bb485310e6",
+      "image": "ghcr.io/living-proof-labs/livingproof-capability-report",
+      "digest": "sha256:a7bc00211998038d17856dcac564d21f0c9063bf4e279b2ee86dbd1e2200ac80"
+    }
+  },
+  "world": {
+    "id": "hallway-corner",
+    "version": "0.2.0",
+    "repository": "Living-Proof-Labs/livingproof-worlds",
+    "tag": "v1.4.0",
+    "commit": "971b39ee845a18c50da627a7410d22e3b98171f9",
+    "sha256": "f398f2705e630750f7b7ef3035ba4b5aed076de1f417165e58540e973150678e"
+  },
+  "configurations": [
+    {
+      "name": "stock",
+      "version": "1.1.1",
+      "path": "configurations/stock.json",
+      "sha256": "8baf584eb025fa4408aad20a81521b73bc068a3a7e613dfeeb8f03d24eb02b5e"
+    },
+    {
+      "name": "playground",
+      "version": "1.0.1",
+      "path": "configurations/playground.json",
+      "sha256": "1fef76d2e5b6eb0ab7627d1f93333e8ca2ec01249a5b1d1f68876186f0657e89"
+    }
+  ],
+  "plan": {
+    "trials": {
+      "count": 1
+    }
+  },
+  "evaluators": {
+    "livingproof-evaluator-scenario": {
+      "repository": "Living-Proof-Labs/livingproof-evaluator-scenario",
+      "tag": "v1.3.0",
+      "commit": "965629ab1e9508cb3090931abbae6a957bf5d294"
+    }
+  },
+  "sources": {
+    "world": {
+      "path": "worlds/hallway-corner/0.2.0/world.json",
+      "sha256": "f398f2705e630750f7b7ef3035ba4b5aed076de1f417165e58540e973150678e"
+    },
+    "parameters": {
+      "path": "specs/scenarios/walk-corner-right/parameters.json",
+      "sha256": "01e7666a3310f8d30c77ce9f5589ccb960fc495099df57e02be7724bbac880aa"
+    }
+  }
+}

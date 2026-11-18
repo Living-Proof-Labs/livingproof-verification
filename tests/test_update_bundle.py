@@ -74,11 +74,11 @@ def test_failure_is_transactional(checkout, resolver, monkeypatch, failure):
         nonlocal count
         count += 1
         result, notes = resolver(definition, work)
-        if failure == "last-lock" and count == 7:
+        if failure == "last-lock" and count == len(bundle.lock.definition_paths(checkout)):
             raise bundle.lock.LockError("resolution failed")
         if failure == "drift":
             result["releases"]["runner"]["commit"] = "d" * 40
-        if failure == "race" and count == 7:
+        if failure == "race" and count == len(bundle.lock.definition_paths(checkout)):
             (checkout / "README.md").write_text("concurrent custom change\n")
         return result, notes
 

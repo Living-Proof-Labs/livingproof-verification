@@ -26,8 +26,8 @@ from test_lock_files import (
 
 ROOT = Path(__file__).parents[1]
 
-CORNER = "unitree-g1-stock-mujoco-corner"
-CORNER_PARAMETERS = "specs/scenarios/walk-corner/parameters.json"
+CORNER = "unitree-g1-stock-mujoco-corner-left"
+CORNER_PARAMETERS = "specs/scenarios/walk-corner-left/parameters.json"
 
 
 def _committed(name: str) -> dict:

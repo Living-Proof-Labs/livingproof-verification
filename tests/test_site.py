@@ -157,8 +157,8 @@ def test_published_history_names_the_verifier_and_reporter_releases(tmp_path):
         lock = json.loads((ROOT / "verifications" / f"{target['id']}.lock.json").read_text())
         verifier = lock["releases"]["verifier"]
         reporter = lock["releases"]["reporter"]
-        assert verifier["tag"] == "v2.3.0"
-        assert verifier["commit"] == "39fc7b53f7e4342abf5be221165ae6e1694f56c4"
+        assert verifier["tag"] == "v2.3.1"
+        assert verifier["commit"] == "2450098fe21c504f640021669fd0fabf57d6dbb0"
         assert reporter["tag"] == reporter_tag
         assert reporter["repository"] == settings["reporter"]["repository"]
         history = (site / target["robot"] / target["variant"] / "index.html").read_text()
@@ -983,7 +983,7 @@ def test_publishing_runs_only_on_push_to_main_with_scoped_permissions():
         for n, j in jobs.items()
         if any(f"/{name}@" in str(j.get("uses")) for name in ("walk-hallway.yml", "scenario.yml"))
     }
-    assert len(verifications) == 7
+    assert len(verifications) == 10
     assert set(jobs["site"]["needs"]) == verifications
     for name in ("site", "pages"):
         assert jobs[name]["if"] == (
@@ -2069,3 +2069,33 @@ def test_renderable_reports_carry_the_thresholds_their_evaluator_results_cite(tm
         digest = hashlib.sha256((folder / "thresholds.json").read_bytes()).hexdigest()
         assert cited == {digest}
         assert f"{digest}  thresholds.json" in (folder / "SHA256SUMS").read_text()
+
+
+def test_left_right_adoption_keeps_retired_corner_evidence(tmp_path):
+    """Retiring a definition never renames or deletes its published run."""
+    historical = ROOT / "tests/fixtures/historical-corner"
+    site = tmp_path / "site"
+    reports = tmp_path / "historical-reports"
+    for target in site_tool.targets(historical):
+        write_reports(reports / target["artifact"], 1, "PASS")
+    site_tool.build(site, reports, run("1000", "2026-11-17T06:00:00Z"), historical)
+    immutable = {
+        path: path.read_bytes()
+        for path in site.rglob("*")
+        if path.is_file() and "runs/1000/" in path.as_posix()
+    }
+    assert immutable
+    site_tool.build(
+        site,
+        reports_for(tmp_path, "current-reports", 1, "PASS"),
+        run("2000", "2026-11-18T06:00:00Z"),
+    )
+    for path, original in immutable.items():
+        assert path.read_bytes() == original
+    for robot, variant in (
+        ("unitree-g1", "stock"),
+        ("booster-t1", "stock"),
+        ("unitree-go1", "playground"),
+    ):
+        assert (site / robot / f"{variant}-mujoco-corner/runs/1000/report.json").exists()
+    local_links_resolve(site)

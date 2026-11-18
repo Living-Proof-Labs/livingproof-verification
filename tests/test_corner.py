@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 """Step 12 of robot-capability-specs#40: walk-corner definitions beside walk-hallway.
 
-Three corner definitions, one per robot, pin released robot tags and run walk-corner 0.1.0
-on hallway-corner 0.1.0 (livingproof-worlds v1.3.0) through capability-verifier's
+Six corner definitions select left/right traversals of one world revision
+(hallway-corner 0.2.0, livingproof-worlds v1.4.0) through capability-verifier's
 ``scenario.yml``. The four walk-hallway definitions run walk-hallway 0.1.0 on
 hallway-open 0.1.0 (livingproof-worlds v1.1.0) through ``walk-hallway.yml``. The robots
 are thin, so each definition owns its scenario, world, plan and specs release, and
@@ -29,7 +29,7 @@ WORKFLOW = ROOT / ".github/workflows/verify.yml"
 VERIFIER = "Living-Proof-Labs/capability-verifier"
 
 # Released tags, resolved once by hand (git ls-remote) and recorded here.
-VERIFIER_RELEASE = ("v2.3.0", "39fc7b53f7e4342abf5be221165ae6e1694f56c4")
+VERIFIER_RELEASE = ("v2.3.1", "2450098fe21c504f640021669fd0fabf57d6dbb0")
 EVALUATOR_RELEASE = ("v1.3.0", "965629ab1e9508cb3090931abbae6a957bf5d294")
 # The first reporter release whose HTML step card writes out corner-turned's list of
 # places (livingproof-capability-report#79, 3453a14). v3.10.1 fails with
@@ -38,50 +38,70 @@ EVALUATOR_RELEASE = ("v1.3.0", "965629ab1e9508cb3090931abbae6a957bf5d294")
 REPORTER_RELEASE = ("v3.11.6", "bc1a05eaeb5c27fd084cd29d2cd399bb485310e6")
 WORLD = {
     "id": "hallway-corner",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "repository": "Living-Proof-Labs/livingproof-worlds",
-    "tag": "v1.3.0",
-    "commit": "12915e34e6ad1dfe376ec2fcb49d5afb957caff9",
-    # worlds/hallway-corner/0.1.0/world.json, the file livingproof-sim-mujoco v3.2.x vendors.
-    "sha256": "8393881e8b38a090f51c3a424ca444623a901f642f75186cb4d41ac7482898f5",
+    "tag": "v1.4.0",
+    "commit": "971b39ee845a18c50da627a7410d22e3b98171f9",
+    # worlds/hallway-corner/0.2.0/world.json, identical for both directions.
+    "sha256": "f398f2705e630750f7b7ef3035ba4b5aed076de1f417165e58540e973150678e",
+}
+# Exact files from specs v3.1.0, independently read at the released commit.
+SPECS_FILES = {
+    "left": (
+        "a0e7f73350bd573ca342e9a3d19f48c6aab07ada207e99b5861a6d975a163be3",
+        "c9550c4e9462eb9b92e8efddd8b36a9d93d9977e111e9f3e8446927433dd2d4b",
+    ),
+    "right": (
+        "67fb212f837427583c6db5cefaf29d58186ed6e4cd3e97b1520d34191034c143",
+        "01e7666a3310f8d30c77ce9f5589ccb960fc495099df57e02be7724bbac880aa",
+    ),
 }
 SPECS = {
-    "repository": "Living-Proof-Labs/robot-capability-specs",
-    "tag": "v2.3.0",
-    "commit": "57317e617014a6df97bb7fba9d92a890af8d42e5",
-    "files": {
-        "specs/scenarios/walk-corner/description.json": (
-            "be8de80e1a7b6f2273cee7abf7303d2e78a407ba0a5f11f9d06ed8cbed7c252c"
-        ),
-        "specs/scenarios/walk-corner/parameters.json": (
-            "62f2912c33b557d58cd454daf7d1eea543e919dec0e9b53e613d4101a5a12977"
-        ),
-    },
+    direction: {
+        "repository": "Living-Proof-Labs/robot-capability-specs",
+        "tag": "v3.1.0",
+        "commit": "9ee830201f05943feb2b9787eea2ea747431d935",
+        "files": {
+            f"specs/scenarios/walk-corner-{direction}/{file}.json": digest
+            for file, digest in zip(("description", "parameters"), digests, strict=True)
+        },
+    }
+    for direction, digests in SPECS_FILES.items()
 }
 SIM_3_4_1 = ("v3.4.1", "4e97b6c1ee72a9f6598a91d0a1476116dc17ae13")
 CORNER = {
     "unitree-g1-stock-mujoco-corner": {
         "repository": "Living-Proof-Labs/livingproof-unitree-g1",
-        "ref": "v2.2.11",
-        "commit": "3c8a781dc42b56126cc599e00a7d7ed360ed6671",
+        "ref": "v2.3.0",
+        "commit": "7bad621eb044a5389743e5d101cf404721934a59",
         "configurations": ["stock"],
         "runner": SIM_3_4_1,
     },
     "booster-t1-stock-mujoco-corner": {
         "repository": "Living-Proof-Labs/livingproof-booster-t1",
-        "ref": "v2.2.10",
-        "commit": "a00c7d884b764c89404dc91be9232c0d55eb392c",
+        "ref": "v2.3.0",
+        "commit": "2774c1a34853bc68fd86575e5084514749424976",
         "configurations": ["stock"],
         "runner": SIM_3_4_1,
     },
     "unitree-go1-playground-mujoco-corner": {
         "repository": "Living-Proof-Labs/livingproof-unitree-go1",
-        "ref": "v2.2.11",
-        "commit": "f2aa573ded0d845897f2c7b7f1c02b645ad0ad3b",
+        "ref": "v2.3.0",
+        "commit": "5d95e5a1d00a81c711eb4f83e259b82126ec6592",
         "configurations": ["playground"],
         "runner": SIM_3_4_1,
     },
 }
+CORNER = {
+    f"{name}-{direction}": {
+        **robot,
+        "direction": direction,
+        "scenario": f"walk-corner-{direction}@{revision}",
+    }
+    for name, robot in CORNER.items()
+    for direction, revision in (("left", "0.2.0"), ("right", "0.1.0"))
+}
+
 # hallway-open 0.1.0 at livingproof-worlds v1.1.0, the world livingproof-sim-mujoco
 # v3.4.1 validates against its schema. The lock records the world.json sha256 v2.0.0 assessment requires.
 HALLWAY_WORLD = {
@@ -178,7 +198,7 @@ def test_each_robot_has_a_corner_definition_on_its_released_tag(name):
     definition = tomllib.loads((ROOT / "verifications" / f"{name}.toml").read_text())
     assert definition["id"] == name
     assert definition["procedure"] == "scenario"
-    assert definition["scenario"] == "walk-corner@0.1.0"
+    assert definition["scenario"] == want["scenario"]
     assert definition["robot"] == {
         "repository": want["repository"],
         "ref": want["ref"],
@@ -189,7 +209,7 @@ def test_each_robot_has_a_corner_definition_on_its_released_tag(name):
     }
     assert definition["plan"] == {"trials": {"count": 1}}
     assert definition["releases"] == {
-        "specs": {"repository": SPECS["repository"], "tag": SPECS["tag"]}
+        "specs": {"repository": SPECS[want["direction"]]["repository"], "tag": "v3.1.0"}
     }
 
 
@@ -199,7 +219,7 @@ def test_each_corner_lock_pins_the_released_robot_world_runner_and_verifier(name
     lock = _lock(name)
     assert lock_tool.v2_problems(lock) == []
     assert lock["procedure"] == "scenario"
-    assert lock["scenario"] == "walk-corner@0.1.0"
+    assert lock["scenario"] == want["scenario"]
     assert lock["robot"]["repository"] == want["repository"]
     assert lock["robot"]["ref"] == want["ref"]
     assert lock["robot"]["commit"] == want["commit"]
@@ -207,7 +227,7 @@ def test_each_corner_lock_pins_the_released_robot_world_runner_and_verifier(name
     assert lock["world"] == WORLD
     assert lock["plan"] == {"trials": {"count": 1}}
     assert "command_speed" not in lock["plan"]
-    assert lock["releases"]["specs"] == SPECS
+    assert lock["releases"]["specs"] == SPECS[want["direction"]]
     tag, commit = want["runner"]
     assert lock["releases"]["runner"] == {
         "repository": "Living-Proof-Labs/livingproof-sim-mujoco",
@@ -263,7 +283,7 @@ def test_every_definition_pins_one_verifier_release():
 
 
 def test_every_lock_pins_a_reporter_that_renders_walk_corner_places():
-    """Each report job renders HTML from its lock's reporter, so all seven need #79's fix."""
+    """Each report job renders HTML from its lock's reporter, so all ten need #79's fix."""
     settings = tomllib.loads((ROOT / "verifications/settings.toml").read_text())
     assert settings["reporter"]["tag"] == REPORTER_RELEASE[0]
     for name in [*CORNER, *HALLWAY]:
@@ -371,10 +391,33 @@ def test_walk_hallway_jobs_still_call_walk_hallway_yml_with_the_same_robot(name)
 
 
 def test_walk_corner_needs_no_command_speed_and_walk_hallway_still_does():
-    corner = _lock("unitree-g1-stock-mujoco-corner")
+    corner = _lock("unitree-g1-stock-mujoco-corner-left")
     assert lock_tool.v2_problems(corner) == []
     hallway = _lock("unitree-g1-stock-mujoco-hallway")
     hallway["plan"].pop("command_speed")
     assert "plan.command_speed must be a number" in lock_tool.v2_problems(hallway)
     corner["plan"]["command_speed"] = True
     assert "plan.command_speed must be a number" in lock_tool.v2_problems(corner)
+
+
+def test_left_and_right_reuse_world_but_have_distinct_parameters_and_artifacts():
+    """World reuse does not alias the two executions or their published artifacts."""
+    workflow = yaml.safe_load(WORKFLOW.read_text())["jobs"]
+    artifacts = set()
+    for stem in (
+        "unitree-g1-stock-mujoco-corner",
+        "booster-t1-stock-mujoco-corner",
+        "unitree-go1-playground-mujoco-corner",
+    ):
+        left, right = (_lock(f"{stem}-{direction}") for direction in ("left", "right"))
+        assert left["world"] == right["world"] == WORLD
+        assert left["sources"]["world"] == right["sources"]["world"]
+        assert left["sources"]["parameters"] != right["sources"]["parameters"]
+        assert left["scenario"] != right["scenario"]
+        for direction in ("left", "right"):
+            name = f"{stem}-{direction}"
+            prefix = workflow[name]["with"]["artifact-prefix"]
+            assert prefix not in artifacts
+            artifacts.add(prefix)
+            assert workflow[name]["with"]["verification-lock"] == f"verifications/{name}.lock.json"
+    assert len(artifacts) == 6

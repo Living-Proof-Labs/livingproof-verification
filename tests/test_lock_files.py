@@ -236,8 +236,8 @@ def test_committed_hallway_locks_record_matching_v2_3_0_digests(name):
 
 
 @pytest.mark.parametrize("name", CORNER_LOCKS)
-def test_committed_corner_locks_record_matching_v2_3_0_digests(name):
-    lock = json.loads((ROOT / "verifications" / f"{name}.lock.json").read_text())
+def test_retired_corner_locks_preserve_their_v2_3_0_digests(name):
+    lock = json.loads((ROOT / "tests/fixtures/historical-corner" / f"{name}.lock.json").read_text())
     specs = lock["releases"]["specs"]
     assert specs["tag"] == "v2.3.0"
     assert specs["commit"] == "57317e617014a6df97bb7fba9d92a890af8d42e5"
