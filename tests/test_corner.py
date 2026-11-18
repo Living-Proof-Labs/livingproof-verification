@@ -56,29 +56,28 @@ SPECS = {
         ),
     },
 }
-SIM_3_2_0 = ("v3.2.0", "4ff176028a0f20ce30f022d45796d098bd8f1025")
-SIM_3_2_1 = ("v3.2.1", "f9c326f370cc3e54bf38932bfb332455dc4b5ef1")
+SIM_3_4_1 = ("v3.4.1", "4e97b6c1ee72a9f6598a91d0a1476116dc17ae13")
 CORNER = {
     "unitree-g1-stock-mujoco-corner": {
         "repository": "Living-Proof-Labs/livingproof-unitree-g1",
-        "ref": "v2.2.1",
-        "commit": "68725986336c38d25a5ea421f895d9d796aed7f1",
+        "ref": "v2.2.11",
+        "commit": "3c8a781dc42b56126cc599e00a7d7ed360ed6671",
         "configurations": ["stock"],
-        "runner": SIM_3_2_1,
+        "runner": SIM_3_4_1,
     },
     "booster-t1-stock-mujoco-corner": {
         "repository": "Living-Proof-Labs/livingproof-booster-t1",
-        "ref": "v2.2.0",
-        "commit": "8e09bb82234742c3ce88aa5fe2e7e02afaf3858a",
+        "ref": "v2.2.10",
+        "commit": "a00c7d884b764c89404dc91be9232c0d55eb392c",
         "configurations": ["stock"],
-        "runner": SIM_3_2_0,
+        "runner": SIM_3_4_1,
     },
     "unitree-go1-playground-mujoco-corner": {
         "repository": "Living-Proof-Labs/livingproof-unitree-go1",
-        "ref": "v2.2.0",
-        "commit": "c2fc81f6d5c03206bde4ed858dee2074542bfe5d",
+        "ref": "v2.2.11",
+        "commit": "f2aa573ded0d845897f2c7b7f1c02b645ad0ad3b",
         "configurations": ["playground"],
-        "runner": SIM_3_2_0,
+        "runner": SIM_3_4_1,
     },
 }
 # hallway-open 0.1.0 at livingproof-worlds v1.1.0, the world livingproof-sim-mujoco
