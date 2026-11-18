@@ -207,3 +207,5 @@ Run `python3 tools/update_bundle.py --reporter vX.Y.Z --verifier vA.B.C`
 with either or both explicit releases. It resolves the complete candidate before
 writing files and refuses unrelated input drift. See [bundle automation](docs/bundle-automation.md)
 for the trusted prepare/publish split, verification, and the unactivated writer boundary.
+
+See [spec provenance](docs/spec-provenance.md) for the evidence-generation and assessment identities shown on reports and history.

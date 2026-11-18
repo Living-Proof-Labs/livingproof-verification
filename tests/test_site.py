@@ -2318,3 +2318,72 @@ def test_history_styles_match_the_requested_rhythm():
     assert "font-size: 0.88rem;" in css
     assert "font-weight: 700;" in css
     assert ".robot-group:first-child" in css
+
+
+def test_spec_identities_survive_publication_and_history_restoration(tmp_path):
+    fixture = json.loads((ROOT / "tests/fixtures/historical-spec-provenance.json").read_text())
+    target = next(t for t in site_tool.targets() if t["id"] == "booster-t1-stock-mujoco-hallway")
+    target["lock"]["releases"]["specs"] = fixture["generation"]
+    reports = tmp_path / "reports"
+    source = reports / target["artifact"]
+    write_reports(source, 0, fixture["grade"], "<html><body>Recorded FAIL</body></html>")
+    report = json.loads((source / "report.json").read_text())
+    report["summaries"][0]["spec"] = fixture["assessment"]
+    (source / "report.json").write_text(json.dumps(report))
+    restamp(source)
+    first = tmp_path / "first"
+    folder = site_tool.add_run(first, reports, target, run("43954868926", "2026-11-16T21:04:33Z"))
+    evidence = folder / "evidence/observations.json"
+    evidence.parent.mkdir()
+    evidence.write_bytes(b'{"recorded": "unchanged"}\n')
+    preserved = {p.relative_to(folder): p.read_bytes() for p in folder.rglob("*") if p.is_file()}
+    site_tool.render(first, now="2026-11-16T21:04:33Z")
+    # Initial publication has always restamped SHA256SUMS to include run.json.
+    for relative, original in preserved.items():
+        if relative.name != "SHA256SUMS":
+            assert (folder / relative).read_bytes() == original, relative
+    preserved = {p.relative_to(folder): p.read_bytes() for p in folder.rglob("*") if p.is_file()}
+    restored = tmp_path / "restored"
+    site_tool.extract_pages(pages_zip(first), restored)
+    # A later publish uses today's locks, which must not replace historical pins.
+    site_tool.build(
+        restored, reports_for(tmp_path, "later", 19, "PASS"), run("500", "2026-11-17T00:00:00Z")
+    )
+    old = restored / folder.relative_to(first)
+    for relative, original in preserved.items():
+        assert (old / relative).read_bytes() == original, relative
+    for page in (old / "index.html", old.parent.parent / "index.html"):
+        text = page.read_text()
+        assert "Evidence-generation spec (recorded pin)" in text
+        assert "Assessment spec" in text
+        for role in ("generation", "assessment"):
+            assert fixture[role]["tag"] in text
+            assert fixture[role]["commit"] in text
+        assert "saved caller lock releases.specs" in text
+        assert "saved report summaries[].spec" in text
+        assert "FAIL" in text
+    assert (old / "index.html").read_text().count('id="spec-provenance"') == 1
+    local_links_resolve(restored)
+
+
+@pytest.mark.parametrize("same_identity", [False, True])
+def test_spec_provenance_keeps_all_assessments_and_missing_fields_explicit(same_identity):
+    spec = {"tag": "v2.3.0", "commit": "a" * 40}
+    other = dict(spec) if same_identity else {**spec, "commit": "b" * 40}
+    report = {"summaries": [{"spec": spec}, {"spec": other}, {"spec": spec}]}
+    text = site_tool.spec_provenance_html({"releases": {"specs": spec}}, report)
+    assert text.count("a" * 40) == 2  # once per role, not once per trial
+    assert text.count("b" * 40) == (0 if same_identity else 1)
+    assert "Evidence-generation spec" in text and "Assessment spec" in text
+    assert site_tool.spec_provenance_html({}, {}).count("Not recorded") == 2
+    hostile = {"tag": "<script>alert(1)</script>"}
+    assert "<script>" not in site_tool.spec_provenance_html({"releases": {"specs": hostile}}, {})
+
+
+def test_spec_provenance_is_added_inside_reporter_main_without_changing_summary():
+    original = "<html><body><header>Report</header><main class='wrap'><dt>Spec</dt><dd>v2.3.0</dd></main></body></html>"
+    public = site_tool.with_spec_provenance(original, {}, {})
+    assert (
+        public.index("<main") < public.index('id="spec-provenance"') < public.index("<dt>Spec</dt>")
+    )
+    assert "<dt>Spec</dt><dd>v2.3.0</dd>" in public
