@@ -1,0 +1,186 @@
+# SPDX-License-Identifier: Apache-2.0
+"""Check #138 in Chromium against synthetic fixtures; retain JSON and PNG evidence.
+
+Run after site_fixture.py write and site.py build:
+  python tools/site_browser.py SITE OUTPUT
+Requires .github/requirements/browser.txt and `python -m playwright install chromium`.
+This changes only fixture run metadata, never published reports or deployment state.
+"""
+
+import argparse
+from functools import partial
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+import importlib.metadata
+import json
+import os
+from pathlib import Path
+import threading
+import traceback
+
+from playwright.sync_api import expect, sync_playwright
+
+from site_fixture import site_tool
+
+
+def prepare(site):
+    # Exercise a PASS badge alongside FAIL badges/chips with the real renderer.
+    records = sorted(site.glob("*/*/runs/*/run.json"))
+    assert records, "Build the fixture site first"
+    for index, path in enumerate(records):
+        record = json.loads(path.read_text())
+        record["outcome"][0]["grade"] = "PASS" if index == 0 else "FAIL"
+        if index:
+            record["failing_evaluators"] = [
+                {"id": "fixture", "title": "Fixture evaluator", "href": "#fixture"}
+            ]
+        path.write_text(json.dumps(record) + "\n")
+    site_tool.render(site, now="2026-11-19T08:00:00Z")
+    return {
+        str(path.parents[2].relative_to(site)) + "/latest/": str(path.parent.relative_to(site))
+        + "/"
+        for path in records
+    }
+
+
+def check_viewport(browser, url, output, width, height, result, destinations):
+    context = browser.new_context(viewport={"width": width, "height": height}, has_touch=True)
+    page = context.new_page()
+    page.set_default_timeout(10000)
+    result.update(viewport=[width, height], status="running", navigations=[])
+    try:
+        for grade, selector in [("PASS", ".card:has(.badge-pass)"), ("FAIL", ".card.is-fail")]:
+            page.goto(url)
+            card = page.locator(selector).first
+            latest = card.locator(".card-link").get_attribute("href")
+            history = card.locator(".history-link").get_attribute("href")
+            assert latest == history + "latest/"
+            expect(card.locator("a")).to_have_count(2)
+            title = card.locator(".title").inner_text()
+            expect(card.locator(".card-link")).to_have_attribute(
+                "aria-label", f"{title}, latest report ({grade})"
+            )
+            for target in ["body", ".badge", ".title", ".release", "time"] + (
+                [".chip"] if grade == "FAIL" else []
+            ):
+                page.goto(url)
+                card = page.locator(selector).first
+                card.scroll_into_view_if_needed()
+                box = (card if target == "body" else card.locator(target)).bounding_box()
+                assert box
+                x = box["x"] + (box["width"] - 8 if target == "body" else box["width"] / 2)
+                y = box["y"] + (box["height"] - 8 if target == "body" else box["height"] / 2)
+                # Real hit testing: do not force locator clicks through the stretched overlay.
+                if width == 390:
+                    page.touchscreen.tap(x, y)
+                else:
+                    page.mouse.click(x, y)
+                expect(page).to_have_url(url + destinations[latest])
+                result["navigations"].append(
+                    {
+                        "grade": grade,
+                        "target": target,
+                        "href": latest,
+                        "destination": destinations[latest],
+                    }
+                )
+            page.goto(url)
+            history_link = page.locator(selector).first.locator(".history-link")
+            history_link.scroll_into_view_if_needed()
+            box = history_link.bounding_box()
+            assert box and (width != 390 or box["height"] >= 44)
+            result.setdefault("history_heights", {})[grade] = box["height"]
+            history_link.tap() if width == 390 else history_link.click()
+            expect(page).to_have_url(url + history)
+            expect(page.locator(".spec-provenance").first).to_be_visible()
+
+        page.goto(url)
+        page.mouse.move(0, 0)
+        card = page.locator(".card").first
+        # Reach the first card from the document start, without programmatic focus.
+        for _ in range(30):
+            page.keyboard.press("Tab")
+            if page.locator(":focus").get_attribute("class") == "card-link":
+                break
+        expect(card.locator(".card-link")).to_be_focused()
+        expect(card).to_have_css("outline-style", "solid")
+        expect(card).to_have_css("outline-width", "3px")
+        expect(card).to_have_css("outline-color", "rgb(14, 135, 133)")
+        expect(card.locator(".card-link")).to_have_css("outline-style", "none")
+        page.screenshot(path=output / f"{width}-focus.png")
+        page.keyboard.press("Tab")
+        expect(card.locator(".history-link")).to_be_focused()
+        page.keyboard.press("Tab")
+        expect(page.locator(".card-link").nth(1)).to_be_focused()
+        result["tab_order"] = ["card", "History", "next card"]
+        result["focus_ring"] = "solid 3px rgb(14, 135, 133)"
+
+        page.goto(url)
+        card = page.locator(".card").first
+        card.hover()
+        # Web-first assertions wait for the real CSS transition to finish.
+        expect(card).to_have_css("background-color", "rgb(232, 238, 245)")
+        expect(card).to_have_css("border-top-color", "rgb(195, 206, 219)")
+        expect(card).to_have_css("cursor", "pointer")
+        page.screenshot(path=output / f"{width}-hover.png")
+        result["screenshots"] = [f"{width}-focus.png", f"{width}-hover.png"]
+        result["status"] = "passed"
+    except Exception:
+        page.screenshot(path=output / f"{width}-failure.png")
+        raise
+    finally:
+        context.close()
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("site", type=Path)
+    parser.add_argument("output", type=Path)
+    args = parser.parse_args()
+    args.output.mkdir(parents=True, exist_ok=True)
+    results = {
+        "status": "failed",
+        "head_sha": os.environ.get("COMMIT", "local"),
+        "checkout_sha": os.environ.get("GITHUB_SHA", "local"),
+        "playwright": importlib.metadata.version("playwright"),
+        "fixture": "synthetic PASS and FAIL records; not deployed",
+        "viewports": [],
+    }
+    try:
+        destinations = prepare(args.site)
+        with ThreadingHTTPServer(
+            ("127.0.0.1", 0), partial(SimpleHTTPRequestHandler, directory=str(args.site.resolve()))
+        ) as server:
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                with sync_playwright() as playwright:
+                    browser = playwright.chromium.launch()
+                    results["chromium"] = browser.version
+                    for width, height in [(390, 844), (1280, 800)]:
+                        result = {}
+                        results["viewports"].append(result)
+                        check_viewport(
+                            browser,
+                            f"http://127.0.0.1:{server.server_port}/",
+                            args.output,
+                            width,
+                            height,
+                            result,
+                            destinations,
+                        )
+                    browser.close()
+                results["status"] = "passed"
+            finally:
+                server.shutdown()
+                thread.join()
+    except Exception:
+        results["error"] = traceback.format_exc()
+    finally:
+        encoded = json.dumps(results, indent=2) + "\n"
+        (args.output / "results.json").write_text(encoded)
+        print(encoded)
+    return 0 if results["status"] == "passed" else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

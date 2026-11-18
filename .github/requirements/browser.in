@@ -1,0 +1,4 @@
+# Hosted UI evidence. Regenerate with:
+# uv pip compile --generate-hashes --python-version 3.12 --no-header \
+#   .github/requirements/browser.in -o .github/requirements/browser.txt
+playwright==1.64.1
