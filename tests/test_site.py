@@ -2513,38 +2513,346 @@ def test_spec_identities_survive_publication_and_history_restoration(tmp_path):
     old = restored / folder.relative_to(first)
     for relative, original in preserved.items():
         assert (old / relative).read_bytes() == original, relative
-    for page in (old / "index.html", old.parent.parent / "index.html"):
-        text = page.read_text()
-        assert "Evidence-generation spec (recorded pin)" in text
-        assert "Assessment spec" in text
-        for role in ("generation", "assessment"):
-            assert fixture[role]["tag"] in text
-            assert fixture[role]["commit"] in text
-        assert "saved caller lock releases.specs" in text
-        assert "saved report summaries[].spec" in text
-        assert "FAIL" in text
-    assert (old / "index.html").read_text().count('id="spec-provenance"') == 1
+    # Both recorded identities stay on the report page (#142), now in the collapsed block (#146).
+    # The history page no longer repeats them.
+    page = (old / "index.html").read_text()
+    block = provenance_block(page)
+    assert "Generation" in block and "Assessment" in block
+    for role in ("generation", "assessment"):
+        assert fixture[role]["tag"] in block
+        assert fixture[role]["commit"][:8] in block
+        assert fixture[role]["commit"] in block  # the full SHA, in a link or title
+        assert fixture[role]["commit"] not in visible_text(block)
+    assert page.count('id="spec-provenance"') == 1
+    assert "FAIL" in page
+    history = (old.parent.parent / "index.html").read_text()
+    assert "spec-provenance" not in history and "Spec provenance" not in history
+    for role in ("generation", "assessment"):
+        assert fixture[role]["commit"] not in history
     local_links_resolve(restored)
 
 
-@pytest.mark.parametrize("same_identity", [False, True])
-def test_spec_provenance_keeps_all_assessments_and_missing_fields_explicit(same_identity):
-    spec = {"tag": "v2.3.0", "commit": "a" * 40}
-    other = dict(spec) if same_identity else {**spec, "commit": "b" * 40}
-    report = {"summaries": [{"spec": spec}, {"spec": other}, {"spec": spec}]}
-    text = site_tool.spec_provenance_html({"releases": {"specs": spec}}, report)
-    assert text.count("a" * 40) == 2  # once per role, not once per trial
-    assert text.count("b" * 40) == (0 if same_identity else 1)
-    assert "Evidence-generation spec" in text and "Assessment spec" in text
-    assert site_tool.spec_provenance_html({}, {}).count("Not recorded") == 2
-    hostile = {"tag": "<script>alert(1)</script>"}
-    assert "<script>" not in site_tool.spec_provenance_html({"releases": {"specs": hostile}}, {})
+def visible_text(markup: str) -> str:
+    """The text a reader sees: tags, and so attribute values such as titles, are dropped."""
+    return re.sub(r"<[^>]+>", " ", markup)
 
 
-def test_spec_provenance_is_added_inside_reporter_main_without_changing_summary():
-    original = "<html><body><header>Report</header><main class='wrap'><dt>Spec</dt><dd>v2.3.0</dd></main></body></html>"
-    public = site_tool.with_spec_provenance(original, {}, {})
-    assert (
-        public.index("<main") < public.index('id="spec-provenance"') < public.index("<dt>Spec</dt>")
+def provenance_block(page: str) -> str:
+    blocks = re.findall(r'<details class="spec-provenance".*?</details>', page, re.S)
+    assert len(blocks) == 1, blocks
+    return blocks[0]
+
+
+SPECS_REPOSITORY = "https://github.com/Living-Proof-Labs/robot-capability-specs"
+
+
+def spec_identity(tag: str, revision: str | None = None, capability: str = "walk-hallway") -> dict:
+    return {
+        "repository": SPECS_REPOSITORY,
+        "tag": tag,
+        "commit": hashlib.sha1(tag.encode()).hexdigest(),
+        "capability": capability,
+        **({"revision": revision} if revision else {}),
+    }
+
+
+def build_spec_history(tmp_path: Path, specs: list[tuple[str, dict | None]]) -> Path:
+    """One run per entry, oldest first. Each is (generation tag, assessment identity or None).
+
+    Returns the booster-t1 hallway variant's folder in the built site.
+    """
+    verifications = tmp_path / "verifications"
+    verifications.mkdir(parents=True)
+    site = tmp_path / "site"
+    for index, (generation, assessment) in enumerate(specs):
+        for lock_path in (ROOT / "verifications").glob("*.lock.json"):
+            lock = json.loads(lock_path.read_text())
+            lock["releases"]["specs"]["tag"] = generation
+            lock["releases"]["specs"]["commit"] = hashlib.sha1(generation.encode()).hexdigest()
+            (verifications / lock_path.name).write_text(json.dumps(lock))
+        reports = tmp_path / f"reports-{index}"
+        for target in site_tool.targets(verifications):
+            folder = reports / target["artifact"]
+            write_reports(folder, 19, "PASS")
+            if assessment is not None:
+                report = json.loads((folder / "report.json").read_text())
+                report["summaries"][0]["spec"] = assessment
+                (folder / "report.json").write_text(json.dumps(report))
+                restamp(folder)
+        site_tool.build(
+            site,
+            reports,
+            run(str(100 + index), f"2026-11-18T0{index}:00:00Z"),
+            verifications,
+        )
+    return site / "booster-t1/stock-mujoco-hallway"
+
+
+def history_rows(base: Path) -> dict[str, str]:
+    """Each history row's markup, keyed by the run folder its Report link opens."""
+    page = (base / "index.html").read_text()
+    rows = re.findall(r'<article class="row[^"]*">(.*?)</article>', page, re.S)
+    return {re.search(r'href="runs/([^/"]+)/"', row).group(1): row for row in rows}
+
+
+def test_history_rows_drop_the_spec_provenance_block(tmp_path):
+    """#146: a row is badge, title, chips, release, time, poster and Report; nothing else."""
+    base = build_spec_history(
+        tmp_path, [("v2.3.0", spec_identity("v2.3.0", "0.1.0")) for _ in range(3)]
     )
-    assert "<dt>Spec</dt><dd>v2.3.0</dd>" in public
+    page = (base / "index.html").read_text()
+    rows = history_rows(base)
+    assert list(rows) == ["102", "101", "100"]
+    for row in rows.values():
+        assert "Spec provenance" not in row
+        assert "spec-provenance" not in row
+        assert "<dl" not in row and "<details" not in row
+        assert not re.search(r"[0-9a-f]{40}", visible_text(row))
+        assert "run.json" not in row and "report.json" not in row
+        assert "Generation source" not in row and "do not reassess" not in row
+    assert "Spec provenance" not in page and "spec-provenance" not in page
+    assert page.count("<article") == 3
+
+
+def test_history_header_shows_the_spec_version_and_the_robot_tag(tmp_path):
+    """#146: `specs v2.3.0` links to the spec release; the robot pin is its tag."""
+    base = build_spec_history(tmp_path, [("v2.3.0", spec_identity("v2.3.0", "0.1.0"))])
+    header = (base / "index.html").read_text().split("<main", 1)[0]
+    assert (
+        'specs <a href="https://github.com/Living-Proof-Labs/robot-capability-specs/'
+        'releases/tag/v2.3.0">v2.3.0</a>'
+    ) in header
+    assert "runner <a" in header and "verifier <a" in header and "reporter <a" in header
+    assert "livingproof-booster-t1 @ v2.2.10" in header
+    assert "releases/tag/v2.2.10" in header
+    assert not re.search(r"[0-9a-f]{40}", visible_text(header))
+
+
+def test_history_header_resolves_the_robot_tag_of_a_record_stored_without_one(tmp_path):
+    """The retired corner histories hold pre-#129 records with only a robot commit.
+
+    The reviewed locks name that commit by tag, so the header shows the tag; a commit no lock
+    knows falls back to an 8-character monospace SHA. The stored run.json is left alone.
+    """
+    base = build_spec_history(tmp_path, [("v2.3.0", None)])
+    path = base / "runs/100/run.json"
+    record = json.loads(path.read_text())
+    record["robot"].pop("tag")
+    record["robot"]["url"] = (
+        f"https://github.com/{record['robot']['repository']}/tree/" + (record["robot"]["commit"])
+    )
+    path.write_text(json.dumps(record, indent=2) + "\n")
+    stored = path.read_bytes()
+    site_tool.render(tmp_path / "site", now="2026-11-18T05:00:00Z")
+    header = (base / "index.html").read_text().split("<main", 1)[0]
+    assert "livingproof-booster-t1 @ v2.2.10" in header
+    assert 'releases/tag/v2.2.10"' in header
+    assert path.read_bytes() == stored
+
+    record["robot"]["commit"] = "c" * 40
+    path.write_text(json.dumps(record, indent=2) + "\n")
+    site_tool.render(tmp_path / "site", now="2026-11-18T05:00:00Z")
+    header = (base / "index.html").read_text().split("<main", 1)[0]
+    assert '@ <code class="sha">cccccccc</code>' in header
+    assert "v2.2.10" not in header
+
+
+def test_a_spec_bump_flags_exactly_one_row(tmp_path):
+    """#146: `Spec changed: v2.3.0 → v2.4.0` on the first run of the new spec, nowhere else."""
+    base = build_spec_history(
+        tmp_path,
+        [
+            ("v2.3.0", spec_identity("v2.3.0", "0.1.0")),
+            ("v2.3.0", spec_identity("v2.3.0", "0.1.0")),
+            ("v2.4.0", spec_identity("v2.4.0", "0.1.0")),
+            ("v2.4.0", spec_identity("v2.4.0", "0.1.0")),
+        ],
+    )
+    rows = history_rows(base)
+    assert list(rows) == ["103", "102", "101", "100"]
+    flagged = {run_id for run_id, row in rows.items() if "Spec changed" in row}
+    assert flagged == {"102"}
+    assert rows["102"].count("Spec changed") == 1
+    assert '<span class="chip chip-spec">Spec changed: v2.3.0 → v2.4.0</span>' in rows["102"]
+    page = (base / "index.html").read_text()
+    assert page.count("Spec changed") == 1
+    assert ".chip-spec" in site_tool.SITE_STYLES
+
+
+def test_an_assessment_revision_change_flags_the_row(tmp_path):
+    base = build_spec_history(
+        tmp_path,
+        [
+            ("v2.3.0", spec_identity("v2.3.0", "0.1.0")),
+            ("v2.3.0", spec_identity("v2.3.0", "0.2.0")),
+        ],
+    )
+    rows = history_rows(base)
+    assert "Spec changed: revision 0.1.0 → 0.2.0" in rows["101"]
+    assert "Spec changed" not in rows["100"]
+
+
+def test_a_row_is_not_flagged_when_nothing_changed_or_nothing_was_recorded(tmp_path):
+    same = build_spec_history(
+        tmp_path / "same", [("v2.3.0", spec_identity("v2.3.0", "0.1.0")) for _ in range(3)]
+    )
+    assert "Spec changed" not in (same / "index.html").read_text()
+    # No assessment recorded on either run: an unknown is not a change.
+    unknown = build_spec_history(tmp_path / "unknown", [("v2.3.0", None), ("v2.3.0", None)])
+    assert "Spec changed" not in (unknown / "index.html").read_text()
+    # A single run has nothing below it.
+    single = build_spec_history(tmp_path / "single", [("v2.4.0", spec_identity("v2.4.0", "0.1.0"))])
+    assert "Spec changed" not in (single / "index.html").read_text()
+
+
+def test_a_missing_assessment_revision_is_not_a_change_but_a_known_one_is(tmp_path):
+    base = build_spec_history(
+        tmp_path,
+        [("v2.3.0", spec_identity("v2.3.0")), ("v2.3.0", spec_identity("v2.3.0", "0.1.0"))],
+    )
+    assert "Spec changed" not in (base / "index.html").read_text()
+
+
+@pytest.mark.parametrize(
+    ("markup", "closing"),
+    [
+        (
+            "<html><body><header>Report</header><main class='wrap'><section class='verdict'>"
+            "PASS</section><section id='evaluators'>Evaluators</section></main></body></html>",
+            "</main>",
+        ),
+        # Older reporters wrote no <main>: the block goes at the end of the body.
+        (
+            "<html><body><section class='verdict'>PASS</section><p>Evaluators</p></body></html>",
+            "</body>",
+        ),
+        ("plain text report Evaluators", None),
+    ],
+)
+def test_report_provenance_follows_the_evaluators_and_is_collapsed(markup, closing):
+    """#146: results first. The block goes before </main>, never parsed out of the reporter."""
+    record = {"releases": {"specs": spec_identity("v2.3.0")}}
+    public = site_tool.with_spec_provenance(markup, record, {"summaries": []})
+    block = provenance_block(public)
+    assert public.index("Evaluators") < public.index(block)
+    if closing:
+        assert public.index(block) < public.index(closing)
+        assert public[public.index(block) + len(block) :].startswith(closing)
+    else:
+        assert public.endswith(block)
+    assert not re.search(r"<details[^>]* open", block)
+    assert "Spec provenance" not in public
+    # The reporter's own markup is untouched.
+    assert public.replace(block, "") == markup
+
+
+def test_report_provenance_on_the_current_reporter_output(tmp_path):
+    """The pinned reporter's real page: the block is last in <main>, after every evaluator."""
+    sample = tmp_path / "sample"
+    _renderable_bundle(sample)
+    report = json.loads((sample / "report.json").read_text())
+    reporter_page = site_tool.render_with_reporter(
+        report,
+        {"links": []},
+        history_href="../../index.html",
+        history_label="Run history",
+        retention=None,
+    )
+    record = {"releases": {"specs": spec_identity("v2.3.0", "0.1.0")}}
+    public = site_tool.with_spec_provenance(reporter_page, record, report)
+    block = provenance_block(public)
+    assert public.index("evaluator-") < public.index(block)
+    assert public.index("class='verdict'") < public.index(block)
+    assert public.index(block) < public.rindex("</main>")
+    assert public.replace(block, "") == reporter_page
+    # No mid-page position: nothing but the closing tags follows the block.
+    assert public[public.index(block) + len(block) :].strip().startswith("</main>")
+
+
+def test_report_provenance_summary_is_one_line_and_hides_the_commit(tmp_path):
+    spec = spec_identity("v2.3.0", "0.1.0")
+    record = {
+        "releases": {"specs": {**spec, "repository": "Living-Proof-Labs/robot-capability-specs"}}
+    }
+    block = site_tool.spec_provenance_html(record, {"summaries": [{"spec": spec}]})
+    assert block.startswith('<details class="spec-provenance" id="spec-provenance">')
+    summary = re.search(r"<summary>(.*?)</summary>", block, re.S).group(1)
+    assert "\n" not in summary
+    assert re.sub(r"\s+", " ", visible_text(summary)).strip() == (
+        "Spec v2.3.0 · walk-hallway · revision 0.1.0"
+    )
+    assert "<code>v2.3.0</code>" in summary
+
+
+def test_report_provenance_shows_one_line_when_generation_and_assessment_match():
+    spec = spec_identity("v2.3.0", "0.1.0")
+    # The generation pin is recorded as owner/name; the assessment as a URL. Same repository.
+    generation = {
+        "repository": "Living-Proof-Labs/robot-capability-specs",
+        "tag": "v2.3.0",
+        "commit": spec["commit"],
+        "url": f"{SPECS_REPOSITORY}/releases/tag/v2.3.0",
+    }
+    block = site_tool.spec_provenance_html(
+        {"releases": {"specs": generation}}, {"summaries": [{"spec": spec}, {"spec": spec}]}
+    )
+    assert block.count("<dt>") == 1
+    assert "<dt>Generation and assessment</dt>" in block
+    text = re.sub(r"\s+", " ", visible_text(block))
+    assert "v2.3.0 · robot-capability-specs · " + spec["commit"][:8] in text
+    assert f'href="{SPECS_REPOSITORY}/releases/tag/v2.3.0"' in block
+    assert f'title="{spec["commit"]}"' in block  # the full SHA lives in a title and the link
+    assert f'href="{SPECS_REPOSITORY}/commit/{spec["commit"]}"' in block
+    assert spec["commit"] not in text
+    assert "https://" not in text
+    assert "Recorded at run time; not reassessed." in text
+    for old in ("Generation source", "saved caller lock", "summaries[].spec", "run.json"):
+        assert old not in block
+
+
+def test_report_provenance_shows_both_lines_only_when_they_differ():
+    generation = spec_identity("v2.0.2")
+    assessment = spec_identity("v2.3.0", "0.1.0")
+    block = site_tool.spec_provenance_html(
+        {"releases": {"specs": {**generation, "url": f"{SPECS_REPOSITORY}/releases/tag/v2.0.2"}}},
+        {"summaries": [{"spec": assessment}]},
+    )
+    assert block.count("<dt>") == 2
+    assert "<dt>Generation</dt>" in block and "<dt>Assessment</dt>" in block
+    text = re.sub(r"\s+", " ", visible_text(block))
+    assert generation["commit"][:8] in text and assessment["commit"][:8] in text
+    assert generation["commit"] not in text and assessment["commit"] not in text
+    assert generation["commit"] in block and assessment["commit"] in block
+    # The summary names the assessed spec, the one the report's Spec field shows.
+    summary = re.search(r"<summary>(.*?)</summary>", block, re.S).group(1)
+    assert "v2.3.0" in summary and "v2.0.2" not in summary
+    # Several distinct assessments each keep a line.
+    other = spec_identity("v2.4.0", "0.2.0")
+    many = site_tool.spec_provenance_html(
+        {"releases": {"specs": generation}},
+        {"summaries": [{"spec": assessment}, {"spec": other}, {"spec": assessment}]},
+    )
+    assert many.count("<dt>") == 3
+    assert other["commit"][:8] in many and many.count(assessment["commit"][:8]) >= 1
+
+
+def test_report_provenance_keeps_missing_fields_explicit_and_escapes_values():
+    empty = site_tool.spec_provenance_html({}, {})
+    assert empty.count("Not recorded") >= 1 and "<details" in empty
+    hostile = {"tag": "<script>alert(1)</script>", "commit": "d" * 40}
+    block = site_tool.spec_provenance_html({"releases": {"specs": hostile}}, {})
+    assert "<script>" not in block
+
+
+def test_published_report_page_puts_the_result_first(tmp_path):
+    """End to end through build: no provenance before the reporter's own content."""
+    reports = _renderable_reports(tmp_path)
+    site = tmp_path / "site"
+    site_tool.build(site, reports, run("7", "2026-11-01T00:00:00Z"))
+    page = _page(site)
+    block = provenance_block(page)
+    assert page.index("<main") < page.index("class='verdict'") < page.index(block)
+    assert "Spec provenance" not in page
+    assert not re.search(r"<details[^>]* open", block)
+    assert page.count('class="spec-provenance"') == 1
+    local_links_resolve(site)
