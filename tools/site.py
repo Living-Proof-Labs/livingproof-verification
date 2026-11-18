@@ -2215,8 +2215,8 @@ def _history_page_html(robot: str, variant: str, records: list[dict], now: str) 
         '<p class="crumb"><a href="../../index.html">← All verification reports</a></p>'
         f'<p class="eyebrow">{html.escape(robot_title)} · {html.escape(subtitle)}</p>'
         f"<h1>{html.escape(scenario_title)}</h1>"
-        f'<p class="lede">{count} run{plural}, newest first. A continuous list — no pagination. '
-        "History is pruned holistically elsewhere.</p>"
+        f'<p class="lede">{count} run{plural}, newest first. '
+        "Older runs are trimmed over time.</p>"
         f'<p class="meta-line">{a("latest/", "Latest report")}'
         f'<span class="quiet"> · {releases}</span></p>'
         f'<p class="meta-line">{robot_line}</p>'

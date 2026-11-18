@@ -2213,7 +2213,9 @@ def test_failing_evaluators_chips_and_clean_history_view(tmp_path):
     assert '<time datetime="2026-11-18T05:00:00Z"' in history
     assert 'title="18 Nov 2026, 16:00 AEDT"' in history
     assert "20 minutes ago</time>" in history
-    assert "History is pruned holistically elsewhere." in history
+    assert "newest first. Older runs are trimmed over time.</p>" in history
+    assert "pagination" not in history
+    assert "holistically" not in history
     assert "SHA256SUMS" not in history
     assert "CI run" not in history
     assert "/actions/" not in history
