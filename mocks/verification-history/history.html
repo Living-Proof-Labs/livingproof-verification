@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Booster T1 · stock · Walk the hallway · run history · mock</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,650;0,9..40,700;1,9..40,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+
+<body>
+<a class="skip" href="#history">Skip to history</a>
+<header class="masthead">
+  <div class="wrap masthead-inner">
+    <p class="crumb"><a href="reports.html">← All verification reports</a></p>
+    <p class="eyebrow">Booster T1 · stock · MuJoCo</p>
+    <h1>Walk the hallway</h1>
+    <p class="lede">79 runs, newest first. A continuous list — no pagination. History is pruned holistically elsewhere.</p>
+    <p class="meta-line"><a href="https://docs.livingprooflabs.com/livingproof-verification/booster-t1/stock-mujoco-hallway/latest/">Latest report</a>
+      <span class="quiet"> · specs <a href="https://github.com/Living-Proof-Labs/robot-capability-specs/releases/tag/v2.3.0">v2.3.0</a>
+      · runner <a href="https://github.com/Living-Proof-Labs/livingproof-sim-mujoco/releases/tag/v3.4.1">v3.4.1</a>
+      · verifier <a href="https://github.com/Living-Proof-Labs/capability-verifier/releases/tag/v2.3.0">v2.3.0</a>
+      · reporter <a href="https://github.com/Living-Proof-Labs/livingproof-capability-report/releases/tag/v3.11.6">v3.11.6</a></span></p>
+    <p class="meta-line"><a href="https://github.com/Living-Proof-Labs/livingproof-booster-t1/releases/tag/v2.2.10">livingproof-booster-t1 @ v2.2.10</a>
+      <span class="quiet"> · software stock 1.0.0</span></p>
+  </div>
+</header>
+<main class="page wrap" id="history">
+  <p class="banner">Example mock. The two top rows are illustrative human and agent posts (not on the live site). Rows below follow the live hallway history. Tagged releases are shown as an example of the going-forward format; today the verification repo is untagged, so real rows fall back to a short SHA. Older real rows have no failing-evaluator chips, as that list is not stored yet.</p>
+
+  <div class="history">
+
+    <article class="row is-fail" aria-label="Example failed run posted by Aaron Roller">
+      <div class="row-top">
+        <span class="badge badge-fail">FAIL</span>
+        <div>
+          <h2 class="title"><span class="example-pill">Example</span> Walk the hallway</h2>
+          <div class="chips">
+            <a class="chip" href="#evaluator-livingproof-scenario" title="Open the Scenario finding in the report">Scenario</a>
+            <a class="chip" href="#evaluator-aaron-roller" title="Open Aaron Roller’s finding in the report">Aaron Roller</a>
+          </div>
+          <p class="finding">The robot drifted off the centreline and touched the right wall before the exit.</p>
+          <div class="row-meta">
+            <a class="release" href="https://github.com/Living-Proof-Labs/livingproof-verification" title="Example release tag">v1.0.0</a>
+            <span class="dot">·</span>
+            <time datetime="2026-11-18T05:24:00Z" title="18 Nov 2026, 4:24 pm AEDT (Australia/Sydney)">10 minutes ago</time>
+            <span class="dot">·</span>
+            <span class="poster">Aaron Roller</span>
+            <span class="dot">·</span>
+            <a href="https://docs.livingprooflabs.com/livingproof-verification/booster-t1/stock-mujoco-hallway/runs/44241798449/">Report</a>
+          </div>
+        </div>
+      </div>
+    </article>
+
+    <article class="row is-fail" aria-label="Example failed run posted by Art">
+      <div class="row-top">
+        <span class="badge badge-fail">FAIL</span>
+        <div>
+          <h2 class="title"><span class="example-pill">Example</span> Walk the hallway</h2>
+          <div class="chips">
+            <a class="chip" href="#evaluator-livingproof-scenario" title="Open the Scenario finding in the report">Scenario</a>
+          </div>
+          <p class="finding">Scenario: drifted 0.66 m from the centreline, then touched the right wall.</p>
+          <div class="row-meta">
+            <a class="release" href="https://github.com/Living-Proof-Labs/livingproof-verification" title="Example release tag">v1.0.0</a>
+            <span class="dot">·</span>
+            <time datetime="2026-11-18T05:22:00Z" title="18 Nov 2026, 4:22 pm AEDT (Australia/Sydney)">12 minutes ago</time>
+            <span class="dot">·</span>
+            <span class="poster">Art</span>
+            <span class="dot">·</span>
+            <a href="https://docs.livingprooflabs.com/livingproof-verification/booster-t1/stock-mujoco-hallway/runs/44241798449/">Report</a>
+          </div>
+        </div>
+      </div>
+    </article>
+
+    <article class="row is-fail" aria-label="Failed CI run, 18 November 2026">
+      <div class="row-top">
+        <span class="badge badge-fail">FAIL</span>
+        <div>
+          <h2 class="title">Walk the hallway</h2>
+          <div class="chips">
+            <a class="chip" href="https://docs.livingprooflabs.com/livingproof-verification/booster-t1/stock-mujoco-hallway/runs/44241798449/#evaluator-livingproof-scenario" title="Open the Scenario finding in the report">Scenario</a>
+          </div>
+          <p class="finding">Drifted 0.66 m from the centreline, then touched the right wall at 7.80 s.</p>
+          <div class="row-meta">
+            <span class="release is-fallback" title="No release tag on this livingproof-verification commit; short SHA shown">2363e612</span>
+            <span class="dot">·</span>
+            <time datetime="2026-11-18T05:13:39Z" title="18 Nov 2026, 4:13 pm AEDT (Australia/Sydney)">20 minutes ago</time>
+            <span class="dot">·</span>
+            <span class="poster">CI</span>
+            <span class="dot">·</span>
+            <a href="https://docs.livingprooflabs.com/livingproof-verification/booster-t1/stock-mujoco-hallway/runs/44241798449/">Report</a>
+            <span class="dot">·</span>
+            <a href="https://github.com/Living-Proof-Labs/livingproof-verification/actions/runs/44241798449">CI run</a>
+          </div>
+        </div>
+      </div>
+    </article>
+
+    <article class="row is-pass" aria-label="Example passing CI run">
+      <div class="row-top">
+        <span class="badge badge-pass">PASS</span>
+        <div>
+          <h2 class="title"><span class="example-pill">Example</span> Walk the hallway</h2>
+          <div class="row-meta">
+            <a class="release" href="https://github.com/Living-Proof-Labs/livingproof-verification" title="Example release tag">v0.9.0</a>
+            <span class="dot">·</span>
+            <time datetime="2026-11-18T04:40:00Z" title="18 Nov 2026, 3:40 pm AEDT (Australia/Sydney)">1 hour ago</time>
+            <span class="dot">·</span>
+            <span class="poster">CI</span>
+            <span class="dot">·</span>
+            <a href="https://docs.livingprooflabs.com/livingproof-verification/booster-t1/stock-mujoco-hallway/latest/">Report</a>
+            <span class="dot">·</span>
+            <a href="https://github.com/Living-Proof-Labs/livingproof-verification/actions">CI run</a>
+          </div>
+        </div>
+      </div>
+    </article>
+
+    <article class="row is-fail" aria-label="Failed CI run, no stored failing evaluators">
+      <div class="row-top">
+        <span class="badge badge-fail">FAIL</span>
+        <div>
+          <h2 class="title">Walk the hallway</h2>
+          <div class="row-meta">
+            <span class="release is-fallback" title="No release tag; short SHA shown">e634a9da</span>
+            <span class="dot">·</span>
+            <time datetime="2026-11-18T03:50:54Z" title="18 Nov 2026, 2:50 pm AEDT (Australia/Sydney)">2 hours ago</time>
+            <span class="dot">·</span>
+            <span class="poster">CI</span>
+            <span class="dot">·</span>
+            <a href="https://docs.livingprooflabs.com/livingproof-verification/booster-t1/stock-mujoco-hallway/runs/44232349144/">Report</a>
+            <span class="dot">·</span>
+            <a href="https://github.com/Living-Proof-Labs/livingproof-verification/actions/runs/44232349144">CI run</a>
+          </div>
+        </div>
+      </div>
+    </article>
+
+    <article class="row is-fail" aria-label="Failed CI run">
+      <div class="row-top">
+        <span class="badge badge-fail">FAIL</span>
+        <div>
+          <h2 class="title">Walk the hallway</h2>
+          <div class="row-meta">
+            <span class="release is-fallback" title="No release tag; short SHA shown">ca169aea</span>
+            <span class="dot">·</span>
+            <time datetime="2026-11-18T02:20:32Z" title="18 Nov 2026, 1:20 pm AEDT (Australia/Sydney)">3 hours ago</time>
+            <span class="dot">·</span>
+            <span class="poster">CI</span>
+            <span class="dot">·</span>
+            <a href="https://docs.livingprooflabs.com/livingproof-verification/booster-t1/stock-mujoco-hallway/runs/44220477144/">Report</a>
+            <span class="dot">·</span>
+            <a href="https://github.com/Living-Proof-Labs/livingproof-verification/actions/runs/44220477144">CI run</a>
+          </div>
+        </div>
+      </div>
+    </article>
+
+    <article class="row is-fail" aria-label="Failed CI run">
+      <div class="row-top">
+        <span class="badge badge-fail">FAIL</span>
+        <div>
+          <h2 class="title">Walk the hallway</h2>
+          <div class="row-meta">
+            <span class="release is-fallback" title="No release tag; short SHA shown">450d2117</span>
+            <span class="dot">·</span>
+            <time datetime="2026-11-18T01:52:02Z" title="18 Nov 2026, 12:52 pm AEDT (Australia/Sydney)">4 hours ago</time>
+            <span class="dot">·</span>
+            <span class="poster">CI</span>
+            <span class="dot">·</span>
+            <a href="https://docs.livingprooflabs.com/livingproof-verification/booster-t1/stock-mujoco-hallway/runs/44218116437/">Report</a>
+            <span class="dot">·</span>
+            <a href="https://github.com/Living-Proof-Labs/livingproof-verification/actions/runs/44218116437">CI run</a>
+          </div>
+        </div>
+      </div>
+    </article>
+
+    <article class="row is-fail" aria-label="Failed CI run from earlier today">
+      <div class="row-top">
+        <span class="badge badge-fail">FAIL</span>
+        <div>
+          <h2 class="title">Walk the hallway</h2>
+          <div class="row-meta">
+            <span class="release is-fallback" title="No release tag; short SHA shown">bcde6dd5</span>
+            <span class="dot">·</span>
+            <time datetime="2026-11-17T17:58:04Z" title="18 Nov 2026, 4:58 am AEDT (Australia/Sydney)">11 hours ago</time>
+            <span class="dot">·</span>
+            <span class="poster">CI</span>
+            <span class="dot">·</span>
+            <a href="https://docs.livingprooflabs.com/livingproof-verification/booster-t1/stock-mujoco-hallway/runs/44141446534/">Report</a>
+            <span class="dot">·</span>
+            <a href="https://github.com/Living-Proof-Labs/livingproof-verification/actions/runs/44141446534">CI run</a>
+          </div>
+        </div>
+      </div>
+    </article>
+
+    <article class="row is-fail" aria-label="Failed CI run from yesterday">
+      <div class="row-top">
+        <span class="badge badge-fail">FAIL</span>
+        <div>
+          <h2 class="title">Walk the hallway</h2>
+          <div class="row-meta">
+            <span class="release is-fallback" title="No release tag; short SHA shown">ba0839a2</span>
+            <span class="dot">·</span>
+            <time datetime="2026-11-17T15:18:56Z" title="18 Nov 2026, 2:18 am AEDT (Australia/Sydney)">Yesterday, 2:18 am</time>
+            <span class="dot">·</span>
+            <span class="poster">CI</span>
+            <span class="dot">·</span>
+            <a href="https://docs.livingprooflabs.com/livingproof-verification/booster-t1/stock-mujoco-hallway/runs/44111376371/">Report</a>
+            <span class="dot">·</span>
+            <a href="https://github.com/Living-Proof-Labs/livingproof-verification/actions/runs/44111376371">CI run</a>
+          </div>
+        </div>
+      </div>
+    </article>
+
+    <article class="row is-fail" aria-label="Failed CI run from yesterday">
+      <div class="row-top">
+        <span class="badge badge-fail">FAIL</span>
+        <div>
+          <h2 class="title">Walk the hallway</h2>
+          <div class="row-meta">
+            <span class="release is-fallback" title="No release tag; short SHA shown">20068338</span>
+            <span class="dot">·</span>
+            <time datetime="2026-11-17T12:07:16Z" title="17 Nov 2026, 11:07 pm AEDT (Australia/Sydney)">Yesterday, 11:07 pm</time>
+            <span class="dot">·</span>
+            <span class="poster">CI</span>
+            <span class="dot">·</span>
+            <a href="https://docs.livingprooflabs.com/livingproof-verification/booster-t1/stock-mujoco-hallway/runs/44079058294/">Report</a>
+            <span class="dot">·</span>
+            <a href="https://github.com/Living-Proof-Labs/livingproof-verification/actions/runs/44079058294">CI run</a>
+          </div>
+        </div>
+      </div>
+    </article>
+
+  </div>
+  <p class="footnote">The live history already continues without pagination (79 runs here). Older entries stay in this same list. Checksums remain in each run folder and are not shown in the list.</p>
+</main>
+</body>
+</html>

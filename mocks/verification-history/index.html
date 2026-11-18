@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Verification index and history mock · Living Proof Labs</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,650;0,9..40,700;1,9..40,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<style>
+  .toc { display: flex; flex-wrap: wrap; gap: 0.5rem 0.75rem; margin: 0.8rem 0 0; }
+  .toc a {
+    display: inline-flex; align-items: center;
+    padding: 0.4rem 0.75rem; border-radius: 999px;
+    border: 1px solid var(--border); background: var(--surface);
+    text-decoration: none; font-weight: 650; font-size: 0.9rem;
+  }
+  .toc a:hover { border-color: var(--border-strong); background: var(--bg-muted); }
+  ul.notes { margin: 0.4rem 0 0; padding-left: 1.2rem; color: var(--text-muted); }
+  ul.notes li { margin: 0.25rem 0; }
+  .frame {
+    margin: 0 0 1.5rem;
+    border: 1px solid var(--border);
+    border-radius: 1rem;
+    overflow: hidden;
+    background: var(--surface);
+    box-shadow: var(--shadow);
+  }
+  .frame iframe { display: block; width: 100%; border: 0; background: var(--bg); }
+</style>
+<body class="review">
+  <div class="wrap review-intro">
+    <p class="kicker">Art · design mock</p>
+    <h1>Verification index and history</h1>
+    <p>A cleaner, human-readable view of the docs site index and run history. Results first; evaluators stay quiet and only failures speak. The pages use the same visual language as the capability report.</p>
+    <p>Open the standalone pages to review them at desktop or mobile width. Current live screenshots and the proposed PNGs are in <code>screens/</code>. The written spec is in <a href="README.md">README.md</a>.</p>
+    <p class="toc">
+      <a href="reports.html">Index mock</a>
+      <a href="history.html">History mock</a>
+      <a href="README.md">Spec</a>
+    </p>
+    <ul class="notes">
+      <li>CI run is a text link, no run number. Checksums are dropped from the list.</li>
+      <li>A release tag is shown when one exists; otherwise a short commit SHA.</li>
+      <li>Times are relative, with the local date on the tooltip (<span class="num">Australia/Sydney</span>).</li>
+      <li>Failing evaluators are linked chips using the stored title exactly (Scenario, not “Scenario Evaluator”). Each human reviewer is a chip of their own.</li>
+      <li>The list is continuous, with no pagination.</li>
+    </ul>
+  </div>
+  <div class="wrap">
+    <p class="figure-label">Index <span>Latest result per robot and scenario</span></p>
+    <div class="frame">
+      <iframe src="reports.html" title="Proposed verification index" height="1180" loading="lazy"></iframe>
+    </div>
+    <p class="figure-label">History <span>Booster T1 · stock · Walk the hallway. Example human and agent rows are marked.</span></p>
+    <div class="frame">
+      <iframe src="history.html" title="Proposed run history" height="1680" loading="lazy"></iframe>
+    </div>
+  </div>
+</body>
+</html>
