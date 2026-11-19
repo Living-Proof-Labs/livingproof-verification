@@ -53,6 +53,8 @@ const locks = readdirSync('verifications')
   .filter((name) => name.endsWith('.lock.json'))
   .sort()
   .map((name) => `verifications/${name}`);
+const frozen = definitions.filter((file) => file.endsWith('-hallway.toml'));
+const eligible = definitions.filter((file) => !frozen.includes(file));
 
 function reporterManager(cfg) {
   const found = (cfg.customManagers ?? []).filter((manager) =>
@@ -248,9 +250,12 @@ test('the organization preset still governs the reporter and the locks stay disa
   assert.equal('ignoreUnstable' in config, false);
   assert.equal('schedule' in config, false);
   assert.equal('postUpgradeTasks' in config, false);
+  const presetTag = config.extends[0].split('#')[1];
   const presetUrl =
-    'https://raw.githubusercontent.com/Living-Proof-Labs/collaboration-guidelines/v7.10.8/renovate-preset.json';
-  const preset = await (await fetch(presetUrl)).json();
+    `https://raw.githubusercontent.com/Living-Proof-Labs/collaboration-guidelines/${presetTag}/renovate-preset.json`;
+  const response = await fetch(presetUrl);
+  assert.ok(response.ok, `cannot load configured preset ${presetTag}: ${response.status}`);
+  const preset = await response.json();
   const merged = mergeChildConfig(preset, config);
   for (const manager of preset.enabledManagers) {
     assert.ok(merged.enabledManagers.includes(manager), manager);
@@ -402,14 +407,14 @@ test('no tracked file other than settings.toml yields a reporter dependency', ()
   }
 });
 
-test('the robot manager extracts every robot definition ref', () => {
+test('the robot manager extracts every eligible robot definition ref', () => {
   const manager = robotManager(config);
   assert.equal(manager.customType, 'regex');
   assert.equal(manager.datasourceTemplate, 'github-releases');
   assert.equal(manager.versioningTemplate, 'semver');
-  assert.equal(definitions.length, 10);
+  assert.equal(eligible.length, 6);
   const seenRepos = new Set();
-  for (const file of definitions) {
+  for (const file of eligible) {
     const text = read(file);
     const repo = text.match(/^\[robot\]\r?\nrepository = "([^"]+)"/m)[1];
     const ref = text.match(/^\[robot\]\r?\nrepository = "[^"]+"\r?\nref = "(v\d+\.\d+\.\d+)"/m)[1];
@@ -430,7 +435,7 @@ test('the robot manager extracts every robot definition ref', () => {
 test('a robot update changes only the [robot].ref line and leaves locks untouched', async () => {
   const manager = robotManager(config);
   const lockBytes = new Map(locks.map((path) => [path, read(path)]));
-  for (const file of definitions) {
+  for (const file of eligible) {
     const before = read(file);
     const current = before.match(/^\[robot\]\r?\nrepository = "[^"]+"\r?\nref = "(v\d+\.\d+\.\d+)"/m)[1];
     const [rMajor, rMinor] = current.slice(1).split('.').map(Number);
@@ -454,13 +459,19 @@ test('a robot update changes only the [robot].ref line and leaves locks untouche
   for (const [path, bytes] of lockBytes) assert.equal(read(path), bytes, path);
 });
 
-test('the robot manager ignores settings, locks, fixtures and all other tracked files', () => {
+test('the robot manager excludes frozen hallways, unclassified definitions, settings and locks', () => {
   const manager = robotManager(config);
   const tracked = execFileSync('git', ['ls-files'], { encoding: 'utf8' }).trim().split('\n');
   assert.deepEqual(
     getMatchingFiles({ ...manager, manager: 'regex' }, tracked).sort(),
-    [SETTINGS, ...definitions].sort(),
+    [...eligible].sort(),
   );
+  assert.equal(frozen.length, 4);
+  assert.deepEqual(getMatchingFiles({ ...manager, manager: 'regex' }, [
+    ...frozen,
+    'verifications/new-robot-corner-left.toml',
+    'tools/renovate/fixtures/booster-t1-stock-mujoco-corner-left.toml',
+  ]), []);
   assert.equal(extractPackageFile(settings, SETTINGS, manager), null);
   for (const file of locks) {
     assert.equal(extractPackageFile(read(file), file, manager), null, file);

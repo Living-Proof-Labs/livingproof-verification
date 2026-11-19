@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""The robot Renovate regex manager finds every definition ref without touching locks."""
+"""Robot proposals select eligible corners, preserving frozen hallways and locks."""
 
 import json
 import re
@@ -70,12 +70,14 @@ def test_robot_manager_is_targeted_and_automerge_stays_off():
     assert "python3 tools/lock.py" in rule["prBodyNotes"][0]
     assert ".github/workflows/verify.yml" in rule["prBodyNotes"][0]
     assert "Never hand-edit" in rule["prBodyNotes"][0]
+    assert "Completion owner: Keel" in rule["prBodyNotes"][0]
+    assert "docs/robot-updates.md" in rule["prBodyNotes"][0]
     (blocked,) = [item for item in renovate["packageRules"] if item.get("enabled") is False]
     assert blocked["matchFileNames"] == ["verifications/*.lock.json"]
     assert renovate["excludeCommitPaths"] == ["verifications/*.lock.json"]
 
 
-def test_the_match_string_finds_every_robot_definition_ref():
+def test_the_raw_pattern_reads_robot_blocks_independently_of_file_eligibility():
     _config, manager = _manager()
     pattern = _pattern(manager)
     definitions = _definitions()
@@ -92,20 +94,26 @@ def test_the_match_string_finds_every_robot_definition_ref():
     assert seen_repos == set(ROBOTS)
 
 
-def test_the_file_pattern_matches_only_verifications_toml_files():
+def test_the_file_patterns_select_only_eligible_corner_definitions():
     _config, manager = _manager()
-    (pattern,) = manager["managerFilePatterns"]
-    regex = re.compile(pattern.strip("/"))
+    regexes = [re.compile(pattern.strip("/")) for pattern in manager["managerFilePatterns"]]
     files = [
         path.relative_to(ROOT).as_posix()
         for path in ROOT.rglob("*")
         if path.is_file() and ".git" not in path.parts and "node_modules" not in path.parts
     ]
-    matched = sorted(name for name in files if regex.search(name))
+    matched = sorted(name for name in files if any(regex.search(name) for regex in regexes))
     expected = sorted(
-        path.relative_to(ROOT).as_posix() for path in (ROOT / "verifications").glob("*.toml")
+        path.relative_to(ROOT).as_posix()
+        for path in (ROOT / "verifications").glob("*-corner-*.toml")
     )
+    assert len(expected) == 6
     assert matched == expected
+    frozen = list((ROOT / "verifications").glob("*-hallway.toml"))
+    assert len(frozen) == 4
+    for path in frozen:
+        assert not any(regex.search(path.relative_to(ROOT).as_posix()) for regex in regexes)
+    assert not any(regex.search("verifications/new-robot-corner-left.toml") for regex in regexes)
 
 
 def test_the_match_string_sees_no_pin_in_settings_locks_or_other_files():
@@ -133,6 +141,8 @@ def test_a_simulated_bump_changes_only_the_robot_ref_line():
     _config, manager = _manager()
     pattern = _pattern(manager)
     for path in _definitions():
+        if path.stem.endswith("-hallway"):
+            continue
         before = path.read_text()
         robot = tomllib.loads(before)["robot"]
         current = robot["ref"]
@@ -150,3 +160,11 @@ def test_a_simulated_bump_changes_only_the_robot_ref_line():
         assert changed == [(f'ref = "{current}"', f'ref = "{proposed}"')], path.name
         assert tomllib.loads(after)["robot"]["ref"] == proposed
         assert [match["currentValue"] for match in pattern.finditer(after)] == [proposed]
+
+
+def test_every_definition_has_an_explicit_documented_policy():
+    inventory = (ROOT / "docs/robot-updates.md").read_text()
+    for path in _definitions():
+        row = next(line for line in inventory.splitlines() if f"`{path.name}`" in line)
+        policy = "Frozen" if path.stem.endswith("-hallway") else "Eligible proposal"
+        assert row.endswith(f"| {policy} |")

@@ -34,7 +34,12 @@
     {
       "customType": "regex",
       "managerFilePatterns": [
-        "/^verifications\\/[^/]+\\.toml$/"
+        "/^verifications\\/booster-t1-stock-mujoco-corner-left\\.toml$/",
+        "/^verifications\\/booster-t1-stock-mujoco-corner-right\\.toml$/",
+        "/^verifications\\/unitree-g1-stock-mujoco-corner-left\\.toml$/",
+        "/^verifications\\/unitree-g1-stock-mujoco-corner-right\\.toml$/",
+        "/^verifications\\/unitree-go1-playground-mujoco-corner-left\\.toml$/",
+        "/^verifications\\/unitree-go1-playground-mujoco-corner-right\\.toml$/"
       ],
       "matchStrings": [
         "\\[robot\\]\\r?\\nrepository = \"(?<depName>Living-Proof-Labs/livingproof-(?:booster-t1|unitree-g1|unitree-go1))\"\\r?\\nref = \"(?<currentValue>v[0-9]+\\.[0-9]+\\.[0-9]+)\""
@@ -98,7 +103,7 @@
       "allowedVersions": "/^v[0-9]+\\.[0-9]+\\.[0-9]+$/",
       "automerge": false,
       "prBodyNotes": [
-        "Completion required. This proposal updates only `[robot].ref` in `verifications/*.toml`. Renovate does not edit `verifications/*.lock.json` or `.github/workflows/verify.yml`. Hosted Mend Renovate cannot run `tools/lock.py` (`postUpgradeTasks` requires administrator `allowedCommands`). Regenerate each affected lock with `python3 tools/lock.py verifications/<definition>.toml`, update the matching job `ref:` commit in `.github/workflows/verify.yml` to the resolved robot commit, and verify with `pytest tests/test_locks.py`. Never hand-edit hashes or commits. Automerge stays off."
+        "Completion owner: Keel. Only the six explicitly listed corner definitions are eligible; the four hallway baselines stay frozen and new definitions require a recorded policy decision. See docs/robot-updates.md. This proposal updates only `[robot].ref`. Renovate does not edit `verifications/*.lock.json` or `.github/workflows/verify.yml`. Regenerate each affected lock with `python3 tools/lock.py verifications/<definition>.toml`, copy its resolved robot.commit into the matching job's with.ref in `.github/workflows/verify.yml`, and verify with `pytest tests/test_locks.py`. Review runner ownership and all generated changes before the normal queue. Never hand-edit hashes or commits. Hosted Mend cannot run the generator; completion remains manual and automerge stays off."
       ],
       "rebaseWhen": "behind-base-branch"
     },
