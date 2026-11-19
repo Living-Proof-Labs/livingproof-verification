@@ -3,6 +3,7 @@
 
 import email.message
 import hashlib
+import html as html_module
 import importlib.util
 import io
 import json
@@ -2201,13 +2202,14 @@ def test_failing_evaluators_chips_and_clean_history_view(tmp_path):
     history = (base / "index.html").read_text()
     assert "Booster T1 · stock · MuJoCo" in history
     assert "Walk the hallway" in history
-    assert "livingproof-booster-t1 @ v2.2.10" in history
+    assert "livingproof-booster-t1 v2.2.10" in history
+    assert "livingproof-booster-t1 @" not in history
     assert "software stock 1.0.0" in history
     assert 'href="runs/100/#evaluator-livingproof-scenario"' in history
     assert ">Scenario</a>" in history
     assert 'aria-label="Open the Scenario finding in the report"' in history
     assert "Drifted 0.66 m from the centreline, then touched the wall." in history
-    assert f">{'a' * 8}</a>" in history
+    assert ">commit</a>" in history
     assert 'class="release is-fallback"' in history
     assert ">v1.0.0</a>" in history
     assert '<time datetime="2026-11-18T05:00:00Z"' in history
@@ -2245,7 +2247,8 @@ def test_old_run_json_records_fall_back_without_new_fields(tmp_path):
     site_tool.render(site, now="2026-11-18T05:20:00Z")
     history = (base / "index.html").read_text()
     assert 'class="release is-fallback"' in history
-    assert f">{record['commit']['sha'][:8]}</a>" in history
+    assert ">commit</a>" in history
+    assert record["commit"]["sha"][:8] not in visible_text(history)
     assert 'class="poster">CI</span>' in history
     assert 'class="chip"' not in history and "class='chip'" not in history
     assert "SHA256SUMS" not in history
@@ -2519,10 +2522,9 @@ def test_spec_identities_survive_publication_and_history_restoration(tmp_path):
     block = provenance_block(page)
     assert "Generation" in block and "Assessment" in block
     for role in ("generation", "assessment"):
-        assert fixture[role]["tag"] in block
-        assert fixture[role]["commit"][:8] in block
+        assert fixture[role]["tag"] in visible_text(block)
         assert fixture[role]["commit"] in block  # the full SHA, in a link or title
-        assert fixture[role]["commit"] not in visible_text(block)
+        assert not visible_hex(visible_text(block))
     assert page.count('id="spec-provenance"') == 1
     assert "FAIL" in page
     history = (old.parent.parent / "index.html").read_text()
@@ -2535,6 +2537,17 @@ def test_spec_identities_survive_publication_and_history_restoration(tmp_path):
 def visible_text(markup: str) -> str:
     """The text a reader sees: tags, and so attribute values such as titles, are dropped."""
     return re.sub(r"<[^>]+>", " ", markup)
+
+
+def visible_page_text(markup: str) -> str:
+    """The text a reader sees on a whole page: no head, script, style, comment or attribute."""
+    markup = re.sub(r"(?is)<(head|script|style|title)\b.*?</\1\s*>|<!--.*?-->", " ", markup)
+    return html_module.unescape(re.sub(r"<[^>]+>", " ", markup))
+
+
+def visible_hex(text: str) -> list[str]:
+    """Commit-id-like words: 7 to 40 hex characters with at least one a-f letter."""
+    return re.findall(r"\b(?=[0-9]*[a-f])[0-9a-f]{7,40}\b", text)
 
 
 def provenance_block(page: str) -> str:
@@ -2623,7 +2636,8 @@ def test_history_header_shows_the_spec_version_and_the_robot_tag(tmp_path):
         'releases/tag/v2.3.0">v2.3.0</a>'
     ) in header
     assert "runner <a" in header and "verifier <a" in header and "reporter <a" in header
-    assert "livingproof-booster-t1 @ v2.2.10" in header
+    assert "livingproof-booster-t1 v2.2.10" in header
+    assert "@" not in visible_text(header)
     assert "releases/tag/v2.2.10" in header
     assert not re.search(r"[0-9a-f]{40}", visible_text(header))
 
@@ -2632,7 +2646,7 @@ def test_history_header_resolves_the_robot_tag_of_a_record_stored_without_one(tm
     """The retired corner histories hold pre-#129 records with only a robot commit.
 
     The reviewed locks name that commit by tag, so the header shows the tag; a commit no lock
-    knows falls back to an 8-character monospace SHA. The stored run.json is left alone.
+    knows falls back to the link text "commit", never a hash. The stored run.json is left alone.
     """
     base = build_spec_history(tmp_path, [("v2.3.0", None)])
     path = base / "runs/100/run.json"
@@ -2645,7 +2659,8 @@ def test_history_header_resolves_the_robot_tag_of_a_record_stored_without_one(tm
     stored = path.read_bytes()
     site_tool.render(tmp_path / "site", now="2026-11-18T05:00:00Z")
     header = (base / "index.html").read_text().split("<main", 1)[0]
-    assert "livingproof-booster-t1 @ v2.2.10" in header
+    assert "livingproof-booster-t1 v2.2.10" in header
+    assert "@" not in visible_text(header)
     assert 'releases/tag/v2.2.10"' in header
     assert path.read_bytes() == stored
 
@@ -2653,7 +2668,11 @@ def test_history_header_resolves_the_robot_tag_of_a_record_stored_without_one(tm
     path.write_text(json.dumps(record, indent=2) + "\n")
     site_tool.render(tmp_path / "site", now="2026-11-18T05:00:00Z")
     header = (base / "index.html").read_text().split("<main", 1)[0]
-    assert '@ <code class="sha">cccccccc</code>' in header
+    assert re.search(r">livingproof-booster-t1 commit</a>", header)
+    assert "@" not in visible_text(header)
+    assert "cccccccc" not in visible_text(header)
+    assert "c" * 40 in header  # the full SHA stays in the link and its title
+    assert "<code" not in header.split("meta-line", 1)[-1]
     assert "v2.2.10" not in header
 
 
@@ -2781,7 +2800,7 @@ def test_report_provenance_summary_is_one_line_and_hides_the_commit(tmp_path):
     assert re.sub(r"\s+", " ", visible_text(summary)).strip() == (
         "Spec v2.3.0 · walk-hallway · revision 0.1.0"
     )
-    assert re.search(r"<code[^>]*>v2.3.0</code>", summary)
+    assert "<code" not in summary  # the version is body text, not monospace
 
 
 def test_report_provenance_shows_one_line_when_generation_and_assessment_match():
@@ -2799,7 +2818,8 @@ def test_report_provenance_shows_one_line_when_generation_and_assessment_match()
     assert len(re.findall(r"<dt[ >]", block)) == 1
     assert re.search(r"<dt[^>]*>Generation and assessment</dt>", block)
     text = re.sub(r"\s+", " ", visible_text(block))
-    assert "v2.3.0 · robot-capability-specs · " + spec["commit"][:8] in text
+    assert "v2.3.0 · robot-capability-specs · walk-hallway · revision 0.1.0" in text
+    assert spec["commit"][:8] not in text
     assert f'href="{SPECS_REPOSITORY}/releases/tag/v2.3.0"' in block
     assert f'title="{spec["commit"]}"' in block  # the full SHA lives in a title and the link
     assert f'href="{SPECS_REPOSITORY}/commit/{spec["commit"]}"' in block
@@ -2822,7 +2842,7 @@ def test_report_provenance_shows_both_lines_only_when_they_differ():
         r"<dt[^>]*>Assessment</dt>", block
     )
     text = re.sub(r"\s+", " ", visible_text(block))
-    assert generation["commit"][:8] in text and assessment["commit"][:8] in text
+    assert generation["commit"][:8] not in text and assessment["commit"][:8] not in text
     assert generation["commit"] not in text and assessment["commit"] not in text
     assert generation["commit"] in block and assessment["commit"] in block
     # The summary names the assessed spec, the one the report's Spec field shows.
@@ -2835,7 +2855,8 @@ def test_report_provenance_shows_both_lines_only_when_they_differ():
         {"summaries": [{"spec": assessment}, {"spec": other}, {"spec": assessment}]},
     )
     assert len(re.findall(r"<dt[ >]", many)) == 3
-    assert other["commit"][:8] in many and many.count(assessment["commit"][:8]) >= 1
+    assert not visible_hex(visible_text(many))
+    assert other["commit"] in many
 
 
 def test_report_provenance_keeps_missing_fields_explicit_and_escapes_values():
@@ -2858,3 +2879,87 @@ def test_published_report_page_puts_the_result_first(tmp_path):
     assert not re.search(r"<details[^>]* open", block)
     assert page.count('class="spec-provenance"') == 1
     local_links_resolve(site)
+
+
+def test_no_commit_id_is_visible_on_the_index_or_history_page(tmp_path):
+    """#146 (Aaron): commit ids are links, never visible text. 7 or more hex characters is a hash.
+
+    Runs are built with a commit and no tag, so every row takes the fallback, and the robot
+    commit is one no lock knows by tag, so the header takes its fallback too.
+    """
+    base = build_spec_history(
+        tmp_path,
+        [
+            ("v2.3.0", spec_identity("v2.3.0", "0.1.0")),
+            ("v2.4.0", spec_identity("v2.4.0", "0.1.0")),
+        ],
+    )
+    for number in ("100", "101"):
+        path = base / f"runs/{number}/run.json"
+        record = json.loads(path.read_text())
+        record["commit"].pop("tag", None)
+        record["robot"].pop("tag", None)
+        record["robot"]["commit"] = "c" * 40
+        path.write_text(json.dumps(record, indent=2) + "\n")
+    site_tool.render(tmp_path / "site", now="2026-11-18T05:00:00Z")
+    history = (base / "index.html").read_text()
+    assert history.count(">commit</a>") == 2  # a link whose text is "commit", one per row
+    assert re.search(r'<a [^>]*href="[^"]*/commit/a{40}"[^>]*>commit</a>', history)
+    assert visible_hex(visible_page_text(history)) == []
+    index = (tmp_path / "site/index.html").read_text()
+    assert visible_hex(visible_page_text(index)) == []
+    for page in (history, index):
+        assert not re.search(r"\b[0-9a-f]{40}\b", visible_page_text(page))
+    # The id is not lost: the full SHA is the link and its title.
+    assert "a" * 40 in history
+
+
+def test_the_robot_pin_is_written_without_an_at_sign(tmp_path):
+    base = build_spec_history(tmp_path, [("v2.3.0", spec_identity("v2.3.0", "0.1.0"))])
+    page = (base / "index.html").read_text()
+    pin = re.search(r'<p class="meta-line"><a href="[^"]*">([^<]*)</a>', page.split("</header>")[0])
+    assert pin is not None
+    assert pin.group(1) == "livingproof-booster-t1 v2.2.10"
+    assert "@" not in visible_text(page.split("<main", 1)[0])
+
+
+def test_report_page_shows_no_commit_id_that_the_site_adds(tmp_path):
+    """The reporter's own sections are its own; the block this site adds shows no hash."""
+    reports = _renderable_reports(tmp_path)
+    site = tmp_path / "site"
+    site_tool.build(site, reports, run("7", "2026-11-01T00:00:00Z"))
+    page = _page(site)
+    block = provenance_block(page)
+    assert visible_hex(visible_page_text(block)) == []
+    assert not re.search(r"\b[0-9a-f]{40}\b", visible_page_text(block))
+    assert "@" not in visible_page_text(block)
+    # Nothing outside the block changed: the site adds no visible hash to the reporter's page.
+    assert sorted(visible_hex(visible_page_text(page.replace(block, "")))) == sorted(
+        visible_hex(visible_page_text(page))
+    )
+    # An identity with no release tag is the link text "commit", not a hash.
+    spec = spec_identity("v2.3.0", "0.1.0")
+    untagged = {k: v for k, v in spec.items() if k != "tag"}
+    text = visible_page_text(
+        site_tool.spec_provenance_html(
+            {"releases": {"specs": untagged}}, {"summaries": [{"spec": untagged}]}
+        )
+    )
+    assert visible_hex(text) == []
+    assert re.sub(r"\s+", " ", text).startswith(" Spec commit · robot-capability-specs")
+
+
+def test_report_provenance_summary_is_not_letter_spaced_or_uppercased():
+    """#146 (Art): the reporter styles every <summary> as small letter-spaced capitals."""
+    spec = spec_identity("v2.3.0", "0.1.0")
+    block = site_tool.spec_provenance_html(
+        {"releases": {"specs": spec}}, {"summaries": [{"spec": spec}]}
+    )
+    opening = re.search(r"<summary([^>]*)>", block).group(1)
+    style = re.search(r'style="([^"]*)"', opening).group(1)
+    assert "text-transform:none" in style
+    assert "letter-spacing:normal" in style
+    assert "uppercase" not in block.lower().replace("text-transform:none", "")
+    assert "Spec" in re.search(r"<summary[^>]*>(.*?)</summary>", block, re.S).group(1)
+    # "Show" / "Hide" follow the line, and are not the reporter's capitalised chrome.
+    assert 'content:"Show"' in block and 'content:"Hide"' in block
