@@ -1555,64 +1555,170 @@ def render_with_reporter(
         return destination.read_text()
 
 
-def spec_provenance_html(record: dict, report: object, prefix: str = "") -> str:
-    """Explain recorded spec roles without changing either saved document.
+_REPO_URL = re.compile(r"https://[A-Za-z0-9._~:/@-]+")
 
-    The caller pin is not proof that an old runner loaded a catalog. Assessment
-    identities come from the saved summaries, never the current verification lock.
-    Keep every distinct assessment identity (a report can contain several).
-    """
-    generation = (record.get("releases") or {}).get("specs")
+
+def _spec_repository_url(spec: dict) -> str | None:
+    """The spec repository as an https URL: recorded as owner/name or as a full URL."""
+    repository = _stored_text(spec.get("repository"))
+    if repository is None:
+        return None
+    if repository.startswith("https://"):
+        url = repository.rstrip("/").removesuffix(".git")
+    else:
+        url = "https://github.com/" + repository.strip("/")
+    return url if _REPO_URL.fullmatch(url) else None
+
+
+def _spec_repository_name(spec: dict) -> str | None:
+    repository = _stored_text(spec.get("repository"))
+    if repository is None:
+        return None
+    return repository.rstrip("/").removesuffix(".git").rsplit("/", 1)[-1] or None
+
+
+def _spec_assessments(report: object) -> list[dict]:
+    """Every distinct assessment identity the saved summaries record, in order."""
     summaries = report.get("summaries", []) if isinstance(report, dict) else []
-    assessed = []
-    for summary in summaries:
+    assessed: list[dict] = []
+    for summary in summaries if isinstance(summaries, list) else []:
         spec = summary.get("spec") if isinstance(summary, dict) else None
         if isinstance(spec, dict) and spec and spec not in assessed:
             assessed.append(spec)
+    return assessed
 
-    def identity(spec):
-        if not isinstance(spec, dict) or not spec:
-            return "Not recorded"
-        fields = [
-            spec.get("repository"),
-            spec.get("tag"),
-            spec.get("commit"),
-        ]
-        if spec.get("capability"):
-            fields.append(spec["capability"])
-        if spec.get("revision"):
-            fields.append(f"revision {spec['revision']}")
-        return html.escape(" · ".join(str(value) for value in fields if value)) or "Not recorded"
 
-    anchor = "spec-provenance-" + record["folder"] if prefix else "spec-provenance"
+def _spec_core(spec: object) -> tuple | None:
+    """What makes two recorded specs the same release: repository name, tag and commit."""
+    if not isinstance(spec, dict) or not spec:
+        return None
     return (
-        f'<section class="spec-provenance" id="{html.escape(anchor, quote=True)}">'
-        "<h2>Spec provenance</h2><dl>"
-        "<dt>Evidence-generation spec (recorded pin)</dt>"
-        f"<dd>{identity(generation)}</dd>"
-        "<dt>Assessment spec</dt>"
-        f"<dd>{'<br>'.join(identity(spec) for spec in assessed) or 'Not recorded'}</dd>"
-        "</dl><p>Generation source: "
-        f"{a(prefix + 'run.json', 'saved caller lock releases.specs')}. "
-        "Assessment source: "
-        f"{a(prefix + 'report.json', 'saved report summaries[].spec')}. "
-        "The report’s “Spec” field identifies the assessment catalog. "
-        "The generation pin alone does not establish which catalog bytes a historical runner loaded. "
-        "These labels describe the recorded run; they do not reassess it.</p></section>"
+        _spec_repository_name(spec),
+        _stored_text(spec.get("tag")),
+        _stored_text(spec.get("commit")),
+    )
+
+
+def _spec_line_html(spec: object, *, assessed: bool) -> str:
+    """One recorded spec: linked version, repository name, scenario and revision.
+
+    A commit id is never visible text (#146). A release tag is the link text; a spec with no
+    tag is the link text "commit". The full commit is in the link and its title.
+    """
+    if _spec_core(spec) is None:
+        return "Not recorded"
+    name, tag, commit = _spec_core(spec)
+    repository_url = _spec_repository_url(spec)
+    pieces = []
+    if tag is not None:
+        label = html.escape(tag)
+        if repository_url:
+            href = f"{repository_url}/releases/tag/{urllib.parse.quote(tag, safe='')}"
+            title = f"Release {tag}" + (f", commit {commit}" if commit is not None else "")
+            pieces.append(
+                f'<a href="{html.escape(href, quote=True)}" '
+                f'title="{html.escape(title, quote=True)}">{label}</a>'
+            )
+        else:
+            pieces.append(label)
+    elif commit is not None:
+        title = html.escape(f"Commit {commit}", quote=True)
+        if repository_url and COMMIT_SHA.fullmatch(commit):
+            pieces.append(
+                f'<a href="{html.escape(repository_url, quote=True)}/commit/{commit}" '
+                f'title="{title}" aria-label="{title}">commit</a>'
+            )
+        else:
+            pieces.append(f'<span title="{title}">commit</span>')
+    if name is not None:
+        pieces.append(html.escape(name))
+    if assessed:
+        if _stored_text(spec.get("capability")):
+            pieces.append(html.escape(_stored_text(spec["capability"])))
+        if _stored_text(spec.get("revision")):
+            pieces.append(html.escape("revision " + _stored_text(spec["revision"])))
+    return " · ".join(pieces)
+
+
+def _spec_summary_html(generation: object, assessed: list[dict]) -> str:
+    """The one line shown while the block is collapsed: the spec the report was assessed with."""
+    spec = assessed[0] if assessed else generation
+    if _spec_core(spec) is None:
+        return "<strong>Spec</strong> not recorded"
+    _, tag, _commit = _spec_core(spec)
+    pieces = [html.escape(tag or "commit")]
+    if _stored_text(spec.get("capability")):
+        pieces.append(html.escape(_stored_text(spec["capability"])))
+    if _stored_text(spec.get("revision")):
+        pieces.append(html.escape("revision " + _stored_text(spec["revision"])))
+    if len(assessed) > 1:
+        pieces.append(f"+{len(assessed) - 1} more")
+    return "<strong>Spec</strong> " + " · ".join(pieces)
+
+
+# The reporter styles every <summary> as small, letter-spaced capitals, which turns a version
+# and a scenario id into hard-to-read text. Inline, so it holds whatever the reporter's CSS
+# order is: sentence case at body size, with Show / Hide after it as the reporter's own
+# disclosures have.
+_PROVENANCE_SUMMARY_STYLE = (
+    "cursor:pointer;margin:0;font-size:inherit;font-weight:400;"
+    "text-transform:none;letter-spacing:normal;color:inherit"
+)
+_PROVENANCE_SUMMARY_CSS = (
+    "details.spec-provenance>summary::after{"
+    'content:"Show";float:none;margin-left:.6rem;text-transform:none;'
+    "letter-spacing:normal;font-weight:600;color:var(--link,#0b5cad)}"
+    'details.spec-provenance[open]>summary::after{content:"Hide"}'
+)
+
+
+def spec_provenance_html(record: dict, report: object) -> str:
+    """Recorded spec roles for the report page, collapsed below the result (#146).
+
+    The caller pin is not proof that an old runner loaded a catalog. Assessment
+    identities come from the saved summaries, never the current verification lock.
+    Keep every distinct assessment identity (a report can contain several). When the
+    one assessed identity is the generation pin, show one line instead of two.
+    """
+    generation = (record.get("releases") or {}).get("specs")
+    assessed = _spec_assessments(report)
+    if len(assessed) == 1 and _spec_core(generation) == _spec_core(assessed[0]) is not None:
+        lines = [("Generation and assessment", _spec_line_html(assessed[0], assessed=True))]
+    elif not assessed and _spec_core(generation) is None:
+        lines = [("Generation and assessment", "Not recorded")]
+    else:
+        lines = [("Generation", _spec_line_html(generation, assessed=False))]
+        lines += [("Assessment", _spec_line_html(spec, assessed=True)) for spec in assessed] or [
+            ("Assessment", "Not recorded")
+        ]
+    rows = "".join(
+        f'<dt style="font-weight:600">{label}</dt><dd style="margin:0 0 .5rem">{line}</dd>'
+        for label, line in lines
+    )
+    return (
+        '<details class="spec-provenance" id="spec-provenance" '
+        'style="margin:1.5rem 0 0;font-size:.875rem;overflow-wrap:anywhere">'
+        f'<summary style="{_PROVENANCE_SUMMARY_STYLE}">'
+        f"{_spec_summary_html(generation, assessed)}</summary>"
+        f"<style>{_PROVENANCE_SUMMARY_CSS}</style>"
+        f'<dl style="margin:.5rem 0 0">{rows}</dl>'
+        '<p style="margin:0;font-size:.8rem;opacity:.75">'
+        "Recorded at run time; not reassessed.</p></details>"
     )
 
 
 def with_spec_provenance(public: str, record: dict, report: object) -> str:
-    """Add site provenance to the rendered view, leaving report downloads unchanged."""
+    """Add site provenance to the rendered view, leaving report downloads unchanged.
+
+    The block goes last: before the closing </main> (or </body> for older HTML, or at the end
+    of a text page), which is after the evaluators without reading the reporter's layout.
+    """
     section = spec_provenance_html(record, report)
-    # The pinned reporter owns the report layout; place this site-owned explanation
-    # at the start of its main region. Legacy HTML may have only a body (or be text).
-    opening = re.search(r"<main\b[^>]*>|<body\b[^>]*>", public, re.I)
-    main = re.search(r"<main\b[^>]*>", public, re.I)
-    opening = main or opening
-    if opening:
-        return public[: opening.end()] + section + public[opening.end() :]
-    return section + public
+    for closing in (r"</main\s*>", r"</body\s*>"):
+        found = list(re.finditer(closing, public, re.I))
+        if found:
+            return public[: found[-1].start()] + section + public[found[-1].start() :]
+    return public + section
 
 
 def publish_run_page(folder: Path, record: dict, *, now: str, days: int, trial: bool) -> None:
@@ -1742,12 +1848,7 @@ def remember_stored_wording(folder: Path, record: dict) -> None:
     (folder / "run.json").write_text(json.dumps(stored, indent=2) + "\n")
 
 
-SITE_STYLES = """.spec-provenance { overflow-wrap: anywhere; }
-.spec-provenance h2 { font-size: 1rem; }
-.spec-provenance dt { font-weight: 600; }
-.spec-provenance dd { margin-left: 0; }
-.spec-provenance p { font-size: .875rem; }
-:root {
+SITE_STYLES = """:root {
   color-scheme: light;
   --font-sans: "DM Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
   --navy: #01152d;
@@ -1992,6 +2093,12 @@ a:focus-visible, button:focus-visible, .row:focus-visible {
   text-decoration: none;
   line-height: 1.4;
 }
+.chip-spec {
+  border-color: var(--border);
+  background: var(--bg-muted);
+  color: var(--text-muted);
+  font-weight: 550;
+}
 a.chip:hover {
   background: color-mix(in srgb, var(--speak) 20%, var(--surface));
   color: var(--speak-text);
@@ -2006,14 +2113,13 @@ a.chip:hover {
   color: var(--text);
   text-decoration: none;
 }
-.release.is-fallback {
-  font-weight: 500;
-  color: var(--text-muted);
-  font-family: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
-  font-size: 0.82rem;
-  font-variant-numeric: normal;
-  letter-spacing: 0;
+/* "commit" is a plain link like the Report link beside it: link colour, underline, weight. */
+a.release.is-fallback {
+  font-weight: 550;
+  color: var(--link);
+  text-decoration: underline;
 }
+a.release.is-fallback:hover { color: #08524f; }
 a.release:hover { color: var(--link); text-decoration: underline; }
 .dot { margin: 0 0.35rem; color: #94a3b8; }
 .links a { margin-left: 0.7rem; }
@@ -2217,46 +2323,83 @@ def _release_html(record: dict, *, linked: bool = True) -> str:
             f'<span class="release" title="{html.escape(title, quote=True)}">'
             f"{html.escape(tag)}</span>"
         )
-    short = sha[:8]
-    title = "No release tag on this livingproof-verification commit; short SHA shown"
+    # No release tag: the link text is "commit". The id itself is never visible (#146).
+    title = html.escape(
+        "No release tag on this livingproof-verification commit" + (f": {sha}" if sha else ""),
+        quote=True,
+    )
     if linked and commit_url:
         return (
             f'<a class="release is-fallback" href="{html.escape(commit_url, quote=True)}" '
-            f'title="{html.escape(title, quote=True)}">{html.escape(short)}</a>'
+            f'title="{title}">commit</a>'
         )
-    return (
-        f'<span class="release is-fallback" title="{html.escape(title, quote=True)}">'
-        f"{html.escape(short)}</span>"
-    )
+    return f'<span class="release is-fallback" title="{title}">commit</span>'
 
 
-def _chips_html(record: dict, prefix: str, *, linked: bool = True) -> str:
+def _chips_html(record: dict, prefix: str, *, linked: bool = True, extra: str = "") -> str:
     grade = _record_grade(record)
-    if grade in ("PASS", "UNSUPPORTED"):
-        return ""
     evaluators = record.get("failing_evaluators") or []
-    if not isinstance(evaluators, list) or not evaluators:
-        return ""
     items = []
-    for ev in evaluators:
-        if not isinstance(ev, dict):
-            continue
-        title = _stored_text(ev.get("title"))
-        href = _stored_text(ev.get("href"))
-        if title is None or href is None:
-            continue
-        if linked:
-            tip = f"Open the {title} finding in the report"
-            items.append(
-                f'<a class="chip" href="{html.escape(prefix + href, quote=True)}" '
-                f'title="{html.escape(tip, quote=True)}" '
-                f'aria-label="{html.escape(tip, quote=True)}">{html.escape(title)}</a>'
-            )
-        else:
-            items.append(f'<span class="chip">{html.escape(title)}</span>')
+    if grade not in ("PASS", "UNSUPPORTED") and isinstance(evaluators, list):
+        for ev in evaluators:
+            if not isinstance(ev, dict):
+                continue
+            title = _stored_text(ev.get("title"))
+            href = _stored_text(ev.get("href"))
+            if title is None or href is None:
+                continue
+            if linked:
+                tip = f"Open the {title} finding in the report"
+                items.append(
+                    f'<a class="chip" href="{html.escape(prefix + href, quote=True)}" '
+                    f'title="{html.escape(tip, quote=True)}" '
+                    f'aria-label="{html.escape(tip, quote=True)}">{html.escape(title)}</a>'
+                )
+            else:
+                items.append(f'<span class="chip">{html.escape(title)}</span>')
+    if extra:
+        items.append(extra)
     if not items:
         return ""
     return f'<div class="chips">{"".join(items)}</div>'
+
+
+def _spec_versions(record: dict, report: object) -> dict:
+    """The recorded spec of one run, as far as it is known: generation tag, assessed tags and
+    revisions. An unrecorded part is None, and an unknown is never a change."""
+    generation = _stored_text(((record.get("releases") or {}).get("specs") or {}).get("tag"))
+    assessed = _spec_assessments(report)
+
+    def distinct(key: str) -> tuple | None:
+        values = sorted({v for spec in assessed if (v := _stored_text(spec.get(key)))})
+        return tuple(values) or None
+
+    return {"generation": generation, "tags": distinct("tag"), "revisions": distinct("revision")}
+
+
+def _spec_change(newer: dict, older: dict) -> str | None:
+    """`v2.3.0 → v2.4.0` when the spec differs from the run below, else None (#146)."""
+
+    def differs(key: str) -> bool:
+        return newer[key] is not None and older[key] is not None and newer[key] != older[key]
+
+    def label(value: object) -> str:
+        return ", ".join(value) if isinstance(value, tuple) else str(value)
+
+    pieces = []
+    if differs("generation"):
+        pieces.append(f"{older['generation']} → {newer['generation']}")
+    elif differs("tags"):
+        pieces.append(f"{label(older['tags'])} → {label(newer['tags'])}")
+    if differs("revisions"):
+        pieces.append(f"revision {label(older['revisions'])} → {label(newer['revisions'])}")
+    return " · ".join(pieces) or None
+
+
+def _spec_chip_html(change: str | None) -> str:
+    if change is None:
+        return ""
+    return f'<span class="chip chip-spec">Spec changed: {html.escape(change)}</span>'
 
 
 def _finding_html(record: dict) -> str:
@@ -2298,8 +2441,31 @@ def _styled_document(
     )
 
 
+def known_robot_tags(verifications: Path = ROOT / "verifications") -> dict[tuple[str, str], str]:
+    """(robot repository, commit) to the tag the reviewed locks pin that commit by.
+
+    A run stored before #129 records only the robot commit. The locks name the same commit by
+    tag, so the history header can show the tag for it. Nothing is guessed: a commit no lock
+    pins by a tag keeps its short SHA.
+    """
+    found: dict[tuple[str, str], str] = {}
+    for lock_path in sorted(verifications.glob("*.lock.json")):
+        robot = json.loads(lock_path.read_text()).get("robot") or {}
+        ref = _stored_text(robot.get("tag") or robot.get("ref"))
+        commit = _stored_text(robot.get("commit"))
+        repository = _stored_text(robot.get("repository"))
+        if ref and commit and repository and not COMMIT_SHA.fullmatch(ref):
+            found.setdefault((repository, commit), ref)
+    return found
+
+
 def _history_page_html(
-    robot: str, variant: str, records: list[dict], now: str, reports: dict | None = None
+    robot: str,
+    variant: str,
+    records: list[dict],
+    now: str,
+    reports: dict | None = None,
+    robot_tags: dict | None = None,
 ) -> str:
     newest = records[0]
     robot_title = _robot_title(robot)
@@ -2311,15 +2477,23 @@ def _history_page_html(
     releases = " · ".join(
         f"{html.escape(name)} {a(release['url'], release['tag'])}"
         for name, release in newest["releases"].items()
-        if name != "specs"
     )
     robot_info = newest["robot"]
     repo_short = robot_info["repository"].rsplit("/", 1)[-1]
-    robot_tag = _stored_text(robot_info.get("tag"))
-    robot_ref_label = (
-        f"{repo_short} @ {robot_tag}" if robot_tag else f"{repo_short} @ {robot_info['commit'][:8]}"
+    robot_tag = _stored_text(robot_info.get("tag")) or (robot_tags or {}).get(
+        (robot_info["repository"], robot_info["commit"])
     )
-    robot_line = a(robot_info["url"], robot_ref_label)
+    robot_url = robot_info["url"]
+    if robot_tag and not robot_info.get("tag"):
+        # A record stored without its tag: link the release the locks name, not the bare commit.
+        site_base = robot_url.split(f"/{robot_info['repository']}/", 1)[0]
+        robot_url = f"{site_base}/{robot_info['repository']}/releases/tag/{robot_tag}"
+    # The pin is its tag; with no tag it is "commit", linked to the commit. Never a hash (#146).
+    robot_label = html.escape(f"{repo_short} {robot_tag or 'commit'}")
+    robot_pin_title = (
+        "" if robot_tag else f' title="{html.escape("Commit " + robot_info["commit"], quote=True)}"'
+    )
+    robot_line = f'<a href="{html.escape(robot_url)}"{robot_pin_title}>{robot_label}</a>'
     software_version = _stored_text(robot_info.get("software_version"))
     if software_version is not None:
         config = _stored_text(robot_info.get("configuration")) or ""
@@ -2336,7 +2510,7 @@ def _history_page_html(
         f'<p class="meta-line">{robot_line}</p>'
     )
     row_cards = []
-    for record in records:
+    for position, record in enumerate(records):
         grade = _record_grade(record)
         row_class = "row is-fail" if grade in ("FAIL", "INSUFFICIENT_EVIDENCE") else "row is-pass"
         run_prefix = f"runs/{record['folder']}/"
@@ -2344,7 +2518,15 @@ def _history_page_html(
         poster_name = (
             _stored_text(poster.get("name")) if isinstance(poster, dict) else None
         ) or "CI"
-        chips = _chips_html(record, run_prefix)
+        # A row speaks only when its spec differs from the run below it (the next, older record).
+        below = records[position + 1] if position + 1 < len(records) else None
+        change = None
+        if below is not None:
+            change = _spec_change(
+                _spec_versions(record, (reports or {}).get(record["folder"])),
+                _spec_versions(below, (reports or {}).get(below["folder"])),
+            )
+        chips = _chips_html(record, run_prefix, extra=_spec_chip_html(change))
         finding = _finding_html(record)
         row_cards.append(
             f'<article class="{row_class}">'
@@ -2353,8 +2535,7 @@ def _history_page_html(
             "<div>"
             f'<h2 class="title">{html.escape(scenario_title)}</h2>'
             f"{chips}{finding}"
-            + spec_provenance_html(record, (reports or {}).get(record["folder"]), run_prefix)
-            + '<div class="row-meta">'
+            '<div class="row-meta">'
             f"{_release_html(record)}"
             '<span class="dot">·</span>'
             f"{_relative_time_html(record['run']['created'], ref_now)}"
@@ -2456,8 +2637,9 @@ def _index_page_html(history: dict, now: str) -> str:
     )
 
 
-def render(site: Path, now: str = ""):
+def render(site: Path, now: str = "", verifications: Path = ROOT / "verifications"):
     days = retention_days()
+    robot_tags = known_robot_tags(verifications)
     prune_expired_evidence(site, now, days)
     history = runs(site)
     (site / "styles.css").write_text(SITE_STYLES)
@@ -2483,7 +2665,9 @@ def render(site: Path, now: str = ""):
                 days=days,
                 trial=trials[record["folder"]],
             )
-        (base / "index.html").write_text(_history_page_html(robot, variant, records, now, reports))
+        (base / "index.html").write_text(
+            _history_page_html(robot, variant, records, now, reports, robot_tags)
+        )
     (site / "index.html").write_text(_index_page_html(history, now))
 
 
@@ -2496,7 +2680,7 @@ def build(
     artifacts: list[dict] | None = None,
 ):
     added = [add_run(site, reports, t, run, evidence, artifacts) for t in targets(verifications)]
-    render(site, now=run["created"])
+    render(site, now=run["created"], verifications=verifications)
     if problems := public_page_problems(site):
         raise SiteError("pages still link to GitHub Actions (#23): " + ", ".join(problems))
     (site / MARKER).write_text(
