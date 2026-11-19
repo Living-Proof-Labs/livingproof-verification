@@ -2113,10 +2113,13 @@ a.chip:hover {
   color: var(--text);
   text-decoration: none;
 }
-.release.is-fallback {
-  font-weight: 500;
-  color: var(--text-muted);
+/* "commit" is a plain link like the Report link beside it: link colour, underline, weight. */
+a.release.is-fallback {
+  font-weight: 550;
+  color: var(--link);
+  text-decoration: underline;
 }
+a.release.is-fallback:hover { color: #08524f; }
 a.release:hover { color: var(--link); text-decoration: underline; }
 .dot { margin: 0 0.35rem; color: #94a3b8; }
 .links a { margin-left: 0.7rem; }
