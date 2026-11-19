@@ -431,12 +431,13 @@ def test_the_field_names_match_the_history_design_in_129():
 
 
 def test_history_shows_the_tag_or_the_short_sha_fallback():
-    """#129: a recorded bundle tag is the release; otherwise an 8-character SHA in mono."""
+    """#129: a recorded bundle tag is the release; otherwise the link text "commit" (#146)."""
     commit_url = f"https://github.com/{REPO}/commit/{'b' * 40}"
     plain = site_tool._release_html({"commit": {"sha": "b" * 40, "url": commit_url}})
-    assert f">{'b' * 8}</a>" in plain
+    assert ">commit</a>" in plain
+    assert f'href="{commit_url}"' in plain
+    assert "b" * 8 not in re.sub(r"<[^>]+>", " ", plain)  # visible text only
     assert "is-fallback" in plain
-    assert f">{'b' * 12}</a>" not in plain
     tagged = site_tool._release_html(
         {"commit": {"sha": "b" * 40, "url": commit_url, "tag": "v1.2.3"}}
     )
@@ -467,8 +468,7 @@ def test_a_published_site_keeps_old_runs_untouched_when_a_later_run_has_a_tag(tm
     assert ">v1.0.0</a>" in history  # the new row shows the tag, not tag-and-SHA
     assert history.count("releases/tag/v1.0.0") >= 1
     assert 'class="release is-fallback"' in history
-    assert f">{'a' * 8}</a>" in history  # the untagged older row falls back to the short SHA
-    assert f">{'a' * 12}</a>" not in history
+    assert ">commit</a>" in history  # the untagged older row says "commit", never a hash
 
 
 def test_the_build_command_records_a_tag_only_from_the_checkout(tmp_path, repo):
