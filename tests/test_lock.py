@@ -988,3 +988,63 @@ def test_the_readme_retry_policy_matches_the_code():
     )
     for phrase in ("not cached", "fails closed", "no cache"):
         assert phrase in paragraph, phrase
+
+
+def test_settings_run_evaluator_is_resolved_and_recorded_tag_only(tmp_path, monkeypatch):
+    base = tmp_path / "git"
+    _robot(base)
+    _use(monkeypatch, base)
+    definition = _definition(tmp_path)
+    settings = _write_settings(definition, tag="v3.11.6")
+    settings.write_text(
+        settings.read_text()
+        + "\n[evaluators.livingproof-evaluator-run]\n"
+        + 'repository = "Living-Proof-Labs/livingproof-evaluator-run"\n'
+        + 'tag = "v1.5.1"\n'
+    )
+    resolved = []
+
+    def resolve(repository, tag):
+        resolved.append((repository, tag))
+        return "6" * 40 if repository.endswith("livingproof-evaluator-run") else EVALUATOR_COMMIT
+
+    lock, _notes = _generate(tmp_path, definition, resolve=resolve)
+    assert ("Living-Proof-Labs/livingproof-evaluator-run", "v1.5.1") in resolved
+    assert lock["evaluators"]["livingproof-evaluator-run"] == {
+        "repository": "Living-Proof-Labs/livingproof-evaluator-run",
+        "tag": "v1.5.1",
+    }
+    assert lock_tool.v2_problems(lock) == []
+
+
+def test_invalid_settings_run_evaluator_raises_lock_error(tmp_path, monkeypatch):
+    base = tmp_path / "git"
+    _robot(base)
+    _use(monkeypatch, base)
+    definition = _definition(tmp_path)
+    settings = _write_settings(definition, tag="v3.11.6")
+    settings.write_text(
+        settings.read_text()
+        + "\n[evaluators.livingproof-evaluator-run]\n"
+        + 'repository = "Living-Proof-Labs/livingproof-evaluator-run"\n'
+        + 'tag = "main"\n'
+        + f'commit = "{EVALUATOR_COMMIT}"\n'
+    )
+    with pytest.raises(lock_tool.LockError, match="livingproof-evaluator-run"):
+        _generate(tmp_path, definition)
+
+
+def test_v2_problems_checks_optional_run_evaluator_without_commit(tmp_path, monkeypatch):
+    base = tmp_path / "git"
+    _robot(base)
+    _use(monkeypatch, base)
+    definition = _definition(tmp_path)
+    lock, _ = _generate(tmp_path, definition)
+    assert "livingproof-evaluator-run" not in lock["evaluators"]
+    assert lock_tool.v2_problems(lock) == []
+    lock["evaluators"]["livingproof-evaluator-run"] = {
+        "repository": "Living-Proof-Labs/livingproof-evaluator-run",
+        "tag": "main",
+    }
+    problems = lock_tool.v2_problems(lock)
+    assert any("evaluators.livingproof-evaluator-run.tag" in p for p in problems), problems

@@ -109,6 +109,29 @@ def test_parse_reporter_as_data_only(checkout, monkeypatch, custom):
         assert writer.inputs(checkout, HEAD, BRANCH) == {"reporter": "v3.99.0"}
 
 
+def test_reporter_proposal_cannot_alter_evaluator_run_pin(checkout, monkeypatch):
+    path = "verifications/settings.toml"
+    original = (checkout / path).read_text()
+    current_reporter = writer.bundle.lock.load_reporter_setting(checkout / path)["tag"]
+    current_eval = writer.bundle.lock.load_run_evaluator_setting(checkout / path)["tag"]
+    tampered = original.replace(f'tag = "{current_reporter}"', 'tag = "v3.99.0"').replace(
+        f'tag = "{current_eval}"', 'tag = "v1.99.0"'
+    )
+
+    def command(*args, **kwargs):
+        if args[1] == "diff":
+            return path
+        if args[1] == "ls-tree":
+            return "100644 blob hash file"
+        if args[1] == "show":
+            return tampered.rstrip("\n")
+        raise AssertionError(args)
+
+    monkeypatch.setattr(writer, "command", command)
+    with pytest.raises(ValueError, match="custom edits"):
+        writer.inputs(checkout, HEAD, BRANCH)
+
+
 def plan():
     return {
         "repository": writer.REPO,
