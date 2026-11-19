@@ -8,7 +8,7 @@ scenario = "walk-corner-left@0.2.0"
 
 [robot]
 repository = "Living-Proof-Labs/livingproof-unitree-g1"
-ref = "v2.3.12"
+ref = "v2.3.13"
 configurations = ["stock"]
 
 [world]
@@ -19,6 +19,7 @@ tag = "v1.4.0"
 
 [plan]
 trials = { count = 1 }
+recording = { max_gap_seconds = 0.05 }
 
 [releases.specs]
 repository = "Living-Proof-Labs/robot-capability-specs"

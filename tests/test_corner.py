@@ -69,12 +69,14 @@ SPECS = {
     }
     for direction, digests in SPECS_FILES.items()
 }
-# The simulator each robot's uv.lock installs at its latest release (#145, option 2). v3.5.0 is the
+# The simulators the selected robot releases install (#145, option 2). v3.5.0 is the
 # first release that records the scenario parameters digest (livingproof-sim-mujoco#104).
 SIM_3_6_2 = ("v3.6.2", "988a57bdb54654aac57aa4de0574d62914074fd0")
+SIM_3_6_4 = ("v3.6.4", "36e93e30f74315a753658e6d0a55af128301338b")
 FIRST_SIM_WITH_PARAMETERS_DIGEST = (3, 5, 0)
-# Released robot refs and their commits, independently read with `gh api .../commits/<tag>`.
-ROBOT_REFS = {
+# Frozen hallway robot refs; eligible corners have their own release expectations below.
+# Commits independently read from the released tags.
+HALLWAY_ROBOT_REFS = {
     "Living-Proof-Labs/livingproof-booster-t1": (
         "v2.3.5",
         "56f6051fd9ee9fdb17f609bf559b7efc8220088a",
@@ -91,10 +93,10 @@ ROBOT_REFS = {
 CORNER = {
     "unitree-g1-stock-mujoco-corner": {
         "repository": "Living-Proof-Labs/livingproof-unitree-g1",
-        "ref": "v2.3.12",
-        "commit": "cdab1cfe50351bc8611cab5dbb6d1a1b23cc179f",
+        "ref": "v2.3.13",
+        "commit": "aa10b46f7e0480065d86edc909828d93da4b4a3a",
         "configurations": ["stock"],
-        "runner": SIM_3_6_2,
+        "runner": SIM_3_6_4,
     },
     "booster-t1-stock-mujoco-corner": {
         "repository": "Living-Proof-Labs/livingproof-booster-t1",
@@ -175,23 +177,24 @@ HALLWAY_ROBOT = {
 # specs and runner releases), as sorted-key JSON.
 HALLWAY = {
     "booster-t1-stock-mujoco-hallway": (
-        "81ec47662b2e22a41adfdd9d5aea4ac303fa0541f94c1b00a77629612d9f5fba",
-        "cd16788288ffe3abe7e667ae05905b6f2892e740941075d6fc651c32474e11e4",
+        "aa55d99edb573d9e7117da52fe3eb33fe4695cdcf9eb137b195621b3ab1ba517",
+        "56d5a2455b61898c6ea130492741a068e1919fefc2d1d060d8fef8b1bf91ebfd",
     ),
     "unitree-g1-playground-mujoco-hallway": (
-        "f32bbab5668c944897dd6925f2d961a3e3030fd990dfaf8971c20c73a4e204df",
-        "5632da4c949641cfe0c3557ccd800d1dabebb87f080191b5e114ded7c445d5f9",
+        "084a60ac2b376e707eb6feaf3195f314e9af855623d059a745261acca9335c24",
+        "08ab8ec17d6c6a8bca75da64cf2e4b68dccb795ec8510dd4c63ab1e07c9b9f0c",
     ),
     "unitree-g1-stock-mujoco-hallway": (
-        "a9cdd7f0fe6bca1a0c716c42b2f8e10d49026316ee1d7ab3bfa8cffaacd48c6e",
-        "1df95f10a3636885fb5ed69890dfc868794e0cdad1dc822981cc187fee60c5ea",
+        "3b5ddd17d7d70937d7c15504108d25d4f16cc32f478c6e19ef4bea76a52ebb67",
+        "42d4d685d3a8e3254b7e24df9971e4b727bb60bcbb2ff763d20eb5bedd5926a3",
     ),
     "unitree-go1-playground-mujoco-hallway": (
-        "db14265020b13da264db89b80fb39cc6729f0b21712afc04f22737cb363fed83",
-        "983f95c1b799ef1d9862b3a141d7f71038576ccff7cebf195d22c8a94a503920",
+        "3b9570c7f86281631e45e175d5727b5bb1011203f3c8cd4d1e03a26c64b4d374",
+        "42b49577f9ece03c6724017d361b74055c029b35aadde885c44b657ca85e13cf",
     ),
 }
 EVIDENCE_KEYS = ("procedure", "scenario", "robot", "world", "plan", "configurations")
+GAP = {"max_gap_seconds": 0.05}
 
 
 def _lock(name: str) -> dict:
@@ -226,7 +229,7 @@ def test_each_robot_has_a_corner_definition_on_its_released_tag(name):
     assert definition["world"] == {
         key: WORLD[key] for key in ("id", "version", "repository", "tag")
     }
-    assert definition["plan"] == {"trials": {"count": 1}}
+    assert definition["plan"] == {"trials": {"count": 1}, "recording": {"max_gap_seconds": 0.05}}
     assert definition["releases"] == {
         "specs": {"repository": SPECS[want["direction"]]["repository"], "tag": "v3.1.0"}
     }
@@ -244,7 +247,7 @@ def test_each_corner_lock_pins_the_released_robot_world_runner_and_verifier(name
     assert lock["robot"]["commit"] == want["commit"]
     assert lock["robot"]["configurations"] == want["configurations"]
     assert lock["world"] == WORLD
-    assert lock["plan"] == {"trials": {"count": 1}}
+    assert lock["plan"] == {"trials": {"count": 1}, "recording": {"max_gap_seconds": 0.05}}
     assert "command_speed" not in lock["plan"]
     assert lock["releases"]["specs"] == SPECS[want["direction"]]
     tag, commit = want["runner"]
@@ -325,33 +328,37 @@ def test_every_runner_is_v3_5_0_or_later_from_a_released_robot_ref(name):
     robot = lock["robot"]
     assert lock_tool.v2_problems(lock) == []
     assert _semver(robot["ref"])  # a released robot tag
-    assert (robot["ref"], robot["commit"]) == ROBOT_REFS[robot["repository"]], name
+    expected = (
+        (CORNER[name]["ref"], CORNER[name]["commit"])
+        if name in CORNER
+        else HALLWAY_ROBOT_REFS[robot["repository"]]
+    )
+    assert (robot["ref"], robot["commit"]) == expected, name
     runner = lock["releases"]["runner"]
     assert runner["repository"] == "Living-Proof-Labs/livingproof-sim-mujoco"
     assert _semver(runner["tag"]) >= FIRST_SIM_WITH_PARAMETERS_DIGEST, name
     assert re.fullmatch(r"[0-9a-f]{40}", runner["commit"])
 
 
-def test_every_lock_pins_livingproof_evaluator_run_v1_5_1():
-    """Every lock pins livingproof-evaluator-run v1.5.1, so CI runs all five Run Integrity
+def test_every_lock_pins_livingproof_evaluator_run_v1_6_0():
+    """Every lock pins livingproof-evaluator-run v1.6.0, so CI runs all five Run Integrity
     checks: pins, completeness, plan-conformance, termination and recording (#136)."""
     expected = {
         "repository": "Living-Proof-Labs/livingproof-evaluator-run",
-        "tag": "v1.5.1",
+        "tag": "v1.6.0",
     }
     for name in [*CORNER, *HALLWAY]:
         assert _lock(name)["evaluators"]["livingproof-evaluator-run"] == expected, name
 
 
-def test_every_definition_pins_the_same_simulator_release():
-    """Hallways and corners share one runner: the release each robot's uv.lock installs."""
-    runners = [_lock(name)["releases"]["runner"] for name in [*CORNER, *HALLWAY]]
-    assert runners
-    assert all(runner == runners[0] for runner in runners)
-    assert runners[0] == {
+@pytest.mark.parametrize("name", sorted([*CORNER, *HALLWAY]))
+def test_each_definition_pins_its_robot_simulator_release(name):
+    """Eligible corners can advance while frozen hallway runners retain their baseline."""
+    tag, commit = CORNER[name]["runner"] if name in CORNER else SIM_3_6_2
+    assert _lock(name)["releases"]["runner"] == {
         "repository": "Living-Proof-Labs/livingproof-sim-mujoco",
-        "tag": "v3.6.2",
-        "commit": "988a57bdb54654aac57aa4de0574d62914074fd0",
+        "tag": tag,
+        "commit": commit,
     }
 
 
@@ -393,7 +400,7 @@ def test_each_hallway_definition_owns_the_current_specs_release(name):
     assert definition["world"] == {
         key: HALLWAY_WORLD[key] for key in ("id", "version", "repository", "tag")
     }
-    assert definition["plan"] == {"trials": {"count": 3}, "command_speed": 0.5}
+    assert definition["plan"] == {"trials": {"count": 3}, "command_speed": 0.5, "recording": GAP}
     assert definition["releases"] == {
         "specs": {"repository": HALLWAY_SPECS["repository"], "tag": HALLWAY_SPECS["tag"]}
     }
@@ -415,7 +422,7 @@ def test_each_hallway_lock_pins_the_released_robot_world_runner_and_verifier(nam
     assert lock["robot"]["commit"] == want["commit"]
     assert lock["robot"]["configurations"] == want["configurations"]
     assert lock["world"] == HALLWAY_WORLD
-    assert lock["plan"] == {"trials": {"count": 3}, "command_speed": 0.5}
+    assert lock["plan"] == {"trials": {"count": 3}, "command_speed": 0.5, "recording": GAP}
     assert lock["releases"]["specs"] == HALLWAY_SPECS
     assert lock["releases"]["runner"] == {
         "repository": "Living-Proof-Labs/livingproof-sim-mujoco",

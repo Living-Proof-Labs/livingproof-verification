@@ -2,7 +2,7 @@
   "format": "livingproof-verification-lock/0.2.0",
   "definition": {
     "path": "booster-t1-stock-mujoco-corner-right.toml",
-    "sha256": "3a215d7f4ea9fa008f518e5e40bf17d8bde58247a8733649e0b50fac1eb9f324"
+    "sha256": "17b21711c27d6b2fb5cdedbe3e07fc1c7827d0679e9d69bd3f08646ad0f748f1"
   },
   "procedure": "scenario",
   "scenario": "walk-corner-right@0.1.0",
@@ -70,6 +70,9 @@
   "plan": {
     "trials": {
       "count": 1
+    },
+    "recording": {
+      "max_gap_seconds": 0.05
     }
   },
   "evaluators": {
@@ -80,7 +83,7 @@
     },
     "livingproof-evaluator-run": {
       "repository": "Living-Proof-Labs/livingproof-evaluator-run",
-      "tag": "v1.5.1"
+      "tag": "v1.6.0"
     }
   },
   "sources": {

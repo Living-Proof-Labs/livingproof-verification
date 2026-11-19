@@ -143,7 +143,7 @@ jobs:
       pull-requests: write
     with:
       repository: Living-Proof-Labs/livingproof-unitree-g1
-      ref: cdab1cfe50351bc8611cab5dbb6d1a1b23cc179f
+      ref: aa10b46f7e0480065d86edc909828d93da4b4a3a
       configurations: '["stock"]'
       verification-lock: verifications/unitree-g1-stock-mujoco-corner-left.lock.json
       artifact-prefix: unitree-g1-stock-mujoco-corner-left-
@@ -157,7 +157,7 @@ jobs:
       pull-requests: write
     with:
       repository: Living-Proof-Labs/livingproof-unitree-g1
-      ref: cdab1cfe50351bc8611cab5dbb6d1a1b23cc179f
+      ref: aa10b46f7e0480065d86edc909828d93da4b4a3a
       configurations: '["stock"]'
       verification-lock: verifications/unitree-g1-stock-mujoco-corner-right.lock.json
       artifact-prefix: unitree-g1-stock-mujoco-corner-right-
@@ -246,7 +246,24 @@ jobs:
           python3 - <<'PYCODE'
           import json, os
           results = json.loads(os.environ["RESULTS"])
-          assert results and all(job["result"] == "success" for job in results.values()), results
+          expected = {
+              "locks",
+              "unitree-g1-stock-mujoco-hallway",
+              "unitree-g1-playground-mujoco-hallway",
+              "booster-t1-stock-mujoco-hallway",
+              "unitree-go1-playground-mujoco-hallway",
+              "unitree-g1-stock-mujoco-corner-left",
+              "unitree-g1-stock-mujoco-corner-right",
+              "booster-t1-stock-mujoco-corner-left",
+              "booster-t1-stock-mujoco-corner-right",
+              "unitree-go1-playground-mujoco-corner-left",
+              "unitree-go1-playground-mujoco-corner-right",
+          }
+          if not isinstance(results, dict) or set(results) != expected:
+              raise SystemExit("Missing or unexpected verification dependencies")
+          if any(not isinstance(job, dict) or job.get("result") != "success"
+                 for job in results.values()):
+              raise SystemExit("Every verification dependency must succeed")
           PYCODE
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:

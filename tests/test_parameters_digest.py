@@ -34,8 +34,9 @@ def _lock(name: str) -> dict:
     return json.loads((ROOT / "verifications" / f"{name}.lock.json").read_text())
 
 
-def _manifest_for(lock: dict, runner: str = "v3.6.2") -> dict:
+def _manifest_for(lock: dict, runner: str | None = None) -> dict:
     """A manifest that records what the lock declares, as v3.5.0 and later do."""
+    runner = runner or lock["releases"]["runner"]["tag"]
     return {
         "format": "livingproof-hallway-evidence/2.0.0",
         "sources": {"parameters": dict(lock["sources"]["parameters"])},
@@ -136,15 +137,27 @@ def test_the_command_exits_non_zero_on_a_mismatch(tmp_path, capsys):
 
 @pytest.mark.parametrize("name", CORNERS)
 def test_each_corner_run_on_ci_recorded_the_digest_in_its_lock(name):
-    """The real manifest of a verify run on the bumped locks records the lock's digest."""
+    """Historical CI evidence matches the original lock at its recorded head, not today's."""
     fixture = json.loads((FIXTURES / f"{name}.json").read_text())
     assert isinstance(fixture["workflow_run"], int)
-    assert fixture["artifact"] == f"{name}-evidence-{_lock(name)['robot']['configurations'][0]}"
+    assert fixture["head_sha"] == "797c1f9958ef5f606afe026aa3aa74db5036d765"
+    lock = json.loads((FIXTURES / "locks" / f"{name}.lock.json").read_text())
+    assert fixture["artifact"] == f"{name}-evidence-{lock['robot']['configurations'][0]}"
     manifest = fixture["manifest"]
-    lock = _lock(name)
     assert digest_tool.problems(lock, manifest) == []
     assert manifest["environment"]["runner"]["tag"] == lock["releases"]["runner"]["tag"]
     assert manifest["sources"]["parameters"] == lock["sources"]["parameters"]
+
+
+@pytest.mark.parametrize(
+    "name", ["unitree-g1-stock-mujoco-corner-left", "unitree-g1-stock-mujoco-corner-right"]
+)
+def test_historical_g1_evidence_cannot_verify_the_updated_runner(name):
+    """The new robot release requires fresh hosted evidence; old manifests cannot pass."""
+    fixture = json.loads((FIXTURES / f"{name}.json").read_text())
+    found = digest_tool.problems(_lock(name), fixture["manifest"])
+    assert len(found) == 1
+    assert "runner commit" in found[0]
 
 
 @pytest.mark.parametrize(
