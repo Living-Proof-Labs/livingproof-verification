@@ -108,7 +108,7 @@ SEED_LABEL = re.compile(r"^seed (?=\d)")
 BUNDLE_TAG = re.compile(r"v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)")
 COMMIT_SHA = re.compile(r"[0-9a-f]{40}")
 MARKER = "site.json"  # written by every build; its presence on the live site means history
-LOCAL_TZ = ZoneInfo("Australia/Sydney")  # tooltip dates on the public site (#129)
+LOCAL_TZ = ZoneInfo("Australia/Sydney")  # local dates on the public site (#129, #163)
 
 
 class SiteError(Exception):
@@ -2199,6 +2199,7 @@ a.release:hover { color: var(--link); text-decoration: underline; }
   gap: 0.65rem 0.85rem;
   align-items: start;
 }
+.row-top > div { min-width: 0; }
 .row-meta {
   display: flex;
   flex-wrap: wrap;
@@ -2253,7 +2254,7 @@ a.release:hover { color: var(--link); text-decoration: underline; }
 .robot[open] .robot-body { padding: 0 0.7rem 0.15rem; }
 .summary-row {
   display: grid;
-  grid-template-columns: auto minmax(16rem, 1.15fr) minmax(8rem, 1fr) auto;
+  grid-template-columns: auto minmax(16rem, 22rem) minmax(8rem, 1fr) auto;
   align-items: center;
   column-gap: 0.85rem;
   row-gap: 0.3rem;
@@ -2323,6 +2324,8 @@ a.release:hover { color: var(--link); text-decoration: underline; }
   white-space: nowrap;
   flex: none;
 }
+.rel-time .dot { margin: 0 0.15rem; }
+.abs-time { white-space: nowrap; }
 .robot-body { padding: 0 0 0.2rem; }
 @media (max-width: 720px) {
   .entry-main, .row-top {
@@ -2361,7 +2364,39 @@ a.release:hover { color: var(--link); text-decoration: underline; }
   .chevron { grid-area: chevron; align-self: start; margin-top: 0.28rem; }
   .summary-id { grid-area: ident; flex: none; min-width: 0; display: flex; }
   .dots { grid-area: dots; max-width: 100%; }
-  .meta-latest { grid-area: meta; justify-self: end; }
+  .meta-latest { grid-area: meta; justify-self: end; text-align: right; }
+  .side-meta .rel-time + .abs-time,
+  .meta-latest .rel-time + .abs-time { display: block; }
+  .side-meta .rel-time .dot,
+  .meta-latest .rel-time .dot,
+  .row-meta .rel-time .dot { display: none; }
+  .row-meta { font-size: 0.82rem; }
+  .row-meta:has(.rel-time) { display: block; }
+  .row-meta .dot { margin: 0 0.22rem; }
+  .row-meta .rel-time + .abs-time::before {
+    content: "";
+    display: block;
+  }
+}
+@media print {
+  .rel-time { display: none !important; }
+  .side-meta .rel-time + .abs-time,
+  .meta-latest .rel-time + .abs-time { display: inline; }
+  .row-meta, .row-meta:has(.rel-time) { display: flex; }
+  .row-meta .rel-time + .abs-time::before { display: none; }
+  body { background: #ffffff; }
+  .masthead {
+    background: none;
+    color: var(--text);
+    border-bottom: 2px solid var(--border-strong);
+  }
+  .eyebrow, .lede a, .crumb a, .meta-line a { color: var(--link); }
+  .lede, .meta-line, .meta-line .quiet { color: var(--text-muted); }
+  .card, .row, .robot > summary, .robot[open] { box-shadow: none; }
+  .badge, .pip, .chip, .finding {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
 }
 @media (prefers-reduced-motion: reduce) {
   .card, .row, .robot > summary, .chevron { transition: none; }
@@ -2370,7 +2405,12 @@ a.release:hover { color: var(--link); text-decoration: underline; }
 
 INDEX_SCRIPT = """// Open a robot section when the URL hash is its id (e.g. #unitree-g1).
 // Truncate the scenario-dot strip to one line and show +n when dots don't fit.
+// Compute relative run ages at view time from <time datetime> while keeping absolute dates visible.
 (function () {
+  const RELATIVE_REFRESH_MS = 15000;
+  const FUTURE_SKEW_SECONDS = 60;
+  const MAX_RELATIVE_SECONDS = 30 * 86400;
+
   function hashId() {
     try {
       return decodeURIComponent((location.hash || "").replace(/^#/, ""));
@@ -2393,6 +2433,79 @@ INDEX_SCRIPT = """// Open a robot section when the URL hash is its id (e.g. #uni
     if (!details.id) return;
     const next = details.open ? "#" + details.id : location.pathname + location.search;
     history.replaceState(null, "", next);
+  }
+
+  function relativeAge(createdMs, nowMs) {
+    if (!Number.isFinite(createdMs) || !Number.isFinite(nowMs)) return "";
+    const rawSeconds = Math.floor((nowMs - createdMs) / 1000);
+    if (rawSeconds < -FUTURE_SKEW_SECONDS) return "";
+    const seconds = Math.max(0, rawSeconds);
+    if (seconds < 60) return "just now";
+    if (seconds < 3600) {
+      const minutes = Math.floor(seconds / 60);
+      return minutes + " minute" + (minutes === 1 ? "" : "s") + " ago";
+    }
+    if (seconds < 86400) {
+      const hours = Math.floor(seconds / 3600);
+      return hours + " hour" + (hours === 1 ? "" : "s") + " ago";
+    }
+    if (seconds < 172800) return "yesterday";
+    if (seconds < MAX_RELATIVE_SECONDS) {
+      const days = Math.floor(seconds / 86400);
+      return days + " days ago";
+    }
+    return "";
+  }
+
+  function updateTimeElement(el, nowMs) {
+    const iso = el.getAttribute("datetime") || "";
+    let abs = el.getAttribute("data-abs");
+    if (abs === null) {
+      abs = (el.textContent || "").trim() || el.getAttribute("title") || iso;
+      el.setAttribute("data-abs", abs);
+    }
+    const rel = relativeAge(Date.parse(iso), nowMs);
+    if (el.getAttribute("data-rel") === rel && el.querySelector(".abs-time")) {
+      return false;
+    }
+    el.setAttribute("data-rel", rel);
+    el.textContent = "";
+    if (rel) {
+      const relSpan = document.createElement("span");
+      relSpan.className = "rel-time";
+      relSpan.append(rel);
+      const dot = document.createElement("span");
+      dot.className = "dot";
+      dot.textContent = " · ";
+      relSpan.append(dot);
+      el.append(relSpan);
+    }
+    const absSpan = document.createElement("span");
+    absSpan.className = "abs-time";
+    absSpan.textContent = abs;
+    el.append(absSpan);
+    return true;
+  }
+
+  function updateSummaryLabel(summary, nowMs) {
+    const sr = summary.querySelector(".visually-hidden");
+    const timeEl = summary.querySelector(".meta-latest time[datetime]");
+    if (!sr || !timeEl) return;
+    const abs = timeEl.getAttribute("data-abs") || (timeEl.textContent || "").trim();
+    let prefix = sr.getAttribute("data-sr-prefix");
+    if (prefix === null) {
+      const current = (sr.textContent || "").trim();
+      const suffix = ", " + abs;
+      prefix = current.endsWith(suffix)
+        ? current.slice(0, current.length - suffix.length)
+        : current;
+      sr.setAttribute("data-sr-prefix", prefix);
+    }
+    const rel =
+      timeEl.getAttribute("data-rel") !== null
+        ? timeEl.getAttribute("data-rel")
+        : relativeAge(Date.parse(timeEl.getAttribute("datetime") || ""), nowMs);
+    sr.textContent = rel ? prefix + ", " + rel + " · " + abs : prefix + ", " + abs;
   }
 
   function fitDots(strip) {
@@ -2421,22 +2534,46 @@ INDEX_SCRIPT = """// Open a robot section when the URL hash is its id (e.g. #uni
     document.querySelectorAll(".dots").forEach(fitDots);
   }
 
+  function updateTimes() {
+    const nowMs = Date.now();
+    let changed = false;
+    document.querySelectorAll("time[datetime]").forEach((el) => {
+      if (updateTimeElement(el, nowMs)) changed = true;
+    });
+    document.querySelectorAll("details.robot > summary").forEach((summary) => {
+      updateSummaryLabel(summary, nowMs);
+    });
+    if (changed) fitAll();
+  }
+
   document.querySelectorAll("details.robot").forEach((d) => {
     d.addEventListener("toggle", () => {
       if (d.open || hashId() === d.id) setHashFor(d);
     });
   });
 
+  let refreshTimer = null;
+
   function start() {
     openFromHash();
+    updateTimes();
     fitAll();
     if (document.fonts && document.fonts.ready) {
       document.fonts.ready.then(fitAll);
     }
+    if (refreshTimer === null) {
+      refreshTimer = window.setInterval(updateTimes, RELATIVE_REFRESH_MS);
+    }
   }
   window.addEventListener("hashchange", openFromHash);
   window.addEventListener("resize", fitAll);
-  window.addEventListener("load", fitAll);
+  window.addEventListener("load", () => {
+    updateTimes();
+    fitAll();
+  });
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) updateTimes();
+  });
   document.addEventListener("DOMContentLoaded", start);
   if (document.readyState !== "loading") start();
 })();
@@ -2519,37 +2656,17 @@ def _badge_html(grade: str) -> str:
     return f'<span class="badge {cls}">{html.escape(_badge_label(grade))}</span>'
 
 
-def _relative_time_text(created: str, now: str) -> tuple[str, str]:
+def _local_time_text(created: str) -> str:
     created_dt = _stamp(created)
-    now_dt = _stamp(now) if now else created_dt
-    seconds = max(0, int((now_dt - created_dt).total_seconds()))
-    if seconds < 60:
-        relative = "just now"
-    elif seconds < 3600:
-        minutes = seconds // 60
-        suffix = "s" if minutes != 1 else ""
-        relative = f"{minutes} minute{suffix} ago"
-    elif seconds < 86400:
-        hours = seconds // 3600
-        suffix = "s" if hours != 1 else ""
-        relative = f"{hours} hour{suffix} ago"
-    elif seconds < 172800:
-        relative = "yesterday"
-    elif seconds < 30 * 86400:
-        days = seconds // 86400
-        relative = f"{days} days ago"
-    else:
-        relative = f"{created_dt.day} {created_dt.strftime('%b %Y')}"
     local = created_dt.astimezone(LOCAL_TZ)
-    tooltip = f"{local.day} {local.strftime('%b %Y, %H:%M %Z')}"
-    return relative, tooltip
+    return f"{local.day} {local.strftime('%b %Y, %H:%M %Z')}"
 
 
-def _relative_time_html(created: str, now: str) -> str:
-    relative, tooltip = _relative_time_text(created, now)
+def _time_html(created: str) -> str:
+    local_text = _local_time_text(created)
     return (
         f'<time datetime="{html.escape(created, quote=True)}" '
-        f'title="{html.escape(tooltip, quote=True)}">{html.escape(relative)}</time>'
+        f'title="{html.escape(local_text, quote=True)}">{html.escape(local_text)}</time>'
     )
 
 
@@ -2730,17 +2847,17 @@ def _history_page_html(
     robot: str,
     variant: str,
     records: list[dict],
-    now: str,
+    now: str = "",
     reports: dict | None = None,
     robot_tags: dict | None = None,
 ) -> str:
+    del now  # timestamps render canonical local dates; relative age is client-side (#163)
     newest = records[0]
     robot_title = _robot_title(robot)
     scenario_title = _scenario_title(newest, variant)
     subtitle = _variant_subtitle(newest, variant)
     count = len(records)
     plural = "s" if count != 1 else ""
-    ref_now = now or newest["run"]["created"]
     releases = " · ".join(
         f"{html.escape(name)} {a(release['url'], release['tag'])}"
         for name, release in newest["releases"].items()
@@ -2805,7 +2922,7 @@ def _history_page_html(
             '<div class="row-meta">'
             f"{_release_html(record)}"
             '<span class="dot">·</span>'
-            f"{_relative_time_html(record['run']['created'], ref_now)}"
+            f"{_time_html(record['run']['created'])}"
             '<span class="dot">·</span>'
             f'<span class="poster">{html.escape(poster_name)}</span>'
             '<span class="dot">·</span>'
@@ -2823,6 +2940,7 @@ def _history_page_html(
         "Skip to history",
         masthead,
         main_body,
+        script_href="../../open.js",
     )
 
 
@@ -2830,7 +2948,6 @@ def _index_card_html(
     robot: str,
     variant: str,
     records: list[dict],
-    ref_now: str,
     *,
     include_robot: bool,
 ) -> str:
@@ -2862,7 +2979,7 @@ def _index_card_html(
         "</div>"
         '<div class="entry-side">'
         f'<div class="side-meta">{_release_html(newest, linked=False)}'
-        f'<span class="dot">·</span>{_relative_time_html(newest["run"]["created"], ref_now)}</div>'
+        f'<span class="dot">·</span>{_time_html(newest["run"]["created"])}</div>'
         f'<div class="links"><a class="history-link" href="{html.escape(history_href, quote=True)}">'
         f"History ({len(records)})</a></div>"
         "</div>"
@@ -2871,13 +2988,13 @@ def _index_card_html(
     )
 
 
-def _index_page_html(history: dict, now: str) -> str:
+def _index_page_html(history: dict, now: str = "") -> str:
+    del now  # timestamps render canonical local dates; relative age is client-side (#163)
     grouped: dict[str, list[tuple[str, list[dict]]]] = {}
     all_latest: list[dict] = []
     for (robot, variant), records in sorted(history.items()):
         grouped.setdefault(robot, []).append((variant, records))
         all_latest.append(records[0])
-    ref_now = now or max((r["run"]["created"] for r in all_latest), default="")
     total_count = len(all_latest)
 
     failed_entries = [
@@ -2901,7 +3018,7 @@ def _index_page_html(history: dict, now: str) -> str:
         failed_count = len(failed_entries)
         noun = "result" if failed_count == 1 else "results"
         needs_cards = [
-            _index_card_html(robot, variant, records, ref_now, include_robot=True)
+            _index_card_html(robot, variant, records, include_robot=True)
             for robot, variant, records in failed_entries
         ]
         needs_html = (
@@ -2992,19 +3109,19 @@ def _index_page_html(history: dict, now: str) -> str:
                 f'<span class="pip {pip_cls}" '
                 f'title="{html.escape(f"{scenario_title}: {pip_status}", quote=True)}"></span>'
             )
-            cards.append(_index_card_html(robot, variant, records, ref_now, include_robot=False))
+            cards.append(_index_card_html(robot, variant, records, include_robot=False))
 
         latest_record = max(
             (recs[0] for _, recs in ordered),
             key=lambda r: (r["run"]["created"], r.get("folder", "")),
         )
         latest_rel = _release_label(latest_record)
-        latest_time_text, _ = _relative_time_text(latest_record["run"]["created"], ref_now)
+        latest_time_text = _local_time_text(latest_record["run"]["created"])
         sr_label = f"{robot_title}, {', '.join(sr_parts)}, latest {latest_rel}, {latest_time_text}"
         meta_latest = (
             f"{_release_html(latest_record, linked=False)}"
             '<span class="dot">·</span>'
-            f"{_relative_time_html(latest_record['run']['created'], ref_now)}"
+            f"{_time_html(latest_record['run']['created'])}"
         )
         robot_sections.append(
             f'<details class="robot" id="{html.escape(robot, quote=True)}">'

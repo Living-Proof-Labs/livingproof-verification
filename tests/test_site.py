@@ -2213,8 +2213,10 @@ def test_failing_evaluators_chips_and_clean_history_view(tmp_path):
     assert 'class="release is-fallback"' in history
     assert ">v1.0.0</a>" in history
     assert '<time datetime="2026-11-18T05:00:00Z"' in history
-    assert 'title="18 Nov 2026, 16:00 AEDT"' in history
-    assert "20 minutes ago</time>" in history
+    assert 'title="18 Nov 2026, 16:00 AEDT">18 Nov 2026, 16:00 AEDT</time>' in history
+    assert 'title="18 Nov 2026, 16:20 AEDT">18 Nov 2026, 16:20 AEDT</time>' in history
+    assert "20 minutes ago" not in history and "just now" not in history
+    assert '<script src="../../open.js"></script>' in history
     assert "newest first. Older runs are trimmed over time.</p>" in history
     assert "pagination" not in history
     assert "holistically" not in history
@@ -2256,23 +2258,29 @@ def test_old_run_json_records_fall_back_without_new_fields(tmp_path):
 
 
 def test_time_tooltip_uses_australia_sydney(tmp_path):
-    """#129: the <time> tooltip is Australia/Sydney local time, not UTC."""
+    """#129 / #163: visible <time> text and tooltip use Australia/Sydney (AEDT/AEST), not UTC."""
     site = tmp_path / "site"
     site_tool.build(
         site, reports_for(tmp_path, "one", 19, "PASS"), run("100", "2026-11-18T05:00:00Z")
     )
     history = (site / "booster-t1/stock-mujoco-hallway/index.html").read_text()
-    assert '<time datetime="2026-11-18T05:00:00Z"' in history
-    assert 'title="18 Nov 2026, 16:00 AEDT"' in history
-    assert "UTC" not in history
+    index = (site / "index.html").read_text()
+    for page in (history, index):
+        assert '<time datetime="2026-11-18T05:00:00Z"' in page
+        assert 'title="18 Nov 2026, 16:00 AEDT">18 Nov 2026, 16:00 AEDT</time>' in page
+        assert "UTC" not in page
+        assert "just now" not in page
     path = site / "booster-t1/stock-mujoco-hallway/runs/100/run.json"
     record = json.loads(path.read_text())
     record["run"]["created"] = "2026-06-18T05:00:00Z"
     path.write_text(json.dumps(record, indent=2) + "\n")
     site_tool.render(site, now="2026-06-18T05:20:00Z")
     winter = (site / "booster-t1/stock-mujoco-hallway/index.html").read_text()
-    assert '<time datetime="2026-06-18T05:00:00Z"' in winter
-    assert 'title="18 Jun 2026, 15:00 AEST"' in winter
+    winter_index = (site / "index.html").read_text()
+    for page in (winter, winter_index):
+        assert '<time datetime="2026-06-18T05:00:00Z"' in page
+        assert 'title="18 Jun 2026, 15:00 AEST">18 Jun 2026, 15:00 AEST</time>' in page
+        assert "20 minutes ago" not in page and "just now" not in page
 
 
 def test_human_reviewer_chip_renders_when_a_finding_was_stored(tmp_path):
@@ -3210,7 +3218,7 @@ def test_index_robot_sections_collapsed_with_counts_dots_and_failing_first_order
     )[0]
     assert (
         '<span class="visually-hidden">'
-        "Booster T1, 3 scenarios, 1 failed, 2 passed, latest v1.1.0, 10 minutes ago"
+        "Booster T1, 3 scenarios, 1 failed, 2 passed, latest v1.1.0, 18 Nov 2026, 16:30 AEDT"
         "</span>"
     ) in booster_block
     assert '<div class="summary-row" aria-hidden="true">' in booster_block
@@ -3289,3 +3297,385 @@ def test_index_empty_catalog_does_not_claim_all_pass():
     assert '<p class="status">No verification reports published yet.</p>' in index
     assert 'class="all-pass"' not in index
     assert 'id="robots"' not in index
+
+
+def _extract_time_dom(page_html: str) -> dict:
+    """Extract <time datetime> elements and robot summary labels from built static HTML."""
+    from html.parser import HTMLParser
+
+    class TimeParser(HTMLParser):
+        def __init__(self):
+            super().__init__(convert_charrefs=True)
+            self.times: list[dict] = []
+            self.summaries: list[dict] = []
+            self._current_time: dict | None = None
+            self._current_robot: str | None = None
+            self._in_summary = False
+            self._in_sr = False
+            self._in_meta_latest = False
+            self._current_summary: dict | None = None
+
+        def handle_starttag(self, tag, attrs):
+            attr_map = dict(attrs)
+            classes = (attr_map.get("class") or "").split()
+            if tag == "details" and "robot" in classes:
+                self._current_robot = attr_map.get("id") or ""
+            elif tag == "summary" and self._current_robot is not None:
+                self._in_summary = True
+                self._current_summary = {
+                    "id": self._current_robot,
+                    "sr": "",
+                    "time_index": None,
+                }
+            elif self._in_summary and tag == "span" and "visually-hidden" in classes:
+                self._in_sr = True
+            elif self._in_summary and tag == "span" and "meta-latest" in classes:
+                self._in_meta_latest = True
+            elif tag == "time" and "datetime" in attr_map:
+                index = len(self.times)
+                self._current_time = {
+                    "index": index,
+                    "datetime": attr_map.get("datetime", ""),
+                    "title": attr_map.get("title", ""),
+                    "text": "",
+                }
+                self.times.append(self._current_time)
+                if self._in_summary and self._current_summary is not None:
+                    self._current_summary["time_index"] = index
+
+        def handle_endtag(self, tag):
+            if tag == "time":
+                self._current_time = None
+            elif tag == "span":
+                self._in_sr = False
+                self._in_meta_latest = False
+            elif tag == "summary" and self._in_summary:
+                self._in_summary = False
+                if self._current_summary is not None:
+                    self.summaries.append(self._current_summary)
+                self._current_summary = None
+            elif tag == "details":
+                self._current_robot = None
+
+        def handle_data(self, data):
+            if self._current_time is not None:
+                self._current_time["text"] += data
+            elif self._in_sr and self._current_summary is not None:
+                self._current_summary["sr"] += data
+
+    parser = TimeParser()
+    parser.feed(page_html)
+    return {"times": parser.times, "summaries": parser.summaries}
+
+
+def _run_open_js_with_clock(open_js: str, page_html: str, clock_steps: list[str]) -> list[dict]:
+    """Execute emitted open.js against extracted page DOM under a controlled clock in Node."""
+    dom_seed = _extract_time_dom(page_html)
+    driver = r"""
+const fs = require("fs");
+const vm = require("vm");
+const payload = JSON.parse(fs.readFileSync(0, "utf8"));
+
+function makeElement(tagName, attrs = {}, text = "") {
+  const attributeMap = new Map(Object.entries(attrs));
+  const children = [];
+  let rawText = text;
+  return {
+    tagName: tagName.toUpperCase(),
+    className: attrs.class || "",
+    id: attrs.id || "",
+    open: false,
+    hidden: false,
+    clientWidth: 240,
+    scrollWidth: 120,
+    children,
+    hasAttribute(name) { return attributeMap.has(name); },
+    getAttribute(name) { return attributeMap.has(name) ? attributeMap.get(name) : null; },
+    setAttribute(name, val) { attributeMap.set(name, String(val)); },
+    append(child) {
+      if (typeof child === "string") {
+        children.push(makeElement("#text", {}, child));
+      } else {
+        children.push(child);
+      }
+    },
+    get textContent() {
+      if (children.length === 0) return rawText;
+      return children.map((c) => c.textContent).join("");
+    },
+    set textContent(val) {
+      children.length = 0;
+      rawText = String(val);
+    },
+    querySelector(sel) {
+      return this.querySelectorAll(sel)[0] || null;
+    },
+    querySelectorAll(sel) {
+      if (sel === ".abs-time") return children.filter((c) => c.className === "abs-time");
+      if (sel === ".rel-time") return children.filter((c) => c.className === "rel-time");
+      if (sel === ".visually-hidden") return this._sr ? [this._sr] : [];
+      if (sel === ".meta-latest time[datetime]") return this._time ? [this._time] : [];
+      if (sel === ".pip" || sel === ".pip-more") return [];
+      return [];
+    },
+    addEventListener() {},
+    scrollIntoView() {},
+  };
+}
+
+const timeElements = payload.dom.times.map((t) =>
+  makeElement("time", { datetime: t.datetime, title: t.title }, t.text)
+);
+const summaryElements = payload.dom.summaries.map((s) => {
+  const summary = makeElement("summary");
+  summary._sr = makeElement("span", { class: "visually-hidden" }, s.sr);
+  summary._time = s.time_index !== null ? timeElements[s.time_index] : null;
+  summary._id = s.id;
+  return summary;
+});
+
+let currentNowMs = Date.parse(payload.steps[0]);
+let intervalCallback = null;
+let intervalDelay = null;
+
+function CustomDate(...args) {
+  if (args.length === 0) return new Date(currentNowMs);
+  return new Date(...args);
+}
+CustomDate.now = () => currentNowMs;
+CustomDate.parse = Date.parse.bind(Date);
+
+const sandbox = {
+  Date: CustomDate,
+  Math,
+  Number,
+  decodeURIComponent,
+  location: { hash: "", pathname: "/", search: "" },
+  history: { replaceState() {} },
+  window: {
+    addEventListener() {},
+    setInterval(fn, ms) {
+      intervalCallback = fn;
+      intervalDelay = ms;
+      return 1;
+    },
+  },
+  document: {
+    readyState: "complete",
+    hidden: false,
+    fonts: null,
+    getElementById() { return null; },
+    addEventListener() {},
+    querySelectorAll(sel) {
+      if (sel === "time[datetime]") return timeElements;
+      if (sel === "details.robot > summary") return summaryElements;
+      if (sel === ".dots" || sel === "details.robot") return [];
+      return [];
+    },
+    createElement(tag) { return makeElement(tag); },
+  },
+};
+
+vm.runInNewContext(payload.script, sandbox);
+
+function snapshot(stepIso) {
+  return {
+    now: stepIso,
+    interval_ms: intervalDelay,
+    times: timeElements.map((el) => {
+      const relEl = el.querySelector(".rel-time");
+      const absEl = el.querySelector(".abs-time");
+      return {
+        datetime: el.getAttribute("datetime"),
+        title: el.getAttribute("title"),
+        rel: relEl ? relEl.textContent : "",
+        abs: absEl ? absEl.textContent : el.textContent,
+        full: el.textContent,
+      };
+    }),
+    summaries: summaryElements.map((s) => ({
+      id: s._id,
+      sr: s._sr.textContent,
+    })),
+  };
+}
+
+const snapshots = [snapshot(payload.steps[0])];
+for (let i = 1; i < payload.steps.length; i++) {
+  currentNowMs = Date.parse(payload.steps[i]);
+  if (intervalCallback) intervalCallback();
+  snapshots.push(snapshot(payload.steps[i]));
+}
+process.stdout.write(JSON.stringify(snapshots));
+"""
+    completed = subprocess.run(
+        ["node", "-e", driver],
+        input=json.dumps({"script": open_js, "dom": dom_seed, "steps": clock_steps}),
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return json.loads(completed.stdout)
+
+
+def test_index_and_history_never_emit_build_time_relative_age(tmp_path):
+    """#163: no-JS static pages emit Australia/Sydney dates with timezone, never frozen relative age."""
+    site = tmp_path / "site"
+    site_tool.build(
+        site,
+        reports_for(tmp_path, "first", 0, "FAIL"),
+        run("100", "2026-11-18T05:00:00Z"),
+    )
+    site_tool.build(
+        site,
+        reports_for(tmp_path, "second", 19, "PASS"),
+        {**run("200", "2026-11-18T05:20:00Z"), "tag": "v1.4.0"},
+    )
+    # Put one robot in Needs attention so both Needs attention cards and robot cards are checked.
+    g1_run = site / "unitree-g1/stock-mujoco-hallway/runs/200/run.json"
+    g1_rec = json.loads(g1_run.read_text())
+    g1_rec["outcome"][0]["grade"] = "FAIL"
+    g1_run.write_text(json.dumps(g1_rec, indent=2) + "\n")
+    site_tool.render(site, now="2026-11-18T05:20:00Z")
+
+    index_first = (site / "index.html").read_text()
+    history_first = (site / "unitree-g1/stock-mujoco-hallway/index.html").read_text()
+    run_records_before = {
+        path: path.read_bytes() for path in sorted(site.glob("*/*/runs/*/run.json"))
+    }
+
+    forbidden = (
+        "just now",
+        "minute ago",
+        "minutes ago",
+        "hour ago",
+        "hours ago",
+        "yesterday",
+        "days ago",
+    )
+    for page_text in (index_first, history_first):
+        lowered = page_text.lower()
+        for phrase in forbidden:
+            assert phrase not in lowered, phrase
+        assert (
+            '<time datetime="2026-11-18T05:20:00Z" '
+            'title="18 Nov 2026, 16:20 AEDT">18 Nov 2026, 16:20 AEDT</time>'
+        ) in page_text
+
+    assert (
+        '<time datetime="2026-11-18T05:00:00Z" '
+        'title="18 Nov 2026, 16:00 AEDT">18 Nov 2026, 16:00 AEDT</time>'
+    ) in history_first
+    assert (
+        '<span class="visually-hidden">'
+        "Unitree G1, 4 scenarios, 1 failed, 3 passed, latest v1.4.0, 18 Nov 2026, 16:20 AEDT"
+        "</span>"
+    ) in index_first
+
+    # Re-rendering at a later time within retention leaves index, history, sorting, and records identical.
+    site_tool.render(site, now="2026-11-20T12:00:00Z")
+    assert (site / "index.html").read_text() == index_first
+    assert (site / "unitree-g1/stock-mujoco-hallway/index.html").read_text() == history_first
+    for path, before_bytes in run_records_before.items():
+        assert path.read_bytes() == before_bytes
+
+
+def test_client_side_relative_time_controlled_clock_boundaries_and_old_page_reopen(tmp_path):
+    """#163: controlled clock covers live refresh across boundaries and reopening an old page."""
+    site = tmp_path / "site"
+    site_tool.build(
+        site,
+        reports_for(tmp_path, "first", 0, "FAIL"),
+        run("100", "2026-11-18T05:00:00Z"),
+    )
+    site_tool.build(
+        site,
+        reports_for(tmp_path, "second", 19, "PASS"),
+        {**run("200", "2026-11-18T05:20:00Z"), "tag": "v1.4.0"},
+    )
+    open_js = (site / "open.js").read_text()
+    index_html = (site / "index.html").read_text()
+    history_html = (site / "booster-t1/stock-mujoco-hallway/index.html").read_text()
+
+    # 1. Live view starting 30s after run 200 (05:20:00Z) and stepping across every boundary.
+    steps = [
+        "2026-11-18T05:20:30Z",  # 30s -> just now
+        "2026-11-18T05:20:59Z",  # 59s -> just now
+        "2026-11-18T05:21:00Z",  # 60s -> 1 minute ago
+        "2026-11-18T05:22:00Z",  # 120s -> 2 minutes ago
+        "2026-11-18T06:19:59Z",  # 3599s -> 59 minutes ago
+        "2026-11-18T06:20:00Z",  # 3600s -> 1 hour ago
+        "2026-11-18T07:20:00Z",  # 7200s -> 2 hours ago
+        "2026-11-19T05:20:00Z",  # 86400s -> yesterday
+        "2026-11-20T05:20:00Z",  # 172800s -> 2 days ago
+        "2026-12-18T05:20:00Z",  # 30 days -> absolute date only
+    ]
+    index_snapshots = _run_open_js_with_clock(open_js, index_html, steps)
+    expected_rels = [
+        "just now · ",
+        "just now · ",
+        "1 minute ago · ",
+        "2 minutes ago · ",
+        "59 minutes ago · ",
+        "1 hour ago · ",
+        "2 hours ago · ",
+        "yesterday · ",
+        "2 days ago · ",
+        "",
+    ]
+    assert index_snapshots[0]["interval_ms"] == 15000
+    for snap, expected_rel in zip(index_snapshots, expected_rels, strict=True):
+        first_time = snap["times"][0]
+        assert first_time["datetime"] == "2026-11-18T05:20:00Z"
+        assert first_time["title"] == "18 Nov 2026, 16:20 AEDT"
+        assert first_time["rel"] == expected_rel
+        assert first_time["abs"] == "18 Nov 2026, 16:20 AEDT"
+        assert first_time["full"] == f"{expected_rel}18 Nov 2026, 16:20 AEDT"
+        booster_sr = next(s["sr"] for s in snap["summaries"] if s["id"] == "booster-t1")
+        if expected_rel:
+            rel_word = expected_rel.removesuffix(" · ")
+            assert booster_sr == (
+                "Booster T1, 3 scenarios, 3 passed, latest v1.4.0, "
+                f"{rel_word} · 18 Nov 2026, 16:20 AEDT"
+            )
+        else:
+            assert booster_sr == (
+                "Booster T1, 3 scenarios, 3 passed, latest v1.4.0, 18 Nov 2026, 16:20 AEDT"
+            )
+
+    # 2. History rows: run 200 (05:20:00Z) and run 100 (05:00:00Z) both update live.
+    history_snapshots = _run_open_js_with_clock(
+        open_js,
+        history_html,
+        ["2026-11-18T05:20:30Z", "2026-11-18T05:21:00Z"],
+    )
+    row_200_initial, row_100_initial = history_snapshots[0]["times"]
+    assert row_200_initial["datetime"] == "2026-11-18T05:20:00Z"
+    assert row_200_initial["full"] == "just now · 18 Nov 2026, 16:20 AEDT"
+    assert row_100_initial["datetime"] == "2026-11-18T05:00:00Z"
+    assert row_100_initial["full"] == "20 minutes ago · 18 Nov 2026, 16:00 AEDT"
+
+    row_200_after, row_100_after = history_snapshots[1]["times"]
+    assert row_200_after["full"] == "1 minute ago · 18 Nov 2026, 16:20 AEDT"
+    assert row_100_after["full"] == "21 minutes ago · 18 Nov 2026, 16:00 AEDT"
+
+    # 3. Reopening the old static page days and months later without rebuilding.
+    reopened_five_days = _run_open_js_with_clock(open_js, index_html, ["2026-11-23T05:20:00Z"])[0]
+    assert reopened_five_days["times"][0]["full"] == "5 days ago · 18 Nov 2026, 16:20 AEDT"
+    assert "just now" not in json.dumps(reopened_five_days)
+
+    reopened_two_months = _run_open_js_with_clock(open_js, index_html, ["2027-01-25T05:20:00Z"])[0]
+    assert reopened_two_months["times"][0]["rel"] == ""
+    assert reopened_two_months["times"][0]["full"] == "18 Nov 2026, 16:20 AEDT"
+    assert "just now" not in json.dumps(reopened_two_months)
+    assert "ago" not in json.dumps(reopened_two_months)
+
+
+def test_print_styles_hide_relative_age_and_keep_absolute_timestamps():
+    """#163: @media print hides client-side relative labels so PDF/print keeps only absolute dates."""
+    css = site_tool.SITE_STYLES
+    assert "@media print {" in css
+    print_block = css.split("@media print {", 1)[1].split("\n}\n", 1)[0]
+    assert ".rel-time { display: none !important; }" in print_block
+    assert ".abs-time" in css
+    assert ".abs-time { display: none" not in css

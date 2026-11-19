@@ -212,11 +212,12 @@ def _open_robot(page, width, robot_id="booster-t1"):
 
 def check_viewport(browser, url, output, width, height, result, destinations):
     context = browser.new_context(viewport={"width": width, "height": height}, has_touch=True)
+    context.clock.install(time="2026-11-19T07:50:30Z")
     page = context.new_page()
     page.set_default_timeout(10000)
     result.update(viewport=[width, height], status="running", navigations=[])
     try:
-        # 1. Default collapsed state + Needs attention (#139)
+        # 1. Default collapsed state + Needs attention (#139) + client-side relative time (#163)
         page.goto(url)
         check_no_commit_id(page)
         robots = page.locator("details.robot")
@@ -231,13 +232,32 @@ def check_viewport(browser, url, output, width, height, result, destinations):
         expect(needs_cards.nth(1).locator(".chip").nth(0)).to_have_text("Scenario")
         expect(needs_cards.nth(1).locator(".chip").nth(1)).to_have_text("Aaron Roller")
         expect(needs_cards.nth(0).locator(".finding")).to_contain_text("Drifted 0.66 m")
-        expect(page.locator("details#unitree-g1 > summary .visually-hidden")).to_contain_text(
-            "Unitree G1, 4 scenarios, 1 failed, 3 passed, latest"
+        g1_time = needs_cards.nth(0).locator("time")
+        expect(g1_time).to_have_attribute("datetime", "2026-11-19T07:50:00Z")
+        expect(g1_time.locator(".rel-time")).to_contain_text("just now")
+        expect(g1_time.locator(".abs-time")).to_have_text("19 Nov 2026, 18:50 AEDT")
+        expect(page.locator("details#unitree-g1 > summary .visually-hidden")).to_have_text(
+            "Unitree G1, 4 scenarios, 1 failed, 3 passed, latest commit, "
+            "just now · 19 Nov 2026, 18:50 AEDT"
         )
         expect(page.locator("details#unitree-g1 > summary .summary-row")).to_have_attribute(
             "aria-hidden", "true"
         )
         page.screenshot(path=output / f"{width}-collapsed.png", full_page=True)
+
+        # Live refresh across the 60-second boundary while the page stays open (#163).
+        context.clock.run_for(30000)
+        expect(g1_time).to_have_attribute("datetime", "2026-11-19T07:50:00Z")
+        expect(g1_time.locator(".rel-time")).to_contain_text("1 minute ago")
+        expect(g1_time.locator(".abs-time")).to_have_text("19 Nov 2026, 18:50 AEDT")
+        expect(page.locator("details#unitree-g1 > summary .visually-hidden")).to_have_text(
+            "Unitree G1, 4 scenarios, 1 failed, 3 passed, latest commit, "
+            "1 minute ago · 19 Nov 2026, 18:50 AEDT"
+        )
+        result["live_clock_boundary"] = {
+            "initial_30s": "just now · 19 Nov 2026, 18:50 AEDT",
+            "after_60s": "1 minute ago · 19 Nov 2026, 18:50 AEDT",
+        }
 
         # 2. Hash anchor opens target robot section; cards inside are fail-first, then alphabetical.
         page.goto(url + "#booster-t1")
@@ -406,6 +426,83 @@ def check_viewport(browser, url, output, width, height, result, destinations):
         context.close()
 
 
+def check_timestamps_no_js_and_print(browser, url, output, results):
+    """#163: verify reopening an old page, no-JavaScript browsing, and print/PDF exports."""
+    evidence = {}
+
+    # 1. Reopening an old page days and months later without rebuilding.
+    reopen_ctx = browser.new_context(viewport={"width": 1280, "height": 800})
+    try:
+        reopen_ctx.clock.install(time="2027-01-03T07:50:00Z")
+        page = reopen_ctx.new_page()
+        page.goto(url)
+        first_time = page.locator(".needs .card time").first
+        expect(first_time).to_have_attribute("datetime", "2026-11-19T07:50:00Z")
+        expect(first_time).to_have_text("19 Nov 2026, 18:50 AEDT")
+        expect(page.locator(".rel-time")).to_have_count(0)
+        expect(page.locator("details#unitree-g1 > summary .visually-hidden")).to_have_text(
+            "Unitree G1, 4 scenarios, 1 failed, 3 passed, latest commit, 19 Nov 2026, 18:50 AEDT"
+        )
+        body_text = page.locator("body").inner_text().lower()
+        assert "just now" not in body_text and "ago" not in body_text
+        evidence["reopen_45_days_later"] = "19 Nov 2026, 18:50 AEDT"
+    finally:
+        reopen_ctx.close()
+
+    # 2. No-JavaScript context: absolute Australia/Sydney timestamps remain readable everywhere.
+    no_js_ctx = browser.new_context(
+        viewport={"width": 1280, "height": 800}, java_script_enabled=False
+    )
+    try:
+        page = no_js_ctx.new_page()
+        for target_path in ("", "unitree-g1/stock-mujoco-hallway/"):
+            page.goto(url + target_path)
+            first_time = page.locator("time").first
+            expect(first_time).to_have_attribute("datetime", "2026-11-19T07:50:00Z")
+            expect(first_time).to_have_text("19 Nov 2026, 18:50 AEDT")
+            text = page.locator("body").inner_text().lower()
+            assert "just now" not in text and "minutes ago" not in text
+        evidence["no_javascript"] = "19 Nov 2026, 18:50 AEDT"
+    finally:
+        no_js_ctx.close()
+
+    # 3. Print media emulation and PDF export for index and history.
+    print_ctx = browser.new_context(viewport={"width": 1280, "height": 800})
+    try:
+        print_ctx.clock.install(time="2026-11-19T07:50:30Z")
+        page = print_ctx.new_page()
+        page.goto(url + "#booster-t1")
+        expect(page.locator("details#booster-t1")).to_have_attribute("open", "")
+        page.emulate_media(media="print")
+        expect(page.locator(".rel-time").first).to_be_hidden()
+        expect(page.locator(".abs-time").first).to_be_visible()
+        assert page.locator(".needs .card time").first.inner_text() == "19 Nov 2026, 18:50 AEDT"
+        page.screenshot(path=output / "1280-print-index.png", full_page=True)
+        index_pdf = output / "index-print.pdf"
+        page.pdf(path=index_pdf, format="A4")
+        assert index_pdf.is_file() and index_pdf.read_bytes().startswith(b"%PDF-")
+
+        page.goto(url + "unitree-g1/stock-mujoco-hallway/")
+        page.emulate_media(media="print")
+        expect(page.locator(".rel-time").first).to_be_hidden()
+        expect(page.locator(".abs-time").first).to_be_visible()
+        assert page.locator(".row time").first.inner_text() == "19 Nov 2026, 18:50 AEDT"
+        page.screenshot(path=output / "1280-print-history.png", full_page=True)
+        history_pdf = output / "history-print.pdf"
+        page.pdf(path=history_pdf, format="A4")
+        assert history_pdf.is_file() and history_pdf.read_bytes().startswith(b"%PDF-")
+        evidence["print_and_pdf"] = [
+            "1280-print-index.png",
+            "1280-print-history.png",
+            "index-print.pdf",
+            "history-print.pdf",
+        ]
+    finally:
+        print_ctx.close()
+
+    results["timestamp_checks"] = evidence
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("site", type=Path)
@@ -431,18 +528,20 @@ def main():
                 with sync_playwright() as playwright:
                     browser = playwright.chromium.launch()
                     results["chromium"] = browser.version
+                    base_url = f"http://127.0.0.1:{server.server_port}/"
                     for width, height in [(390, 844), (1280, 800)]:
                         result = {}
                         results["viewports"].append(result)
                         check_viewport(
                             browser,
-                            f"http://127.0.0.1:{server.server_port}/",
+                            base_url,
                             args.output,
                             width,
                             height,
                             result,
                             destinations,
                         )
+                    check_timestamps_no_js_and_print(browser, base_url, args.output, results)
                     browser.close()
                 results["status"] = "passed"
             finally:
