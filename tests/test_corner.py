@@ -175,20 +175,20 @@ HALLWAY_ROBOT = {
 # specs and runner releases), as sorted-key JSON.
 HALLWAY = {
     "booster-t1-stock-mujoco-hallway": (
-        "81ec47662b2e22a41adfdd9d5aea4ac303fa0541f94c1b00a77629612d9f5fba",
-        "cd16788288ffe3abe7e667ae05905b6f2892e740941075d6fc651c32474e11e4",
+        "aa55d99edb573d9e7117da52fe3eb33fe4695cdcf9eb137b195621b3ab1ba517",
+        "56d5a2455b61898c6ea130492741a068e1919fefc2d1d060d8fef8b1bf91ebfd",
     ),
     "unitree-g1-playground-mujoco-hallway": (
-        "f32bbab5668c944897dd6925f2d961a3e3030fd990dfaf8971c20c73a4e204df",
-        "5632da4c949641cfe0c3557ccd800d1dabebb87f080191b5e114ded7c445d5f9",
+        "084a60ac2b376e707eb6feaf3195f314e9af855623d059a745261acca9335c24",
+        "08ab8ec17d6c6a8bca75da64cf2e4b68dccb795ec8510dd4c63ab1e07c9b9f0c",
     ),
     "unitree-g1-stock-mujoco-hallway": (
-        "a9cdd7f0fe6bca1a0c716c42b2f8e10d49026316ee1d7ab3bfa8cffaacd48c6e",
-        "1df95f10a3636885fb5ed69890dfc868794e0cdad1dc822981cc187fee60c5ea",
+        "3b5ddd17d7d70937d7c15504108d25d4f16cc32f478c6e19ef4bea76a52ebb67",
+        "42d4d685d3a8e3254b7e24df9971e4b727bb60bcbb2ff763d20eb5bedd5926a3",
     ),
     "unitree-go1-playground-mujoco-hallway": (
-        "db14265020b13da264db89b80fb39cc6729f0b21712afc04f22737cb363fed83",
-        "983f95c1b799ef1d9862b3a141d7f71038576ccff7cebf195d22c8a94a503920",
+        "3b9570c7f86281631e45e175d5727b5bb1011203f3c8cd4d1e03a26c64b4d374",
+        "42b49577f9ece03c6724017d361b74055c029b35aadde885c44b657ca85e13cf",
     ),
 }
 EVIDENCE_KEYS = ("procedure", "scenario", "robot", "world", "plan", "configurations")
