@@ -36,9 +36,12 @@ backfilled into historical `run.json`.
 
 The **history** page does not repeat the block. Its header names `specs v…` (linked to the spec
 release) with the runner, verifier and reporter, and the robot pin as its tag, written without
-an "@" (`livingproof-booster-t1 v2.2.10`). When no tag resolves the pin reads
+an "@" (`livingproof-booster-t1 v2.3.5`). When no tag resolves the pin reads
 `livingproof-booster-t1 commit`, linked to the commit; a record stored without a tag takes the
-tag the reviewed locks give that commit. A row shows one quiet chip,
+tag the reviewed locks give that commit. A commit that no lock pins any more (the booster-t1
+v2.2.10 commit `a00c7d88`, replaced by v2.3.5 in #145) reads `commit`: the header never claims
+the new tag for an old commit, nor the old tag once the locks no longer say it. A run published
+after the bump records its own tag, so the header shows `v2.3.5` for it. A row shows one quiet chip,
 `Spec changed: v2.3.0 → v2.4.0`, only when its spec version or assessment revision differs
 from the run below it. An unrecorded part is never a change.
 

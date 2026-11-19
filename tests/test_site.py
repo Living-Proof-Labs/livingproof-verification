@@ -2638,9 +2638,9 @@ def test_history_header_shows_the_spec_version_and_the_robot_tag(tmp_path):
         'releases/tag/v2.3.0">v2.3.0</a>'
     ) in header
     assert "runner <a" in header and "verifier <a" in header and "reporter <a" in header
-    assert "livingproof-booster-t1 v2.2.10" in header
+    assert "livingproof-booster-t1 v2.3.5" in header
     assert "@" not in visible_text(header)
-    assert "releases/tag/v2.2.10" in header
+    assert "releases/tag/v2.3.5" in header
     assert not re.search(r"[0-9a-f]{40}", visible_text(header))
 
 
@@ -2661,9 +2661,9 @@ def test_history_header_resolves_the_robot_tag_of_a_record_stored_without_one(tm
     stored = path.read_bytes()
     site_tool.render(tmp_path / "site", now="2026-11-18T05:00:00Z")
     header = (base / "index.html").read_text().split("<main", 1)[0]
-    assert "livingproof-booster-t1 v2.2.10" in header
+    assert "livingproof-booster-t1 v2.3.5" in header
     assert "@" not in visible_text(header)
-    assert 'releases/tag/v2.2.10"' in header
+    assert 'releases/tag/v2.3.5"' in header
     assert path.read_bytes() == stored
 
     record["robot"]["commit"] = "c" * 40
@@ -2675,7 +2675,39 @@ def test_history_header_resolves_the_robot_tag_of_a_record_stored_without_one(tm
     assert "cccccccc" not in visible_text(header)
     assert "c" * 40 in header  # the full SHA stays in the link and its title
     assert "<code" not in header.split("meta-line", 1)[-1]
-    assert "v2.2.10" not in header
+    assert "v2.3.5" not in header
+
+
+def test_a_record_at_a_commit_no_lock_pins_any_more_shows_commit_not_the_new_tag(tmp_path):
+    """#145: the locks moved booster-t1 from v2.2.10 (a00c7d88) to v2.3.5, so no lock names a00c7d88.
+
+    A run stored before #129 at that commit has no tag of its own. The header must not claim the
+    new tag for the old commit, and does not invent the old one: it reads `commit`, linked to
+    the commit, with the full SHA in the title. The stored run.json is left alone.
+    """
+    retired = "a00c7d884b764c89404dc91be9232c0d55eb392c"
+    pinned = {
+        json.loads(path.read_text())["robot"]["commit"]
+        for path in (ROOT / "verifications").glob("*.lock.json")
+    }
+    assert retired not in pinned
+    base = build_spec_history(tmp_path, [("v2.3.0", None)])
+    path = base / "runs/100/run.json"
+    record = json.loads(path.read_text())
+    record["robot"].pop("tag")
+    record["robot"]["commit"] = retired
+    record["robot"]["url"] = f"https://github.com/{record['robot']['repository']}/tree/{retired}"
+    path.write_text(json.dumps(record, indent=2) + "\n")
+    stored = path.read_bytes()
+    site_tool.render(tmp_path / "site", now="2026-11-18T05:00:00Z")
+    header = (base / "index.html").read_text().split("<main", 1)[0]
+    assert re.search(r">livingproof-booster-t1 commit</a>", header)
+    assert f'href="https://github.com/{record["robot"]["repository"]}/tree/{retired}"' in header
+    assert f'title="Commit {retired}"' in header
+    assert "v2.3.5" not in header and "v2.2.10" not in header
+    assert "@" not in visible_text(header)
+    assert "a00c7d88" not in visible_text(header)
+    assert path.read_bytes() == stored
 
 
 def test_a_spec_bump_flags_exactly_one_row(tmp_path):
@@ -2919,9 +2951,9 @@ def test_no_commit_id_is_visible_on_the_index_or_history_page(tmp_path):
 def test_the_robot_pin_is_written_without_an_at_sign(tmp_path):
     base = build_spec_history(tmp_path, [("v2.3.0", spec_identity("v2.3.0", "0.1.0"))])
     page = (base / "index.html").read_text()
-    pin = re.search(r'<a href="[^"]*/releases/tag/v2\.2\.10"[^>]*>([^<]*)</a>', page)
+    pin = re.search(r'<a href="[^"]*/releases/tag/v2\.3\.5"[^>]*>([^<]*)</a>', page)
     assert pin is not None
-    assert pin.group(1) == "livingproof-booster-t1 v2.2.10"
+    assert pin.group(1) == "livingproof-booster-t1 v2.3.5"
     assert "@" not in visible_text(page.split("<main", 1)[0])
 
 
