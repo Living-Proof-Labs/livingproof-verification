@@ -61,3 +61,39 @@ def test_invalid_number_cannot_inject_output(sealed, tmp_path, monkeypatch, numb
     monkeypatch.setattr(adapter.writer, "publish", lambda *args: pytest.fail("published"))
     with pytest.raises(ValueError, match="PR number"):
         adapter.publish(tmp_path, path, hashlib.sha256(path.read_bytes()).hexdigest())
+
+
+def test_receipt_saved_only_after_publication(sealed, tmp_path, monkeypatch, capsys):
+    events = []
+    monkeypatch.setattr(adapter.admission, "context", lambda: events.append("context"))
+
+    def publish(*args):
+        events.append("publish")
+        print("a" * 40)
+
+    def save(plan, head, digest, path):
+        events.append("receipt")
+        assert head == "a" * 40 and digest == sealed[1]
+        assert path == tmp_path / "publication.json"
+        return "e" * 64
+
+    monkeypatch.setattr(adapter.writer, "publish", publish)
+    monkeypatch.setattr(adapter.admission, "save_receipt", save)
+    adapter.publish(tmp_path, *sealed, tmp_path / "publication.json")
+    assert events == ["context", "publish", "receipt"]
+    assert f"receipt_digest={'e' * 64}" in capsys.readouterr().out
+
+
+def test_receipt_failure_after_publish_emits_no_recovery_outputs(
+    sealed, tmp_path, monkeypatch, capsys
+):
+    monkeypatch.setattr(adapter.admission, "context", lambda: None)
+    monkeypatch.setattr(adapter.writer, "publish", lambda *args: print("a" * 40))
+
+    def interrupted(*args):
+        raise OSError("interrupted persistence")
+
+    monkeypatch.setattr(adapter.admission, "save_receipt", interrupted)
+    with pytest.raises(OSError):
+        adapter.publish(tmp_path, *sealed, tmp_path / "publication.json")
+    assert not capsys.readouterr().out

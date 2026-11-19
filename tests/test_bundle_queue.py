@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Queue refusals are local simulations, never real-release automerge evidence."""
+"""Offline admission/refusal and recovery simulations; no hosted activation evidence."""
 
+import copy
 import json
 import os
 from pathlib import Path
@@ -14,7 +15,7 @@ ROOT = Path(__file__).parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 import bundle_queue as queue  # noqa: E402
 
-HEAD = "a" * 40
+HEAD, MAIN = "a" * 40, "b" * 40
 BRANCHES = [
     "renovate/capability-verifier-evidence",
     "renovate/living-proof-labs-livingproof-capability-report-3.x",
@@ -23,6 +24,7 @@ BRANCHES = [
 
 @pytest.fixture
 def remote(monkeypatch):
+    record = {"pr": 1, "head": HEAD, "main": MAIN, "branch": BRANCHES[0]}
     pr = {
         "state": "open",
         "draft": False,
@@ -31,95 +33,276 @@ def remote(monkeypatch):
         "base": {"ref": "main", "repo": {"full_name": queue.writer.REPO}},
         "head": {"sha": HEAD, "ref": BRANCHES[0], "repo": {"full_name": queue.writer.REPO}},
     }
-    state = {"pr": pr, "writes": [], "reads": [], "rules": [], "runs": []}
+    rules = [
+        {"type": "merge_queue", "ruleset_id": 1, "parameters": {"grouping_strategy": "ALLGREEN"}},
+        {
+            "type": "required_status_checks",
+            "ruleset_id": 1,
+            "parameters": {
+                "strict_required_status_checks_policy": True,
+                "required_status_checks": [
+                    {"context": name, "integration_id": 15368}
+                    for name in ["checks", "verification"]
+                ],
+            },
+        },
+    ]
+    runs, checks = [], []
+    for index, (path, name) in enumerate(queue.admission.WORKFLOWS.items(), 1):
+        runs.append(
+            {
+                "path": path,
+                "head_sha": HEAD,
+                "event": "pull_request",
+                "status": "completed",
+                "conclusion": "success",
+                "check_suite_id": index,
+                "repository": {"full_name": queue.writer.REPO},
+                "head_repository": {"full_name": queue.writer.REPO},
+                "pull_requests": [{"number": 1, "head": {"sha": HEAD}, "base": {"sha": MAIN}}],
+            }
+        )
+        checks.append(
+            {
+                "name": name,
+                "head_sha": HEAD,
+                "status": "completed",
+                "conclusion": "success",
+                "app": {"id": 15368},
+                "check_suite": {"id": index},
+            }
+        )
+    state = {
+        "pr": pr,
+        "record": record,
+        "writes": [],
+        "rules": rules,
+        "runs": runs,
+        "checks": checks,
+        "main": MAIN,
+        "queued": None,
+        "uncertain": False,
+        "detail": {"enforcement": "active", "bypass_actors": []},
+    }
 
     def api(path):
-        state["reads"].append(path)
         if path == "pulls/1":
             return pr
+        if path == "git/ref/heads/main":
+            return {"object": {"sha": state["main"]}}
+        raise AssertionError(path)
+
+    def read(path):
         if path == "rules/branches/main":
             return state["rules"]
+        if path == "rulesets/1":
+            return state["detail"]
         if path.startswith("actions/runs?"):
-            return {"total_count": len(state["runs"]), "workflow_runs": state["runs"]}
+            return {
+                "total_count": state.get("total_runs", len(state["runs"])),
+                "workflow_runs": state["runs"],
+            }
+        if path.startswith("commits/"):
+            return {"total_count": len(state["checks"]), "check_runs": state["checks"]}
         raise AssertionError(path)
 
     def command(*args, data=None):
-        assert args == ("gh", "api", "graphql", "--input", "-")
-        state["writes"].append(json.loads(data))
-        return json.dumps({"data": {"enqueuePullRequest": {"mergeQueueEntry": {"id": "entry"}}}})
+        request = json.loads(data)
+        if request["query"].startswith("query"):
+            return json.dumps(
+                {
+                    "data": {
+                        "node": {
+                            "headRefOid": pr["head"]["sha"],
+                            "mergeQueueEntry": state["queued"],
+                        }
+                    }
+                }
+            )
+        state["writes"].append(request)
+        state["queued"] = {"id": "entry"}
+        if state["uncertain"]:
+            raise TimeoutError("response lost after accepted enqueue")
+        return json.dumps({"data": {"enqueuePullRequest": {"mergeQueueEntry": state["queued"]}}})
 
     monkeypatch.setattr(queue.writer, "api", api)
     monkeypatch.setattr(queue.writer, "command", command)
+    state["read"] = read
     return state
 
 
-@pytest.mark.parametrize("branch", BRANCHES, ids=["verifier", "reporter"])
-def test_each_release_path_requests_exact_head_normal_queue(remote, branch):
-    remote["pr"]["head"]["ref"] = branch
-    queue.enqueue(1, HEAD, branch)
+def enqueue(remote):
+    queue.enqueue(remote["record"], remote["read"])
+
+
+@pytest.mark.parametrize("branch", BRANCHES)
+def test_success_uses_atomic_head_and_normal_queue(remote, branch):
+    remote["pr"]["head"]["ref"] = remote["record"]["branch"] = branch
+    enqueue(remote)
     assert len(remote["writes"]) == 1
     request = remote["writes"][0]
     assert request["variables"] == {"id": "PR_example", "head": HEAD}
-    assert "expectedHeadOid: $head" in request["query"]
-    assert "jump: false" in request["query"]
-    assert "enablePullRequestAutoMerge" not in request["query"]
+    assert "expectedHeadOid: $head" in request["query"] and "jump: false" in request["query"]
+    assert "mergePullRequest" not in request["query"]
 
 
-@pytest.mark.parametrize("bad", ["head", "fork", "draft", "branch", "base", "closed"])
-def test_target_changes_refuse_before_write(remote, bad):
-    pr = remote["pr"]
-    if bad == "head":
-        pr["head"]["sha"] = "b" * 40
-    if bad == "fork":
-        pr["head"]["repo"]["full_name"] = "other/repo"
-    if bad == "draft":
-        pr["draft"] = True
-    if bad == "branch":
-        pr["head"]["ref"] = "custom"
-    if bad == "base":
-        pr["base"]["ref"] = "other"
-    if bad == "closed":
-        pr["state"] = "closed"
+@pytest.mark.parametrize("status", ["failure", "skipped", "cancelled", "neutral", None])
+@pytest.mark.parametrize("kind", ["runs", "checks"])
+def test_unsuccessful_evidence_never_writes(remote, status, kind):
+    remote[kind][0]["conclusion"] = status
     with pytest.raises(ValueError):
-        queue.enqueue(1, HEAD, BRANCHES[0])
+        enqueue(remote)
     assert not remote["writes"]
 
 
-@pytest.mark.parametrize("branch", BRANCHES, ids=["verifier", "reporter"])
-@pytest.mark.parametrize("status", ["absent", "queued", "in_progress", "failure", "skipped"])
-def test_no_required_checks_and_informational_runs_do_not_block(remote, branch, status):
-    remote["pr"]["head"]["ref"] = branch
-    remote["rules"] = [{"type": "merge_queue"}]
-    remote["runs"] = [] if status == "absent" else [{"status": status}]
-    queue.enqueue(1, HEAD, branch)
+@pytest.mark.parametrize(
+    "bad",
+    ["missing", "duplicate", "pending", "stale", "base", "fork", "event", "path", "truncated"],
+)
+def test_workflow_evidence_refuses(remote, bad):
+    run = remote["runs"][0]
+    if bad == "missing":
+        remote["runs"].clear()
+    if bad == "duplicate":
+        remote["runs"].append(copy.deepcopy(run))
+    if bad == "pending":
+        run["status"] = "in_progress"
+    if bad == "stale":
+        run["head_sha"] = MAIN
+    if bad == "base":
+        run["pull_requests"][0]["base"]["sha"] = HEAD
+    if bad == "fork":
+        run["head_repository"]["full_name"] = "other/repo"
+    if bad == "event":
+        run["event"] = "workflow_dispatch"
+    if bad == "path":
+        run["path"] = ".github/workflows/impostor.yml"
+    if bad == "truncated":
+        remote["total_runs"] = 101
+    with pytest.raises(ValueError):
+        enqueue(remote)
+    assert not remote["writes"]
+
+
+@pytest.mark.parametrize("bad", ["missing", "duplicate", "app", "suite", "stale", "pending"])
+def test_check_provenance_refuses(remote, bad):
+    check = remote["checks"][0]
+    if bad == "missing":
+        remote["checks"].clear()
+    if bad == "duplicate":
+        remote["checks"].append(copy.deepcopy(check))
+    if bad == "app":
+        check["app"]["id"] = 999
+    if bad == "suite":
+        check["check_suite"]["id"] = 999
+    if bad == "stale":
+        check["head_sha"] = MAIN
+    if bad == "pending":
+        check["status"] = "queued"
+    with pytest.raises(ValueError):
+        enqueue(remote)
+    assert not remote["writes"]
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        "absent",
+        "queue",
+        "strict",
+        "integration",
+        "context",
+        "bypass",
+        "unknown_bypass",
+        "inactive",
+        "not_allgreen",
+    ],
+)
+def test_missing_enforcement_never_writes(remote, bad):
+    if bad == "absent":
+        remote["rules"].pop()
+    if bad == "queue":
+        remote["rules"].pop(0)
+    if bad == "strict":
+        remote["rules"][1]["parameters"]["strict_required_status_checks_policy"] = False
+    if bad == "integration":
+        remote["rules"][1]["parameters"]["required_status_checks"][0]["integration_id"] = None
+    if bad == "context":
+        remote["rules"][1]["parameters"]["required_status_checks"].pop()
+    if bad == "bypass":
+        remote["detail"]["bypass_actors"] = [{"actor_id": 1}]
+    if bad == "unknown_bypass":
+        del remote["detail"]["bypass_actors"]
+    if bad == "inactive":
+        remote["detail"]["enforcement"] = "evaluate"
+    if bad == "not_allgreen":
+        remote["rules"][0]["parameters"]["grouping_strategy"] = "HEADGREEN"
+    with pytest.raises(ValueError):
+        enqueue(remote)
+    assert not remote["writes"]
+
+
+def test_inaccessible_evidence_never_writes(remote):
+    def denied(path):
+        raise PermissionError("denied")
+
+    remote["read"] = denied
+    with pytest.raises(PermissionError):
+        enqueue(remote)
+    assert not remote["writes"]
+
+
+@pytest.mark.parametrize("race", ["head", "base", "protections"])
+def test_race_during_evidence_collection_refuses(remote, race):
+    read = remote["read"]
+
+    def racing(path):
+        result = read(path)
+        if path.startswith("commits/"):
+            if race == "head":
+                remote["pr"]["head"]["sha"] = MAIN
+            if race == "base":
+                remote["main"] = HEAD
+            if race == "protections":
+                remote["rules"].clear()
+        return result
+
+    remote["read"] = racing
+    with pytest.raises(ValueError):
+        enqueue(remote)
+    assert not remote["writes"]
+
+
+def test_failed_ci_then_successful_retry_uses_same_completion(remote):
+    remote["runs"][0]["conclusion"] = "failure"
+    with pytest.raises(ValueError):
+        enqueue(remote)
+    remote["runs"][0]["conclusion"] = "success"
+    enqueue(remote)
     assert len(remote["writes"]) == 1
-    # No hidden status polling, rule enrollment prerequisite, or wait for optional CI.
-    assert remote["reads"] == ["pulls/1"]
 
 
-@pytest.mark.parametrize("reason", ["head moved", "required check pending", "queue unavailable"])
-def test_server_refusal_never_falls_back_to_merge_or_retries(remote, monkeypatch, reason):
-    calls = []
+def test_interrupted_enqueue_is_inspected_before_retry(remote):
+    remote["uncertain"] = True
+    with pytest.raises(TimeoutError):
+        enqueue(remote)
+    enqueue(remote)
+    assert len(remote["writes"]) == 1
 
-    def command(*args, data=None):
-        request = json.loads(data)
-        assert request["variables"]["head"] == HEAD
-        assert "expectedHeadOid: $head" in request["query"]
-        calls.append(request)
-        return json.dumps({"errors": [{"message": reason}]})
 
-    monkeypatch.setattr(queue.writer, "command", command)
+def test_merge_group_failure_server_refusal_has_no_fallback(remote, monkeypatch):
+    original = queue.writer.command
+
+    def refused(*args, data=None):
+        if json.loads(data)["query"].startswith("query"):
+            return original(*args, data=data)
+        remote["writes"].append(json.loads(data))
+        return json.dumps({"errors": [{"message": "required merge-group check failed"}]})
+
+    monkeypatch.setattr(queue.writer, "command", refused)
     with pytest.raises(ValueError, match="queue refused"):
-        queue.enqueue(1, HEAD, BRANCHES[0])
-    assert len(calls) == 1
-    assert "mergePullRequest" not in calls[0]["query"]
-
-
-@pytest.mark.parametrize("head", ["main", "", "a" * 39])
-def test_invalid_publication_head_refused(remote, head):
-    with pytest.raises(ValueError, match="invalid trusted publication output"):
-        queue.enqueue(1, head, BRANCHES[0])
-    assert not remote["reads"] and not remote["writes"]
+        enqueue(remote)
+    assert len(remote["writes"]) == 1
 
 
 @pytest.mark.parametrize("result", ["success", "failure", "skipped", "cancelled"])
@@ -154,3 +337,67 @@ def test_merge_group_and_scoped_refresh_preserve_boundaries():
         None,
     ]
     assert not (ROOT / ".github/workflows/bundle-completion.yml").exists()
+
+
+@pytest.mark.parametrize("bad", ["head", "fork", "draft", "branch", "base", "closed"])
+def test_target_changes_refuse_before_mutation(remote, bad):
+    pr = remote["pr"]
+    if bad == "head":
+        pr["head"]["sha"] = MAIN
+    if bad == "fork":
+        pr["head"]["repo"]["full_name"] = "other/repo"
+    if bad == "draft":
+        pr["draft"] = True
+    if bad == "branch":
+        pr["head"]["ref"] = "custom"
+    if bad == "base":
+        pr["base"]["ref"] = "other"
+    if bad == "closed":
+        pr["state"] = "closed"
+    with pytest.raises(ValueError):
+        enqueue(remote)
+    assert not remote["writes"]
+
+
+def test_unknown_queue_state_refuses(remote, monkeypatch):
+    monkeypatch.setattr(
+        queue.writer,
+        "command",
+        lambda *args, **kwargs: json.dumps({"data": {"node": {"headRefOid": HEAD}}}),
+    )
+    with pytest.raises(ValueError, match="uncertain"):
+        enqueue(remote)
+    assert not remote["writes"]
+
+
+def test_pending_checks_poll_without_republication(remote, monkeypatch):
+    monkeypatch.setattr(queue.admission, "load_receipt", lambda *args: remote["record"])
+    monkeypatch.setattr(queue.admission, "public_read", remote["read"])
+    remote["runs"][0].update(status="in_progress", conclusion=None)
+    waits = []
+
+    def finish(seconds):
+        assert not remote["writes"]
+        waits.append(seconds)
+        remote["runs"][0].update(status="completed", conclusion="success")
+
+    monkeypatch.setattr(queue.time, "sleep", finish)
+    queue.wait_for_checks(Path("receipt"), "digest")
+    assert waits == [60] and len(remote["writes"]) == 1
+
+
+def test_polling_is_bounded_and_never_retries_unknown_mutation(remote, monkeypatch):
+    monkeypatch.setattr(queue.admission, "load_receipt", lambda *args: remote["record"])
+    monkeypatch.setattr(queue.admission, "public_read", remote["read"])
+    saved = remote["runs"]
+    remote["runs"] = []
+    waits = []
+    monkeypatch.setattr(queue.time, "sleep", lambda seconds: waits.append(seconds))
+    with pytest.raises(ValueError, match="wait exhausted"):
+        queue.wait_for_checks(Path("receipt"), "digest")
+    assert len(waits) == 24 and not remote["writes"]
+    remote["runs"] = saved
+    remote["uncertain"] = True
+    with pytest.raises(TimeoutError):
+        queue.wait_for_checks(Path("receipt"), "digest")
+    assert len(remote["writes"]) == 1 and len(waits) == 24
