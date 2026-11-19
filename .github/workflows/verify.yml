@@ -143,7 +143,7 @@ jobs:
       pull-requests: write
     with:
       repository: Living-Proof-Labs/livingproof-unitree-g1
-      ref: cdab1cfe50351bc8611cab5dbb6d1a1b23cc179f
+      ref: aa10b46f7e0480065d86edc909828d93da4b4a3a
       configurations: '["stock"]'
       verification-lock: verifications/unitree-g1-stock-mujoco-corner-left.lock.json
       artifact-prefix: unitree-g1-stock-mujoco-corner-left-
@@ -157,7 +157,7 @@ jobs:
       pull-requests: write
     with:
       repository: Living-Proof-Labs/livingproof-unitree-g1
-      ref: cdab1cfe50351bc8611cab5dbb6d1a1b23cc179f
+      ref: aa10b46f7e0480065d86edc909828d93da4b4a3a
       configurations: '["stock"]'
       verification-lock: verifications/unitree-g1-stock-mujoco-corner-right.lock.json
       artifact-prefix: unitree-g1-stock-mujoco-corner-right-

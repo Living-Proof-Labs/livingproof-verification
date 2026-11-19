@@ -35,4 +35,9 @@ recordings and the plan declares no gap limit); it never has a default.
 `corner-evidence/<definition>.json` (six files) are the same trimmed parts of the real evidence
 `manifest.json` of each corner run in `livingproof-verification` verify run 44427325390 (head
 797c1f9, runner v3.6.2), written by `tools/parameters_digest.py --fixture`. Each records
-`sources.parameters`, which `tests/test_parameters_digest.py` compares with that definition's lock.
+`sources.parameters`, which `tests/test_parameters_digest.py` compares with that definition's
+original lock under `corner-evidence/locks/`. Those six lock snapshots are copied byte-for-byte
+from commit `797c1f9958ef5f606afe026aa3aa74db5036d765` with
+`git show <head>:verifications/<definition>.lock.json`; the historical manifests are unchanged.
+Current locks are checked against fresh CI evidence by the verification workflow. Old G1
+v3.6.2 evidence explicitly fails against the updated G1 v3.6.4 runner locks.

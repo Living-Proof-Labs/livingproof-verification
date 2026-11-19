@@ -69,12 +69,14 @@ SPECS = {
     }
     for direction, digests in SPECS_FILES.items()
 }
-# The simulator each robot's uv.lock installs at its latest release (#145, option 2). v3.5.0 is the
+# The simulators the selected robot releases install (#145, option 2). v3.5.0 is the
 # first release that records the scenario parameters digest (livingproof-sim-mujoco#104).
 SIM_3_6_2 = ("v3.6.2", "988a57bdb54654aac57aa4de0574d62914074fd0")
+SIM_3_6_4 = ("v3.6.4", "36e93e30f74315a753658e6d0a55af128301338b")
 FIRST_SIM_WITH_PARAMETERS_DIGEST = (3, 5, 0)
-# Released robot refs and their commits, independently read with `gh api .../commits/<tag>`.
-ROBOT_REFS = {
+# Frozen hallway robot refs; eligible corners have their own release expectations below.
+# Commits independently read from the released tags.
+HALLWAY_ROBOT_REFS = {
     "Living-Proof-Labs/livingproof-booster-t1": (
         "v2.3.5",
         "56f6051fd9ee9fdb17f609bf559b7efc8220088a",
@@ -91,10 +93,10 @@ ROBOT_REFS = {
 CORNER = {
     "unitree-g1-stock-mujoco-corner": {
         "repository": "Living-Proof-Labs/livingproof-unitree-g1",
-        "ref": "v2.3.12",
-        "commit": "cdab1cfe50351bc8611cab5dbb6d1a1b23cc179f",
+        "ref": "v2.3.13",
+        "commit": "aa10b46f7e0480065d86edc909828d93da4b4a3a",
         "configurations": ["stock"],
-        "runner": SIM_3_6_2,
+        "runner": SIM_3_6_4,
     },
     "booster-t1-stock-mujoco-corner": {
         "repository": "Living-Proof-Labs/livingproof-booster-t1",
@@ -325,7 +327,12 @@ def test_every_runner_is_v3_5_0_or_later_from_a_released_robot_ref(name):
     robot = lock["robot"]
     assert lock_tool.v2_problems(lock) == []
     assert _semver(robot["ref"])  # a released robot tag
-    assert (robot["ref"], robot["commit"]) == ROBOT_REFS[robot["repository"]], name
+    expected = (
+        (CORNER[name]["ref"], CORNER[name]["commit"])
+        if name in CORNER
+        else HALLWAY_ROBOT_REFS[robot["repository"]]
+    )
+    assert (robot["ref"], robot["commit"]) == expected, name
     runner = lock["releases"]["runner"]
     assert runner["repository"] == "Living-Proof-Labs/livingproof-sim-mujoco"
     assert _semver(runner["tag"]) >= FIRST_SIM_WITH_PARAMETERS_DIGEST, name
@@ -343,15 +350,14 @@ def test_every_lock_pins_livingproof_evaluator_run_v1_5_1():
         assert _lock(name)["evaluators"]["livingproof-evaluator-run"] == expected, name
 
 
-def test_every_definition_pins_the_same_simulator_release():
-    """Hallways and corners share one runner: the release each robot's uv.lock installs."""
-    runners = [_lock(name)["releases"]["runner"] for name in [*CORNER, *HALLWAY]]
-    assert runners
-    assert all(runner == runners[0] for runner in runners)
-    assert runners[0] == {
+@pytest.mark.parametrize("name", sorted([*CORNER, *HALLWAY]))
+def test_each_definition_pins_its_robot_simulator_release(name):
+    """Eligible corners can advance while frozen hallway runners retain their baseline."""
+    tag, commit = CORNER[name]["runner"] if name in CORNER else SIM_3_6_2
+    assert _lock(name)["releases"]["runner"] == {
         "repository": "Living-Proof-Labs/livingproof-sim-mujoco",
-        "tag": "v3.6.2",
-        "commit": "988a57bdb54654aac57aa4de0574d62914074fd0",
+        "tag": tag,
+        "commit": commit,
     }
 
 
