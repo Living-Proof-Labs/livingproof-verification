@@ -2852,7 +2852,9 @@ def test_report_provenance_shows_one_line_when_generation_and_assessment_match()
     assert len(re.findall(r"<dt[ >]", block)) == 1
     assert re.search(r"<dt[^>]*>Generation and assessment</dt>", block)
     text = re.sub(r"\s+", " ", visible_text(block))
-    assert "v2.3.0 · robot-capability-specs · walk-hallway · revision 0.1.0" in text
+    assert (
+        "v2.3.0 · Living-Proof-Labs/robot-capability-specs · walk-hallway · revision 0.1.0" in text
+    )
     assert spec["commit"][:8] not in text
     assert f'href="{SPECS_REPOSITORY}/releases/tag/v2.3.0"' in block
     assert spec["commit"] in block  # the full SHA lives in the link's title, not in the text
@@ -2982,7 +2984,9 @@ def test_report_page_shows_no_commit_id_that_the_site_adds(tmp_path):
     assert visible_hex(text) == []
     text = re.sub(r"\s+", " ", text)
     assert text.startswith(" Spec commit · walk-hallway · revision 0.1.0")
-    assert "commit · robot-capability-specs · walk-hallway · revision 0.1.0" in text
+    assert (
+        "commit · Living-Proof-Labs/robot-capability-specs · walk-hallway · revision 0.1.0" in text
+    )
     # ... and the link still works: it is the commit on GitHub.
     html_block = site_tool.spec_provenance_html(
         {"releases": {"specs": untagged}}, {"summaries": [{"spec": untagged}]}
@@ -3055,3 +3059,47 @@ def test_spec_chip_edge_cases_single_run_revision_only_and_unrecorded(tmp_path):
     flagged = {k for k, row in history_rows(revised).items() if "Spec changed" in row}
     assert flagged == {"101"}
     assert "Spec changed: revision 0.1.0 → 0.2.0" in (revised / "index.html").read_text()
+
+
+@pytest.mark.parametrize("suffix", ["", "/", ".git", ".git/"])
+def test_repository_labels_match_without_changing_stored_provenance(suffix):
+    generation = {
+        **spec_identity("v2.0.2"),
+        "repository": "Living-Proof-Labs/robot-capability-specs",
+    }
+    assessment = {**spec_identity("v2.3.0"), "repository": SPECS_REPOSITORY + suffix}
+    record = {"releases": {"specs": generation}}
+    report = {"summaries": [{"spec": assessment}]}
+    before = json.dumps([record, report], sort_keys=True)
+    markup = "<main><p>Reporter-owned content</p></main>"
+    public = site_tool.with_spec_provenance(markup, record, report)
+    block = provenance_block(public)
+    rows = re.findall(r"<dd[^>]*>(.*?)</dd>", block, re.S)
+    assert len(rows) == 2
+    for row, tag in zip(rows, ("v2.0.2", "v2.3.0")):
+        assert "Living-Proof-Labs/robot-capability-specs" in visible_text(row)
+        assert "https://" not in visible_text(row)
+        assert f'href="{SPECS_REPOSITORY}/releases/tag/{tag}"' in row
+    assert public.replace(block, "") == markup
+    assert json.dumps([record, report], sort_keys=True) == before
+
+
+@pytest.mark.parametrize(
+    "repository",
+    [
+        "javascript:alert(1)",
+        "//evil.example/owner/repo",
+        "https://user@evil.example/owner/repo",
+        "https://github.com/owner/repo?redirect=evil",
+        "https://github.com/owner/repo#fragment",
+        "https://github.com/owner/<script>",
+        "https:///owner/repo",
+        "https://[invalid/owner/repo",
+        "owner/../repo",
+    ],
+)
+def test_spec_repository_links_reject_unsafe_or_ambiguous_values(repository):
+    spec = {**spec_identity("v2.3.0"), "repository": repository}
+    rendered = site_tool._spec_line_html(spec, assessed=True)
+    assert "href=" not in rendered
+    assert "<script>" not in rendered

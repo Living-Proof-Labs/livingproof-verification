@@ -1555,19 +1555,40 @@ def render_with_reporter(
         return destination.read_text()
 
 
-_REPO_URL = re.compile(r"https://[A-Za-z0-9._~:/@-]+")
+_REPO_PATH = re.compile(r"[A-Za-z0-9_-]+/[A-Za-z0-9_.-]+")
 
 
 def _spec_repository_url(spec: dict) -> str | None:
-    """The spec repository as an https URL: recorded as owner/name or as a full URL."""
+    """Normalize repository links without accepting credentials or ambiguous paths."""
     repository = _stored_text(spec.get("repository"))
     if repository is None:
         return None
+    repository = repository.rstrip("/").removesuffix(".git")
     if repository.startswith("https://"):
-        url = repository.rstrip("/").removesuffix(".git")
+        try:
+            parsed = urllib.parse.urlsplit(repository)
+        except ValueError:
+            return None
+        if not re.fullmatch(r"[A-Za-z0-9]+(?:[.-][A-Za-z0-9]+)*", parsed.netloc):
+            return None
+        if parsed.query or parsed.fragment:
+            return None
+        path = parsed.path.removeprefix("/")
+        url = repository
     else:
-        url = "https://github.com/" + repository.strip("/")
-    return url if _REPO_URL.fullmatch(url) else None
+        path = repository
+        url = "https://github.com/" + repository
+    if not _REPO_PATH.fullmatch(path) or path.rsplit("/", 1)[-1] in {".", ".."}:
+        return None
+    return url
+
+
+def _spec_repository_label(spec: dict) -> str | None:
+    """Use owner/name for either stored form; keep unrecognized values as plain text."""
+    url = _spec_repository_url(spec)
+    if url:
+        return urllib.parse.urlsplit(url).path.removeprefix("/")
+    return _stored_text(spec.get("repository"))
 
 
 def _spec_repository_name(spec: dict) -> str | None:
@@ -1607,7 +1628,7 @@ def _spec_line_html(spec: object, *, assessed: bool) -> str:
     """
     if _spec_core(spec) is None:
         return "Not recorded"
-    name, tag, commit = _spec_core(spec)
+    _, tag, commit = _spec_core(spec)
     repository_url = _spec_repository_url(spec)
     pieces = []
     if tag is not None:
@@ -1630,8 +1651,9 @@ def _spec_line_html(spec: object, *, assessed: bool) -> str:
             )
         else:
             pieces.append(f'<span title="{title}">commit</span>')
-    if name is not None:
-        pieces.append(html.escape(name))
+    repository_label = _spec_repository_label(spec)
+    if repository_label is not None:
+        pieces.append(html.escape(repository_label))
     if assessed:
         if _stored_text(spec.get("capability")):
             pieces.append(html.escape(_stored_text(spec["capability"])))
