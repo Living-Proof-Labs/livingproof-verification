@@ -2223,7 +2223,7 @@ def test_failing_evaluators_chips_and_clean_history_view(tmp_path):
     assert "/actions/" not in history
 
     index = (site / "index.html").read_text()
-    assert "All 10" in index and "latest results passed" in index
+    assert "All 10 latest results pass." in index
     assert "History (2)" in index
     assert "SHA256SUMS" not in index
     assert "/actions/" not in index
@@ -2319,10 +2319,10 @@ def test_history_styles_match_the_requested_rhythm():
     fallback = css.split(".release.is-fallback {", 1)[1].split("}", 1)[0]
     assert "monospace" not in fallback  # no hash is shown, so nothing is set in mono (#146)
     assert "code.sha" not in css
-    assert ".robot-group h2" in css
+    assert ".needs h2, .robots-label" in css
     assert "font-size: 0.88rem;" in css
     assert "font-weight: 700;" in css
-    assert ".robot-group:first-child" in css
+    assert ".robots-label" in css
 
 
 def _parse_index_cards(index_html: str) -> list[dict]:
@@ -2431,13 +2431,17 @@ def test_index_cards_use_stretched_latest_link_and_keep_history_only_explicit_li
 
     index = (site / "index.html").read_text()
     assert "Latest report" not in index
-    assert "<script" not in index.lower()
+    assert '<script src="open.js"></script>' in index
+    assert (site / "open.js").is_file()
     assert "onclick=" not in index.lower()
 
-    cards = _parse_index_cards(index)
-    assert len(cards) == len(site_tool.targets())
+    needs_part, robots_part = index.split('<h2 class="robots-label"', 1)
+    needs_cards = _parse_index_cards(needs_part)
+    robot_cards = _parse_index_cards(robots_part)
+    assert len(needs_cards) == 1
+    assert len(robot_cards) == len(site_tool.targets())
     labels = set()
-    for card in cards:
+    for card in needs_cards + robot_cards:
         assert not card["has_nested_a"]
         assert all(tag == "span" for tag in card["chips"])
         assert card["releases"] == ["span"]
@@ -3103,3 +3107,146 @@ def test_spec_repository_links_reject_unsafe_or_ambiguous_values(repository):
     rendered = site_tool._spec_line_html(spec, assessed=True)
     assert "href=" not in rendered
     assert "<script>" not in rendered
+
+
+def test_index_needs_attention_newest_first_chips_and_finding(tmp_path):
+    """#139: Needs attention lists latest FAILs across robots, newest first, with chips & finding."""
+    site = tmp_path / "site"
+    site_tool.build(
+        site,
+        reports_for(tmp_path, "pass", 19, "PASS"),
+        {**run("200", "2026-11-18T05:20:00Z"), "tag": "v1.1.0"},
+    )
+    booster_fail = site / "booster-t1/stock-mujoco-hallway/runs/200/run.json"
+    b_rec = json.loads(booster_fail.read_text())
+    b_rec["outcome"][0]["grade"] = "FAIL"
+    b_rec["run"]["created"] = "2026-11-18T05:10:00Z"
+    b_rec["failing_evaluators"] = [
+        {
+            "id": "livingproof-scenario",
+            "title": "Scenario",
+            "href": "#evaluator-livingproof-scenario",
+            "summary": "Left the hallway through the right wall.",
+        },
+        {
+            "id": "aaron-roller",
+            "title": "Aaron Roller",
+            "href": "#evaluator-aaron-roller",
+        },
+    ]
+    booster_fail.write_text(json.dumps(b_rec, indent=2) + "\n")
+
+    site_tool.render(site, now="2026-11-18T05:40:00Z")
+    one_fail = (site / "index.html").read_text()
+    assert "1 latest result failed, newest first. Each card opens the latest report." in one_fail
+
+    g1_fail = site / "unitree-g1/stock-mujoco-hallway/runs/200/run.json"
+    g_rec = json.loads(g1_fail.read_text())
+    g_rec["outcome"][0]["grade"] = "FAIL"
+    g_rec["run"]["created"] = "2026-11-18T05:30:00Z"
+    g_rec["failing_evaluators"] = [
+        {
+            "id": "livingproof-scenario",
+            "title": "Scenario",
+            "href": "#evaluator-livingproof-scenario",
+            "summary": "Drifted 0.66 m from the centreline.",
+        }
+    ]
+    g1_fail.write_text(json.dumps(g_rec, indent=2) + "\n")
+
+    site_tool.render(site, now="2026-11-18T05:40:00Z")
+    index = (site / "index.html").read_text()
+    needs_part, robots_part = index.split('<h2 class="robots-label"', 1)
+
+    assert '<h2 id="needs-attention">Needs attention</h2>' in needs_part
+    assert "2 latest results failed, newest first. Each card opens the latest report." in needs_part
+    assert "Unitree G1 · stock · MuJoCo" in needs_part
+    assert "Booster T1 · stock · MuJoCo" in needs_part
+    assert needs_part.index("Unitree G1 · stock · MuJoCo") < needs_part.index(
+        "Booster T1 · stock · MuJoCo"
+    )
+    assert '<span class="chip">Scenario</span>' in needs_part
+    assert '<span class="chip">Aaron Roller</span>' in needs_part
+    assert '<p class="finding">Drifted 0.66 m from the centreline.</p>' in needs_part
+    assert '<p class="finding">Left the hallway through the right wall.</p>' in needs_part
+    assert len(_parse_index_cards(needs_part)) == 2
+    # Both failing scenarios also appear inside their robot sections, without repeating robot name.
+    assert "Unitree G1 · stock · MuJoCo" not in robots_part
+    assert "Booster T1 · stock · MuJoCo" not in robots_part
+    local_links_resolve(site)
+
+
+def test_index_robot_sections_collapsed_with_counts_dots_and_failing_first_order(tmp_path):
+    """#139: robot sections use native collapsed <details>, accessible counts, and fail-first dots."""
+    site = tmp_path / "site"
+    site_tool.build(
+        site,
+        reports_for(tmp_path, "pass", 19, "PASS"),
+        {**run("200", "2026-11-18T05:20:00Z"), "tag": "v1.1.0"},
+    )
+    booster_fail = site / "booster-t1/stock-mujoco-hallway/runs/200/run.json"
+    b_rec = json.loads(booster_fail.read_text())
+    b_rec["outcome"][0]["grade"] = "FAIL"
+    b_rec["run"]["created"] = "2026-11-18T05:30:00Z"
+    b_rec["failing_evaluators"] = [
+        {
+            "id": "livingproof-scenario",
+            "title": "Scenario",
+            "href": "#evaluator-livingproof-scenario",
+            "summary": "Stopped early.",
+        }
+    ]
+    booster_fail.write_text(json.dumps(b_rec, indent=2) + "\n")
+
+    site_tool.render(site, now="2026-11-18T05:40:00Z")
+    index = (site / "index.html").read_text()
+
+    assert not re.search(r'<details class="robot"[^>]*\bopen\b', index)
+    for robot_id in ("booster-t1", "unitree-g1", "unitree-go1"):
+        assert f'<details class="robot" id="{robot_id}">' in index
+
+    booster_block = index.split('<details class="robot" id="booster-t1">', 1)[1].split(
+        "</details>", 1
+    )[0]
+    assert (
+        '<span class="visually-hidden">'
+        "Booster T1, 3 scenarios, 1 failed, 2 passed, latest v1.1.0, 10 minutes ago"
+        "</span>"
+    ) in booster_block
+    assert '<div class="summary-row" aria-hidden="true">' in booster_block
+    assert '<span class="fail-count">1 failed</span>' in booster_block
+    assert '<span class="pass-count">2 passed</span>' in booster_block
+    assert (
+        '<span class="dots">'
+        '<span class="pip pip-fail" title="Walk the hallway: failed"></span>'
+        '<span class="pip pip-pass" title="Walk around the corner (left): passed"></span>'
+        '<span class="pip pip-pass" title="Walk around the corner (right): passed"></span>'
+        '<span class="pip-more" hidden></span>'
+        "</span>"
+    ) in booster_block
+    # Expanded cards: FAIL first, then alphabetical.
+    cards = _parse_index_cards(booster_block)
+    assert [c["anchors"][0]["aria-label"] for c in cards] == [
+        "Walk the hallway, latest report (FAIL)",
+        "Walk around the corner (left), latest report (PASS)",
+        "Walk around the corner (right), latest report (PASS)",
+    ]
+    assert (site / "open.js").is_file()
+    local_links_resolve(site)
+
+
+def test_index_all_pass_shows_single_quiet_line(tmp_path):
+    """#139: when nothing fails, Needs attention collapses to 'All N latest results pass.'"""
+    site = tmp_path / "site"
+    site_tool.build(
+        site,
+        reports_for(tmp_path, "pass", 19, "PASS"),
+        {**run("200", "2026-11-18T05:20:00Z"), "tag": "v1.1.0"},
+    )
+    site_tool.render(site, now="2026-11-18T05:40:00Z")
+    index = (site / "index.html").read_text()
+    assert 'id="needs-attention"' not in index
+    assert '<p class="all-pass">All 10 latest results pass.</p>' in index
+    assert "failed" not in index.split('<h2 class="robots-label"', 1)[0]
+    assert index.index("All 10 latest results pass.") < index.index('id="robots"')
+    local_links_resolve(site)
