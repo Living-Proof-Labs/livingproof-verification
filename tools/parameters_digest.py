@@ -100,6 +100,19 @@ def trimmed(manifest: dict, workflow_run: int, head_sha: str, artifact: str) -> 
     }
 
 
+def load_object(path: Path) -> tuple[dict | None, str | None]:
+    """The JSON object in a file, or (None, why) when it is missing, not JSON or not an object."""
+    try:
+        value = json.loads(Path(path).read_text())
+    except OSError as exc:
+        return None, f"cannot read: {exc.strerror or exc}"
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        return None, f"invalid JSON: {exc}"
+    if not isinstance(value, dict):
+        return None, "not a JSON object"
+    return value, None
+
+
 def check_directory(evidence: Path, locks: Path) -> int:
     """Check each downloaded run against its definition's lock; no runs at all is a failure."""
     manifests = sorted(evidence.glob("*-evidence-*/manifest.json"))
@@ -127,16 +140,26 @@ def main(argv: list[str]) -> int:
         if len(argv) != 5:
             print(__doc__, file=sys.stderr)
             return 2
-        manifest = json.loads(Path(argv[4]).read_text())
+        manifest, why = load_object(Path(argv[4]))
+        if manifest is None:
+            print(f"FAIL {argv[4]}: {why}")
+            return 1
         print(json.dumps(trimmed(manifest, int(argv[1]), argv[2], argv[3]), indent=2))
         return 0
     if len(argv) < 2:
         print(__doc__, file=sys.stderr)
         return 2
-    lock = json.loads(Path(argv[0]).read_text())
+    lock, why = load_object(Path(argv[0]))
+    if lock is None:
+        print(f"FAIL {argv[0]}: {why}")
+        return 1
     status = 0
     for name in argv[1:]:
-        manifest = json.loads(Path(name).read_text())
+        manifest, why = load_object(Path(name))
+        if manifest is None:
+            print(f"FAIL {name}: {why}")
+            status = 1
+            continue
         found = problems(lock, manifest)
         if found:
             status = 1
