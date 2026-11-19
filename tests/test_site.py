@@ -2316,7 +2316,9 @@ def test_history_styles_match_the_requested_rhythm():
     assert ".finding {\n  margin: 0.5rem 0 0;" in css
     assert ".row-meta" in css and "margin-top: 0.5rem;" in css
     assert ".release.is-fallback" in css
-    assert "ui-monospace" in css and "monospace" in css
+    fallback = css.split(".release.is-fallback {", 1)[1].split("}", 1)[0]
+    assert "monospace" not in fallback  # no hash is shown, so nothing is set in mono (#146)
+    assert "code.sha" not in css
     assert ".robot-group h2" in css
     assert "font-size: 0.88rem;" in css
     assert "font-weight: 700;" in css
@@ -2821,8 +2823,8 @@ def test_report_provenance_shows_one_line_when_generation_and_assessment_match()
     assert "v2.3.0 · robot-capability-specs · walk-hallway · revision 0.1.0" in text
     assert spec["commit"][:8] not in text
     assert f'href="{SPECS_REPOSITORY}/releases/tag/v2.3.0"' in block
-    assert f'title="{spec["commit"]}"' in block  # the full SHA lives in a title and the link
-    assert f'href="{SPECS_REPOSITORY}/commit/{spec["commit"]}"' in block
+    assert spec["commit"] in block  # the full SHA lives in the link's title, not in the text
+    assert f'title="Release v2.3.0, commit {spec["commit"]}"' in block
     assert spec["commit"] not in text
     assert "https://" not in text
     assert "Recorded at run time; not reassessed." in text
@@ -2917,7 +2919,7 @@ def test_no_commit_id_is_visible_on_the_index_or_history_page(tmp_path):
 def test_the_robot_pin_is_written_without_an_at_sign(tmp_path):
     base = build_spec_history(tmp_path, [("v2.3.0", spec_identity("v2.3.0", "0.1.0"))])
     page = (base / "index.html").read_text()
-    pin = re.search(r'<p class="meta-line"><a href="[^"]*">([^<]*)</a>', page.split("</header>")[0])
+    pin = re.search(r'<a href="[^"]*/releases/tag/v2\.2\.10"[^>]*>([^<]*)</a>', page)
     assert pin is not None
     assert pin.group(1) == "livingproof-booster-t1 v2.2.10"
     assert "@" not in visible_text(page.split("<main", 1)[0])
@@ -2946,7 +2948,15 @@ def test_report_page_shows_no_commit_id_that_the_site_adds(tmp_path):
         )
     )
     assert visible_hex(text) == []
-    assert re.sub(r"\s+", " ", text).startswith(" Spec commit · robot-capability-specs")
+    text = re.sub(r"\s+", " ", text)
+    assert text.startswith(" Spec commit · walk-hallway · revision 0.1.0")
+    assert "commit · robot-capability-specs · walk-hallway · revision 0.1.0" in text
+    # ... and the link still works: it is the commit on GitHub.
+    html_block = site_tool.spec_provenance_html(
+        {"releases": {"specs": untagged}}, {"summaries": [{"spec": untagged}]}
+    )
+    assert f'href="{SPECS_REPOSITORY}/commit/{spec["commit"]}"' in html_block
+    assert ">commit</a>" in html_block
 
 
 def test_report_provenance_summary_is_not_letter_spaced_or_uppercased():
