@@ -31,3 +31,8 @@ against the Go1 playground corner-left evidence fixture
 The result carries all five Run Integrity checks: completeness, pins, plan-conformance,
 termination and recording. `recording` is not applicable (the Run Integrity job is given no
 recordings and the plan declares no gap limit); it never has a default.
+
+`corner-evidence/<definition>.json` (six files) are the same trimmed parts of the real evidence
+`manifest.json` of each corner run in `livingproof-verification` verify run 44427325390 (head
+797c1f9, runner v3.6.2), written by `tools/parameters_digest.py --fixture`. Each records
+`sources.parameters`, which `tests/test_parameters_digest.py` compares with that definition's lock.

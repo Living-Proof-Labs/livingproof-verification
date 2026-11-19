@@ -134,6 +134,19 @@ def test_the_command_exits_non_zero_on_a_mismatch(tmp_path, capsys):
     assert "recorded sha256" in capsys.readouterr().out
 
 
+@pytest.mark.parametrize("name", CORNERS)
+def test_each_corner_run_on_ci_recorded_the_digest_in_its_lock(name):
+    """The real manifest of a verify run on the bumped locks records the lock's digest."""
+    fixture = json.loads((FIXTURES / f"{name}.json").read_text())
+    assert isinstance(fixture["workflow_run"], int)
+    assert fixture["artifact"] == f"{name}-evidence-{_lock(name)['robot']['configurations'][0]}"
+    manifest = fixture["manifest"]
+    lock = _lock(name)
+    assert digest_tool.problems(lock, manifest) == []
+    assert manifest["environment"]["runner"]["tag"] == lock["releases"]["runner"]["tag"]
+    assert manifest["sources"]["parameters"] == lock["sources"]["parameters"]
+
+
 @pytest.mark.parametrize(
     "name", ["unitree-g1-stock-mujoco-corner-left", "unitree-g1-stock-mujoco-corner-right"]
 )
