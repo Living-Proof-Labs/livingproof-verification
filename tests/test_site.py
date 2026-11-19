@@ -2191,7 +2191,7 @@ def test_failing_evaluators_chips_and_clean_history_view(tmp_path):
         }
     ]
     assert fail_record["poster"] == {"type": "ci", "name": "CI"}
-    assert fail_record["robot"]["tag"] == "v2.2.10"
+    assert fail_record["robot"]["tag"] == "v2.3.5"
     assert fail_record["robot"]["software_version"] == "1.0.0"
 
     pass_record = json.loads((base / "runs/200/run.json").read_text())
@@ -2201,7 +2201,7 @@ def test_failing_evaluators_chips_and_clean_history_view(tmp_path):
     history = (base / "index.html").read_text()
     assert "Booster T1 · stock · MuJoCo" in history
     assert "Walk the hallway" in history
-    assert "livingproof-booster-t1 @ v2.2.10" in history
+    assert "livingproof-booster-t1 @ v2.3.5" in history
     assert "software stock 1.0.0" in history
     assert 'href="runs/100/#evaluator-livingproof-scenario"' in history
     assert ">Scenario</a>" in history

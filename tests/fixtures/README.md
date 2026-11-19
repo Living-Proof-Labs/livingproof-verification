@@ -17,3 +17,9 @@ The published pages must not keep those hrefs or that wording (lpv #23 and #48).
 livingproof-capability-report v3.7.0 (`tests/fixtures/repeats` at tag `v3.7.0`,
 commit `5f4114c2b78759a0ea4eb18584c0a232459ea90a`). `tests/test_repeat_report.py`
 renders them with the reporter pinned in `verifications/settings.toml`.
+
+`corner-evidence/v3.4.1/` holds the parts of two real evidence `manifest.json` files that the
+parameters-digest check reads, from `livingproof-verification` verify run 44423756063 (head
+ee40aa3, runner v3.4.1): `format`, `run_id`, `created`, `scenario` (from the embedded lock),
+`environment.runner` and `sources` (absent: v3.4.1 predates livingproof-sim-mujoco#104). They
+prove `tools/parameters_digest.py` refuses a run that records no digest.

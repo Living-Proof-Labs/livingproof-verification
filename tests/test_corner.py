@@ -15,6 +15,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import tomllib
 import urllib.request
 
@@ -68,28 +69,46 @@ SPECS = {
     }
     for direction, digests in SPECS_FILES.items()
 }
-SIM_3_4_1 = ("v3.4.1", "4e97b6c1ee72a9f6598a91d0a1476116dc17ae13")
+# The simulator each robot's uv.lock installs at its latest release (#145, option 2). v3.5.0 is the
+# first release that records the scenario parameters digest (livingproof-sim-mujoco#104).
+SIM_3_6_2 = ("v3.6.2", "988a57bdb54654aac57aa4de0574d62914074fd0")
+FIRST_SIM_WITH_PARAMETERS_DIGEST = (3, 5, 0)
+# Released robot refs and their commits, independently read with `gh api .../commits/<tag>`.
+ROBOT_REFS = {
+    "Living-Proof-Labs/livingproof-booster-t1": (
+        "v2.3.5",
+        "56f6051fd9ee9fdb17f609bf559b7efc8220088a",
+    ),
+    "Living-Proof-Labs/livingproof-unitree-g1": (
+        "v2.3.12",
+        "cdab1cfe50351bc8611cab5dbb6d1a1b23cc179f",
+    ),
+    "Living-Proof-Labs/livingproof-unitree-go1": (
+        "v2.3.5",
+        "fe48f8bda30aa0a65bd01b06107fc76874195f35",
+    ),
+}
 CORNER = {
     "unitree-g1-stock-mujoco-corner": {
         "repository": "Living-Proof-Labs/livingproof-unitree-g1",
-        "ref": "v2.3.0",
-        "commit": "7bad621eb044a5389743e5d101cf404721934a59",
+        "ref": "v2.3.12",
+        "commit": "cdab1cfe50351bc8611cab5dbb6d1a1b23cc179f",
         "configurations": ["stock"],
-        "runner": SIM_3_4_1,
+        "runner": SIM_3_6_2,
     },
     "booster-t1-stock-mujoco-corner": {
         "repository": "Living-Proof-Labs/livingproof-booster-t1",
-        "ref": "v2.3.0",
-        "commit": "2774c1a34853bc68fd86575e5084514749424976",
+        "ref": "v2.3.5",
+        "commit": "56f6051fd9ee9fdb17f609bf559b7efc8220088a",
         "configurations": ["stock"],
-        "runner": SIM_3_4_1,
+        "runner": SIM_3_6_2,
     },
     "unitree-go1-playground-mujoco-corner": {
         "repository": "Living-Proof-Labs/livingproof-unitree-go1",
-        "ref": "v2.3.0",
-        "commit": "5d95e5a1d00a81c711eb4f83e259b82126ec6592",
+        "ref": "v2.3.5",
+        "commit": "fe48f8bda30aa0a65bd01b06107fc76874195f35",
         "configurations": ["playground"],
-        "runner": SIM_3_4_1,
+        "runner": SIM_3_6_2,
     },
 }
 CORNER = {
@@ -103,7 +122,7 @@ CORNER = {
 }
 
 # hallway-open 0.1.0 at livingproof-worlds v1.1.0, the world livingproof-sim-mujoco
-# v3.4.1 validates against its schema. The lock records the world.json sha256 v2.0.0 assessment requires.
+# v3.6.2 validates against its schema. The lock records the world.json sha256 v2.0.0 assessment requires.
 HALLWAY_WORLD = {
     "id": "hallway-open",
     "version": "0.1.0",
@@ -128,26 +147,26 @@ HALLWAY_SPECS = {
 HALLWAY_ROBOT = {
     "booster-t1-stock-mujoco-hallway": {
         "repository": "Living-Proof-Labs/livingproof-booster-t1",
-        "ref": "v2.2.10",
-        "commit": "a00c7d884b764c89404dc91be9232c0d55eb392c",
+        "ref": "v2.3.5",
+        "commit": "56f6051fd9ee9fdb17f609bf559b7efc8220088a",
         "configurations": ["stock"],
     },
     "unitree-g1-playground-mujoco-hallway": {
         "repository": "Living-Proof-Labs/livingproof-unitree-g1",
-        "ref": "v2.2.11",
-        "commit": "3c8a781dc42b56126cc599e00a7d7ed360ed6671",
+        "ref": "v2.3.12",
+        "commit": "cdab1cfe50351bc8611cab5dbb6d1a1b23cc179f",
         "configurations": ["playground"],
     },
     "unitree-g1-stock-mujoco-hallway": {
         "repository": "Living-Proof-Labs/livingproof-unitree-g1",
-        "ref": "v2.2.11",
-        "commit": "3c8a781dc42b56126cc599e00a7d7ed360ed6671",
+        "ref": "v2.3.12",
+        "commit": "cdab1cfe50351bc8611cab5dbb6d1a1b23cc179f",
         "configurations": ["stock"],
     },
     "unitree-go1-playground-mujoco-hallway": {
         "repository": "Living-Proof-Labs/livingproof-unitree-go1",
-        "ref": "v2.2.11",
-        "commit": "f2aa573ded0d845897f2c7b7f1c02b645ad0ad3b",
+        "ref": "v2.3.5",
+        "commit": "fe48f8bda30aa0a65bd01b06107fc76874195f35",
         "configurations": ["playground"],
     },
 }
@@ -156,20 +175,20 @@ HALLWAY_ROBOT = {
 # specs and runner releases), as sorted-key JSON.
 HALLWAY = {
     "booster-t1-stock-mujoco-hallway": (
-        "bc6e864ca49d42fc14930fcfe302308c0a68be9dc350b0975feceee4a6a07ab7",
-        "5ed6fc97066dbff74b539866ec7fb53748ee76330006617881e812054db673f9",
+        "81ec47662b2e22a41adfdd9d5aea4ac303fa0541f94c1b00a77629612d9f5fba",
+        "cd16788288ffe3abe7e667ae05905b6f2892e740941075d6fc651c32474e11e4",
     ),
     "unitree-g1-playground-mujoco-hallway": (
-        "d8edb6b4d5b371f4672a2ae8b1595cb660718359cb9b3817eef6cdcef306e675",
-        "e5ef65f6fa0aa3e1b1487c171bf7bd47a38015d7b4285782e1deb31c1ba4186b",
+        "f32bbab5668c944897dd6925f2d961a3e3030fd990dfaf8971c20c73a4e204df",
+        "5632da4c949641cfe0c3557ccd800d1dabebb87f080191b5e114ded7c445d5f9",
     ),
     "unitree-g1-stock-mujoco-hallway": (
-        "2fbb53fca6beeaa1f6662d4937a7fbeebccd81ed54bd2cae61ecd1dc3df6e829",
-        "716f327edb5c33a8f0a48c64ac0daa054b0016560515bc9d0f0968b93f7a38d9",
+        "a9cdd7f0fe6bca1a0c716c42b2f8e10d49026316ee1d7ab3bfa8cffaacd48c6e",
+        "1df95f10a3636885fb5ed69890dfc868794e0cdad1dc822981cc187fee60c5ea",
     ),
     "unitree-go1-playground-mujoco-hallway": (
-        "8b92ebc98abae63574cd66685bdc2bc159aa213c67f4ef24f16d9eaa018a11a8",
-        "e3f7d3987434296fc12cdbde4b2afcdb0a0ae864514ca9d6af9b88d15957eaeb",
+        "db14265020b13da264db89b80fb39cc6729f0b21712afc04f22737cb363fed83",
+        "983f95c1b799ef1d9862b3a141d7f71038576ccff7cebf195d22c8a94a503920",
     ),
 }
 EVIDENCE_KEYS = ("procedure", "scenario", "robot", "world", "plan", "configurations")
@@ -292,6 +311,27 @@ def test_every_lock_pins_a_reporter_that_renders_walk_corner_places():
         assert (reporter["tag"], reporter["commit"]) == REPORTER_RELEASE, name
 
 
+def _semver(tag: str) -> tuple[int, int, int]:
+    match = re.fullmatch(r"v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", tag)
+    assert match, f"{tag!r} is not a released vX.Y.Z tag"
+    return tuple(int(part) for part in match.groups())
+
+
+@pytest.mark.parametrize("name", sorted([*CORNER, *HALLWAY]))
+def test_every_runner_is_v3_5_0_or_later_from_a_released_robot_ref(name):
+    """#145: the parameters digest is recorded from livingproof-sim-mujoco v3.5.0, so every lock
+    must resolve the runner at or after it, through a released robot tag (not a branch or SHA)."""
+    lock = _lock(name)
+    robot = lock["robot"]
+    assert lock_tool.v2_problems(lock) == []
+    assert _semver(robot["ref"])  # a released robot tag
+    assert (robot["ref"], robot["commit"]) == ROBOT_REFS[robot["repository"]], name
+    runner = lock["releases"]["runner"]
+    assert runner["repository"] == "Living-Proof-Labs/livingproof-sim-mujoco"
+    assert _semver(runner["tag"]) >= FIRST_SIM_WITH_PARAMETERS_DIGEST, name
+    assert re.fullmatch(r"[0-9a-f]{40}", runner["commit"])
+
+
 def test_every_definition_pins_the_same_simulator_release():
     """Hallways and corners share one runner: the release each robot's uv.lock installs."""
     runners = [_lock(name)["releases"]["runner"] for name in [*CORNER, *HALLWAY]]
@@ -299,8 +339,8 @@ def test_every_definition_pins_the_same_simulator_release():
     assert all(runner == runners[0] for runner in runners)
     assert runners[0] == {
         "repository": "Living-Proof-Labs/livingproof-sim-mujoco",
-        "tag": "v3.4.1",
-        "commit": "4e97b6c1ee72a9f6598a91d0a1476116dc17ae13",
+        "tag": "v3.6.2",
+        "commit": "988a57bdb54654aac57aa4de0574d62914074fd0",
     }
 
 
@@ -368,8 +408,8 @@ def test_each_hallway_lock_pins_the_released_robot_world_runner_and_verifier(nam
     assert lock["releases"]["specs"] == HALLWAY_SPECS
     assert lock["releases"]["runner"] == {
         "repository": "Living-Proof-Labs/livingproof-sim-mujoco",
-        "tag": "v3.4.1",
-        "commit": "4e97b6c1ee72a9f6598a91d0a1476116dc17ae13",
+        "tag": "v3.6.2",
+        "commit": "988a57bdb54654aac57aa4de0574d62914074fd0",
     }
     verifier = lock["releases"]["verifier"]
     assert (verifier["repository"], verifier["tag"], verifier["commit"]) == (
