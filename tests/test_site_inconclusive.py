@@ -20,7 +20,7 @@ spec.loader.exec_module(site_tool)
 
 FIXTURE = ROOT / "tests/fixtures/evaluator-result-run-integrity-all-not-applicable.json"
 INCONCLUSIVE = json.loads(FIXTURE.read_text(encoding="utf-8"))
-COPY = "Not graded: no integrity check applied to this run."
+COPY = "Not graded: no check applied to this run."
 
 
 def _report(document: dict, grade: str = "FAIL") -> dict:
@@ -53,6 +53,7 @@ def test_an_inconclusive_run_is_surfaced_with_not_graded_copy():
             "title": "Run Integrity",
             "href": "#evaluator-livingproof-run-integrity",
             "summary": COPY,
+            "not_graded": True,
         }
     ]
 
@@ -70,3 +71,39 @@ def test_error_still_speaks_and_completed_still_does_not():
     assert "summary" not in found[0]
     completed = _with_status("COMPLETED", success=True, percentage=100)
     assert site_tool.failing_evaluators(_report(completed)) == []
+
+
+def _record(entries: list[dict]) -> dict:
+    return {"grade": "FAIL", "failing_evaluators": entries}
+
+
+def test_the_inconclusive_entry_is_marked_not_graded_and_error_is_not():
+    inconclusive = site_tool.failing_evaluators(_report(copy.deepcopy(INCONCLUSIVE)))
+    assert inconclusive[0]["not_graded"] is True
+    error = _with_status("ERROR", success=False, percentage=0)
+    assert "not_graded" not in site_tool.failing_evaluators(_report(error))[0]
+
+
+def test_the_not_graded_chip_is_neutral_and_a_failing_chip_is_not():
+    entry = site_tool.failing_evaluators(_report(copy.deepcopy(INCONCLUSIVE)))
+    neutral = site_tool._chips_html(_record(entry), "../")
+    assert 'class="chip chip-spec"' in neutral
+    error = _with_status("ERROR", success=False, percentage=0)
+    failing = site_tool.failing_evaluators(_report(error))
+    plain = site_tool._chips_html(_record(failing), "../")
+    assert 'class="chip chip-spec"' not in plain
+    assert 'class="chip"' in plain
+
+
+def test_the_not_graded_line_is_exact_and_neutral():
+    entry = site_tool.failing_evaluators(_report(copy.deepcopy(INCONCLUSIVE)))
+    line = site_tool._finding_html(_record(entry))
+    assert line == f'<p class="finding finding-neutral">{COPY}</p>'
+    assert COPY == "Not graded: no check applied to this run."
+    # A real finding keeps the plain failing style.
+    real = _record([{"id": "e", "title": "E", "href": "#e", "summary": "Drifted."}])
+    assert site_tool._finding_html(real) == '<p class="finding">Drifted.</p>'
+    css = site_tool.SITE_STYLES
+    assert ".finding-neutral" in css
+    block = css[css.index(".finding-neutral") :].split("}")[0]
+    assert "chip-fail" not in block
