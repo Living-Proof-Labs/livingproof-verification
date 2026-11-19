@@ -12,11 +12,11 @@ import bundle_proposal as writer
 
 ACTIONS_APP = 15368
 WORKFLOWS = {
-    ".github/workflows/checks.yml": "checks",
-    ".github/workflows/verify.yml": "verification",
+    ".github/workflows/checks.yml": ("checks", "bundle-release-engine", "renovate"),
+    ".github/workflows/verify.yml": ("verification",),
 }
 # Independent job contexts required by server enforcement. The first three
-# belong to checks.yml, whose complete successful run is validated below.
+# belong to checks.yml. Validate each individual check as well as its workflow run.
 REQUIRED_CONTEXTS = frozenset({"checks", "bundle-release-engine", "renovate", "verification"})
 WORKFLOW_REF = "Living-Proof-Labs/.github/.github/workflows/bundle-completion.yml@refs/heads/main"
 
@@ -136,7 +136,8 @@ def successful_checks(record, read):
     if result["total_count"] != len(checks) or len(checks) >= 100:
         raise ValueError("incomplete check evidence")
     snapshot = {}
-    for path, name in WORKFLOWS.items():
+    seen_check_ids = set()
+    for path, names in WORKFLOWS.items():
         matching = [r for r in runs if r.get("path") == path]
         if not matching:
             raise PendingEvidence("trusted workflow has not reported")
@@ -160,34 +161,35 @@ def successful_checks(record, read):
             )
         ):
             raise ValueError("workflow did not successfully verify this head and base")
-        matching = [c for c in checks if c.get("name") == name]
-        if not matching:
-            raise PendingEvidence("required check has not reported")
-        if len(matching) != 1:
-            raise ValueError("ambiguous required check")
-        check = matching[0]
-        if check.get("status") in {"queued", "in_progress"} and check.get("conclusion") is None:
-            raise PendingEvidence("required check still pending")
-        if (
-            check.get("head_sha") != head
-            or check.get("app", {}).get("id") != ACTIONS_APP
-            or check.get("check_suite", {}).get("id") != run.get("check_suite_id")
-            or not run.get("check_suite_id")
-            or check.get("status") != "completed"
-            or check.get("conclusion") != "success"
-        ):
-            raise ValueError("required check is not trusted successful exact-head evidence")
-
-        identities = (
-            run.get("id"),
-            run.get("run_attempt"),
-            run.get("check_suite_id"),
-            check.get("id"),
-        )
-        if any(type(value) is not int or value < 1 for value in identities):
-            raise ValueError("trusted run/attempt/check identity missing")
-        # Copy scalar identities, not references to mutable API response objects.
-        snapshot[path] = identities
+        run_identity = (run.get("id"), run.get("run_attempt"), run.get("check_suite_id"))
+        if any(type(value) is not int or value < 1 for value in run_identity):
+            raise ValueError("trusted run/attempt/suite identity missing")
+        check_identities = []
+        for name in names:
+            matching = [c for c in checks if c.get("name") == name]
+            if not matching:
+                raise PendingEvidence("required check has not reported")
+            if len(matching) != 1:
+                raise ValueError("ambiguous required check")
+            check = matching[0]
+            if check.get("status") in {"queued", "in_progress"} and check.get("conclusion") is None:
+                raise PendingEvidence("required check still pending")
+            if (
+                check.get("head_sha") != head
+                or check.get("app", {}).get("id") != ACTIONS_APP
+                or check.get("check_suite", {}).get("id") != run["check_suite_id"]
+                or check.get("status") != "completed"
+                or check.get("conclusion") != "success"
+                or type(check.get("id")) is not int
+                or check["id"] < 1
+                or check["id"] in seen_check_ids
+            ):
+                raise ValueError("required check is not trusted successful exact-head evidence")
+            seen_check_ids.add(check["id"])
+            check_identities.append((name, check["id"]))
+        # Freeze every context identity; a successful workflow summary cannot
+        # substitute for an omitted or skipped independent check.
+        snapshot[path] = (*run_identity, tuple(check_identities))
     return snapshot
 
 
@@ -197,7 +199,7 @@ def revalidate_checks(record, snapshot, read):
     # The list and check reads above are not atomic. Read the current run endpoint
     # too, catching a rerun begun during that collection. A race after the last
     # read still requires server-enforced fresh merge-group checks.
-    for path, (run_id, attempt, suite, _check_id) in snapshot.items():
+    for path, (run_id, attempt, suite, _check_identities) in snapshot.items():
         run = read(f"actions/runs/{run_id}")
         if (
             run.get("id") != run_id

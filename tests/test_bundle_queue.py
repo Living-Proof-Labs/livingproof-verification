@@ -49,7 +49,12 @@ def remote(monkeypatch):
         },
     ]
     runs, checks = [], []
-    for index, (path, name) in enumerate(queue.admission.WORKFLOWS.items(), 1):
+    # Independent fixture contract: do not derive evidence from the implementation.
+    workflows = {
+        ".github/workflows/checks.yml": ("checks", "bundle-release-engine", "renovate"),
+        ".github/workflows/verify.yml": ("verification",),
+    }
+    for index, (path, names) in enumerate(workflows.items(), 1):
         runs.append(
             {
                 "id": index,
@@ -65,17 +70,18 @@ def remote(monkeypatch):
                 "pull_requests": [{"number": 1, "head": {"sha": HEAD}, "base": {"sha": MAIN}}],
             }
         )
-        checks.append(
-            {
-                "id": index + 100,
-                "name": name,
-                "head_sha": HEAD,
-                "status": "completed",
-                "conclusion": "success",
-                "app": {"id": 15368},
-                "check_suite": {"id": index},
-            }
-        )
+        for name in names:
+            checks.append(
+                {
+                    "id": len(checks) + 101,
+                    "name": name,
+                    "head_sha": HEAD,
+                    "status": "completed",
+                    "conclusion": "success",
+                    "app": {"id": 15368},
+                    "check_suite": {"id": index},
+                }
+            )
     state = {
         "pr": pr,
         "record": record,
@@ -512,3 +518,88 @@ def test_independent_context_must_be_server_enforced_from_actions(remote, contex
     with pytest.raises(ValueError, match="trusted required check contexts missing"):
         enqueue(remote)
     assert not remote["writes"]
+
+
+@pytest.mark.parametrize("context", ["bundle-release-engine", "renovate"])
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "missing",
+        "skipped",
+        "neutral",
+        "failure",
+        "pending",
+        "wrong-app",
+        "wrong-suite",
+        "wrong-head",
+        "duplicate",
+        "missing-id",
+        "shared-id",
+    ],
+)
+def test_each_independent_check_requires_its_own_successful_trusted_evidence(
+    remote, context, fault
+):
+    check = next(check for check in remote["checks"] if check["name"] == context)
+    if fault == "missing":
+        remote["checks"].remove(check)
+    elif fault in {"skipped", "neutral", "failure"}:
+        check["conclusion"] = fault
+    elif fault == "pending":
+        check.update(status="in_progress", conclusion=None)
+    elif fault == "wrong-app":
+        check["app"]["id"] = 999
+    elif fault == "wrong-suite":
+        check["check_suite"]["id"] = 999
+    elif fault == "wrong-head":
+        check["head_sha"] = MAIN
+    elif fault == "duplicate":
+        remote["checks"].append(copy.deepcopy(check))
+    elif fault == "missing-id":
+        del check["id"]
+    elif fault == "shared-id":
+        check["id"] = remote["checks"][0]["id"]
+    # Both workflow summaries and all four server requirements remain successful.
+    with pytest.raises(ValueError):
+        enqueue(remote)
+    assert not remote["writes"]
+
+
+@pytest.mark.parametrize("context", ["bundle-release-engine", "renovate"])
+@pytest.mark.parametrize("replacement", ["successful-id", "pending", "skipped", "missing"])
+def test_independent_check_replacement_after_snapshot_refuses(remote, context, replacement):
+    read = remote["read"]
+    changed = False
+
+    def replace(path):
+        nonlocal changed
+        if path == "rules/branches/main" and not changed:
+            changed = True
+            check = next(check for check in remote["checks"] if check["name"] == context)
+            if replacement == "missing":
+                remote["checks"].remove(check)
+            else:
+                check["id"] += 1000
+                if replacement == "pending":
+                    check.update(status="in_progress", conclusion=None)
+                elif replacement == "skipped":
+                    check["conclusion"] = "skipped"
+        return read(path)
+
+    remote["read"] = replace
+    with pytest.raises(ValueError):
+        enqueue(remote)
+    assert changed and not remote["writes"]
+
+
+def test_snapshot_contains_all_four_individual_check_identities(remote):
+    snapshot = queue.admission.successful_checks(remote["record"], remote["read"])
+    assert snapshot == {
+        ".github/workflows/checks.yml": (
+            1,
+            1,
+            1,
+            (("checks", 101), ("bundle-release-engine", 102), ("renovate", 103)),
+        ),
+        ".github/workflows/verify.yml": (2, 1, 2, (("verification", 104),)),
+    }

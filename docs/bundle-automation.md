@@ -11,8 +11,11 @@ The writer drafts require all four server-enforced contexts: `checks`,
 `bundle-release-engine`, `renovate`, and `verification`, each from GitHub Actions
 App 15368. Strict checks, explicit `do_not_enforce_on_create: false`, ALLGREEN and
 no bypass remain mandatory. The first three contexts belong to `checks.yml`; the
-adapter also verifies successful trusted runs of both `checks.yml` and `verify.yml`,
-bound to the exact head/base and revalidated run/attempt identities before enqueue.
+adapter validates each individual context check as well as successful trusted runs
+of both `checks.yml` and `verify.yml`. Every check must be unique, Actions-owned,
+same-suite, exact-head and literally successful. All four check identities and their
+trusted run/attempt identities are snapshotted and revalidated before enqueue; a
+successful workflow summary cannot substitute for an omitted or skipped check.
 See the [central writer draft](https://github.com/Living-Proof-Labs/.github/pull/144)
 for the current receipt-based publication and bounded recovery contract.
 
