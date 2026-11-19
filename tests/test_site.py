@@ -2985,3 +2985,41 @@ def test_the_commit_fallback_link_is_styled_like_the_report_link():
     assert "color: var(--link)" in body
     assert "font-weight: 550" in body  # `.row-meta a`, the Report link's weight
     assert ".row-meta a { font-weight: 550; }" in css
+
+
+def test_history_header_robot_tag_follows_the_reviewed_locks_not_a_constant(tmp_path):
+    """#146 (Vera): change the robot tag in the locks and the header's pin follows it."""
+    verifications = tmp_path / "verifications"
+    verifications.mkdir()
+    for lock_path in (ROOT / "verifications").glob("*.lock.json"):
+        lock = json.loads(lock_path.read_text())
+        lock["robot"]["tag"] = "v9.9.9"
+        (verifications / lock_path.name).write_text(json.dumps(lock))
+    reports = tmp_path / "reports"
+    for target in site_tool.targets(verifications):
+        write_reports(reports / target["artifact"], 19, "PASS")
+    site = tmp_path / "site"
+    site_tool.build(site, reports, run("100", "2026-11-18T00:00:00Z"), verifications)
+    header = (site / "booster-t1/stock-mujoco-hallway/index.html").read_text().split("<main", 1)[0]
+    assert "livingproof-booster-t1 v9.9.9" in header
+    assert "v2.2.10" not in header and "@" not in visible_text(header)
+
+
+def test_spec_chip_edge_cases_single_run_revision_only_and_unrecorded(tmp_path):
+    """#146 (Vera): a lone run and an unrecorded assessment never flag; a revision change does."""
+    single = build_spec_history(tmp_path / "single", [("v2.3.0", spec_identity("v2.3.0", "0.1.0"))])
+    assert "Spec changed" not in (single / "index.html").read_text()
+    unknown = build_spec_history(
+        tmp_path / "unknown", [("v2.3.0", None), ("v2.3.0", spec_identity("v2.3.0", "0.1.0"))]
+    )
+    assert "Spec changed" not in (unknown / "index.html").read_text()
+    revised = build_spec_history(
+        tmp_path / "revised",
+        [
+            ("v2.3.0", spec_identity("v2.3.0", "0.1.0")),
+            ("v2.3.0", spec_identity("v2.3.0", "0.2.0")),
+        ],
+    )
+    flagged = {k for k, row in history_rows(revised).items() if "Spec changed" in row}
+    assert flagged == {"101"}
+    assert "Spec changed: revision 0.1.0 → 0.2.0" in (revised / "index.html").read_text()
