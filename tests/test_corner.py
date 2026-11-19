@@ -192,6 +192,7 @@ HALLWAY = {
     ),
 }
 EVIDENCE_KEYS = ("procedure", "scenario", "robot", "world", "plan", "configurations")
+GAP = {"max_gap_seconds": 0.05}
 
 
 def _lock(name: str) -> dict:
@@ -226,7 +227,7 @@ def test_each_robot_has_a_corner_definition_on_its_released_tag(name):
     assert definition["world"] == {
         key: WORLD[key] for key in ("id", "version", "repository", "tag")
     }
-    assert definition["plan"] == {"trials": {"count": 1}}
+    assert definition["plan"] == {"trials": {"count": 1}, "recording": {"max_gap_seconds": 0.05}}
     assert definition["releases"] == {
         "specs": {"repository": SPECS[want["direction"]]["repository"], "tag": "v3.1.0"}
     }
@@ -244,7 +245,7 @@ def test_each_corner_lock_pins_the_released_robot_world_runner_and_verifier(name
     assert lock["robot"]["commit"] == want["commit"]
     assert lock["robot"]["configurations"] == want["configurations"]
     assert lock["world"] == WORLD
-    assert lock["plan"] == {"trials": {"count": 1}}
+    assert lock["plan"] == {"trials": {"count": 1}, "recording": {"max_gap_seconds": 0.05}}
     assert "command_speed" not in lock["plan"]
     assert lock["releases"]["specs"] == SPECS[want["direction"]]
     tag, commit = want["runner"]
@@ -393,7 +394,7 @@ def test_each_hallway_definition_owns_the_current_specs_release(name):
     assert definition["world"] == {
         key: HALLWAY_WORLD[key] for key in ("id", "version", "repository", "tag")
     }
-    assert definition["plan"] == {"trials": {"count": 3}, "command_speed": 0.5}
+    assert definition["plan"] == {"trials": {"count": 3}, "command_speed": 0.5, "recording": GAP}
     assert definition["releases"] == {
         "specs": {"repository": HALLWAY_SPECS["repository"], "tag": HALLWAY_SPECS["tag"]}
     }
@@ -415,7 +416,7 @@ def test_each_hallway_lock_pins_the_released_robot_world_runner_and_verifier(nam
     assert lock["robot"]["commit"] == want["commit"]
     assert lock["robot"]["configurations"] == want["configurations"]
     assert lock["world"] == HALLWAY_WORLD
-    assert lock["plan"] == {"trials": {"count": 3}, "command_speed": 0.5}
+    assert lock["plan"] == {"trials": {"count": 3}, "command_speed": 0.5, "recording": GAP}
     assert lock["releases"]["specs"] == HALLWAY_SPECS
     assert lock["releases"]["runner"] == {
         "repository": "Living-Proof-Labs/livingproof-sim-mujoco",
