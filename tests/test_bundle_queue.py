@@ -43,7 +43,7 @@ def remote(monkeypatch):
                 "do_not_enforce_on_create": False,
                 "required_status_checks": [
                     {"context": name, "integration_id": 15368}
-                    for name in ["checks", "verification"]
+                    for name in ["checks", "bundle-release-engine", "renovate", "verification"]
                 ],
             },
         },
@@ -497,5 +497,18 @@ def test_inaccessible_current_attempt_refuses(remote):
 
     remote["read"] = denied
     with pytest.raises(PermissionError):
+        enqueue(remote)
+    assert not remote["writes"]
+
+
+@pytest.mark.parametrize("context", ["bundle-release-engine", "renovate"])
+@pytest.mark.parametrize("fault", ["missing", "wrong-app"])
+def test_independent_context_must_be_server_enforced_from_actions(remote, context, fault):
+    checks = remote["rules"][1]["parameters"]["required_status_checks"]
+    if fault == "missing":
+        checks[:] = [check for check in checks if check["context"] != context]
+    else:
+        next(check for check in checks if check["context"] == context)["integration_id"] = 999
+    with pytest.raises(ValueError, match="trusted required check contexts missing"):
         enqueue(remote)
     assert not remote["writes"]

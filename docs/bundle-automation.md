@@ -5,6 +5,22 @@ end-to-end release. It builds on main `2da9942111b1e01d63e06c7cc454c24e1a72c57e`
 (#104). It does not change the 0.2.0 manifest, robot/world/spec ownership, frozen
 evidence, or published history. Those boundaries remain with #98 and #100.
 
+## Current draft admission contract (2026-11-19)
+
+The writer drafts require all four server-enforced contexts: `checks`,
+`bundle-release-engine`, `renovate`, and `verification`, each from GitHub Actions
+App 15368. Strict checks, explicit `do_not_enforce_on_create: false`, ALLGREEN and
+no bypass remain mandatory. The first three contexts belong to `checks.yml`; the
+adapter also verifies successful trusted runs of both `checks.yml` and `verify.yml`,
+bound to the exact head/base and revalidated run/attempt identities before enqueue.
+See the [central writer draft](https://github.com/Living-Proof-Labs/.github/pull/144)
+for the current receipt-based publication and bounded recovery contract.
+
+The dated design and provisioning sections below are historical. Their earlier
+statements allowing informational-only checks, their pre-receipt queue commands,
+and their claims that missing required contexts do not block activation are
+superseded by this contract. No protection change or activation is authorized here.
+
 ## Central operations proposal (2026-11-18)
 
 The next infrastructure slice uses the confirmed name **CI Automation** for the
@@ -234,9 +250,9 @@ bound, no token minted, no settings changed, and no writer activated.
   published mainline evidence. A manually completed commit or manually merged
   adoption PR is not proof for either case. Local mocked tests are not live-release proof.
 - Prove concurrent head changes, competing runs and custom commits fail closed on GitHub.
-- Record the actually configured required checks, if any, and observe PR/merge-group
-  results without waiting for informational checks as a queue prerequisite. Demonstrate
-  automatic normal-queue merge with no bypass.
+- Independently verify all four required contexts above in the approved server
+  protections and demonstrate that missing or failing fresh merge-group checks block
+  merge. Demonstrate automatic normal-queue merge with no bypass.
 - Verify the merged SHA's mainline run, Pages deployment and all seven published
   reports; link discovery, proposal, run and publication. Preserve earlier evidence.
 - Obtain Deep independent review of the user-run command and publication boundary

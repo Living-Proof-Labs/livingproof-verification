@@ -15,6 +15,9 @@ WORKFLOWS = {
     ".github/workflows/checks.yml": "checks",
     ".github/workflows/verify.yml": "verification",
 }
+# Independent job contexts required by server enforcement. The first three
+# belong to checks.yml, whose complete successful run is validated below.
+REQUIRED_CONTEXTS = frozenset({"checks", "bundle-release-engine", "renovate", "verification"})
 WORKFLOW_REF = "Living-Proof-Labs/.github/.github/workflows/bundle-completion.yml@refs/heads/main"
 
 
@@ -113,7 +116,7 @@ def protections(read):
             (c["context"], c.get("integration_id"))
             for c in rule["parameters"]["required_status_checks"]
         )
-    if not {(name, ACTIONS_APP) for name in WORKFLOWS.values()} <= required:
+    if not {(name, ACTIONS_APP) for name in REQUIRED_CONTEXTS} <= required:
         raise ValueError("trusted required check contexts missing")
     for rule in queues + checks:
         # Missing bypass evidence is not an empty bypass list.
