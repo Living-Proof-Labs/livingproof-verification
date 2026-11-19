@@ -2,7 +2,7 @@
   "format": "livingproof-verification-lock/0.2.0",
   "definition": {
     "path": "unitree-g1-stock-mujoco-corner-right.toml",
-    "sha256": "838894c469f91a8eaee50b8542429c7b09019405d7036d3164bc11ee3ce7b5d8"
+    "sha256": "38598e2cc06158f451cdd4c66ace3a33811aa250f31fa4d96dfc490fd93d879b"
   },
   "procedure": "scenario",
   "scenario": "walk-corner-right@0.1.0",
@@ -70,6 +70,9 @@
   "plan": {
     "trials": {
       "count": 1
+    },
+    "recording": {
+      "max_gap_seconds": 0.05
     }
   },
   "evaluators": {
@@ -80,7 +83,7 @@
     },
     "livingproof-evaluator-run": {
       "repository": "Living-Proof-Labs/livingproof-evaluator-run",
-      "tag": "v1.5.1"
+      "tag": "v1.6.0"
     }
   },
   "sources": {
