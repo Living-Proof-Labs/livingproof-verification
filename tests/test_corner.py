@@ -35,7 +35,7 @@ EVALUATOR_RELEASE = ("v1.3.0", "965629ab1e9508cb3090931abbae6a957bf5d294")
 # places (livingproof-capability-report#79, 3453a14). v3.10.1 fails with
 # "float() argument must be a string or a real number, not 'list'".
 # The constant is the settings pin; every lock must name that same release.
-REPORTER_RELEASE = ("v3.11.6", "bc1a05eaeb5c27fd084cd29d2cd399bb485310e6")
+REPORTER_RELEASE = ("v3.12.1", "2c69457930359bfa9492df9e185ffbd4b003080c")
 WORLD = {
     "id": "hallway-corner",
     "version": "0.2.0",
@@ -290,6 +290,17 @@ def test_every_lock_pins_a_reporter_that_renders_walk_corner_places():
     for name in [*CORNER, *HALLWAY]:
         reporter = _lock(name)["releases"]["reporter"]
         assert (reporter["tag"], reporter["commit"]) == REPORTER_RELEASE, name
+
+
+def test_every_lock_pins_livingproof_evaluator_run_v1_5_1():
+    """Every lock pins livingproof-evaluator-run v1.5.1, so CI runs all five Run Integrity
+    checks: pins, completeness, plan-conformance, termination and recording (#136)."""
+    expected = {
+        "repository": "Living-Proof-Labs/livingproof-evaluator-run",
+        "tag": "v1.5.1",
+    }
+    for name in [*CORNER, *HALLWAY]:
+        assert _lock(name)["evaluators"]["livingproof-evaluator-run"] == expected, name
 
 
 def test_every_definition_pins_the_same_simulator_release():

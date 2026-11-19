@@ -141,10 +141,15 @@ def update(root, *, reporter=None, verifier=None):
             if setting["repository"] != REPORTER:
                 raise lock.LockError("unexpected reporter repository")
             text = (stage / SETTINGS).read_text()
-            old = f'tag = "{setting["tag"]}"'
-            if text.count(old) != 1:
+            pattern = (
+                r'(?m)(^\[reporter\]\r?\n(?:^(?!\[)[^\r\n]*\r?\n)*?^tag = ")'
+                + re.escape(setting["tag"])
+                + r'(")(?=\r?$)'
+            )
+            updated, count = re.subn(pattern, rf"\g<1>{reporter}\g<2>", text)
+            if count != 1:
                 raise lock.LockError("expected one reporter tag")
-            (stage / SETTINGS).write_text(text.replace(old, f'tag = "{reporter}"'))
+            (stage / SETTINGS).write_text(updated)
             wheel_pin(stage / WHEELS, reporter, release_wheel(reporter))
         # Full fresh resolution, not only a projection of old locks. No dependency code runs.
         generated = []
