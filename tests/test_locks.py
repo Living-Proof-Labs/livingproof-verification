@@ -137,6 +137,18 @@ def _pin_deltas(fresh: dict, committed: dict) -> list[str]:
             problems.append(
                 f"evaluators.{name}.{key} is {got.get(key)!r}, resolved {resolved.get(key)!r}"
             )
+    run_name = lock_tool.RUN_EVALUATOR
+    got_run = (committed.get("evaluators") or {}).get(run_name) or {}
+    resolved_run = (fresh.get("evaluators") or {}).get(run_name) or {}
+    if not isinstance(got_run, dict):
+        got_run = {}
+    if not isinstance(resolved_run, dict):
+        resolved_run = {}
+    for key in sorted({"repository", "tag"} | set(got_run) | set(resolved_run)):
+        if got_run.get(key) != resolved_run.get(key):
+            problems.append(
+                f"evaluators.{run_name}.{key} is {got_run.get(key)!r}, resolved {resolved_run.get(key)!r}"
+            )
     got_robot = committed.get("robot") if isinstance(committed.get("robot"), dict) else {}
     resolved_robot = fresh.get("robot") if isinstance(fresh.get("robot"), dict) else {}
     for key in ("repository", "ref", "commit", "adapter"):
@@ -927,3 +939,32 @@ def test_committed_locks_record_world_and_parameter_source_bindings():
         if sources.get("parameters") != {"path": param_path, "sha256": digest}:
             problems.append(f"{label}: sources.parameters is {sources.get('parameters')!r}")
     assert problems == []
+
+
+def test_every_committed_lock_pins_the_settings_run_evaluator():
+    setting = lock_tool.load_run_evaluator_setting(ROOT / "verifications" / "settings.toml")
+    assert setting == {
+        "repository": "Living-Proof-Labs/livingproof-evaluator-run",
+        "tag": "v1.5.1",
+    }
+    for definition in DEFINITIONS:
+        evaluators = lock_of(definition)["evaluators"]
+        assert evaluators[lock_tool.RUN_EVALUATOR] == setting, definition.name
+        assert "commit" not in evaluators[lock_tool.RUN_EVALUATOR]
+
+
+def test_an_edited_run_evaluator_tag_is_rejected(tmp_path, monkeypatch):
+    root = _copy_verification_repo(tmp_path)
+    originals = _original_locks(root)
+    path = lock_tool.lock_path(root / "verifications" / DEFINITIONS[0].name)
+    lock = json.loads(path.read_text())
+    name = lock_tool.RUN_EVALUATOR
+    lock["evaluators"][name]["tag"] = "v1.0.0"
+    path.write_text(json.dumps(lock, indent=2) + "\n")
+
+    def generate(definition, work, **kwargs):
+        return json.loads(json.dumps(originals[definition.name])), []
+
+    monkeypatch.setattr(lock_tool, "generate", generate)
+    problems = release_drift(root, tmp_path / "work")
+    assert any(f"evaluators.{name}.tag" in item and "v1.0.0" in item for item in problems), problems

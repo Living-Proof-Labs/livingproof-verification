@@ -27,8 +27,8 @@ import pytest
 ROOT = Path(__file__).parents[1]
 IDENTICAL = ROOT / "tests/fixtures/repeats/identical"
 INTEGRITY = ROOT / "tests/fixtures/evaluator-result-run-integrity.json"
+PINS_INTEGRITY = ROOT / "tests/fixtures/evaluator-result-run-integrity-pins.json"
 EVALUATOR = "livingproof-run-integrity"
-RUN_ID = "run-integrity-fixture-run"
 
 
 def _reporter() -> str:
@@ -38,16 +38,16 @@ def _reporter() -> str:
     return found
 
 
-def _manifest(directory: Path, *, integrity: bool) -> Path:
+def _manifest(directory: Path, *, integrity: bool, fixture: Path = INTEGRITY) -> Path:
     """The identical-repeats bundle with a run id, and optionally the stored integrity result."""
     work = directory / ("with-integrity" if integrity else "without-integrity")
     shutil.copytree(IDENTICAL, work)
     bundle = json.loads((work / "manifest.json").read_text())
+    result = json.loads(fixture.read_text())
+    run_id = result["integrity"]["run"]["id"]
     for run in bundle["assessment"]["runs"]:
-        run["run_id"] = RUN_ID
+        run["run_id"] = run_id
     if integrity:
-        result = json.loads(INTEGRITY.read_text())
-        result["integrity"]["run"]["id"] = RUN_ID
         bundle["assessment"]["integrity_results"] = {EVALUATOR: result}
     (work / "manifest.json").write_text(json.dumps(bundle, indent=2) + "\n")
     return work / "manifest.json"
@@ -107,6 +107,51 @@ def test_run_integrity_card_renders_in_the_evaluators_section(tmp_path):
     # The stored status and percentage are shown, as stored.
     assert "Status: COMPLETED" in page
     assert "Judges whether the run and the test system can be trusted." in page
+
+
+FIVE_CHECKS = ["completeness", "pins", "plan-conformance", "termination", "recording"]
+
+
+def test_go1_corner_left_result_shows_all_five_run_integrity_checks(tmp_path):
+    """#136: livingproof-evaluator-run v1.5.1 runs pins, completeness, plan-conformance,
+    termination and recording; a rendered report shows each result as stored.
+
+    ``recording`` is not applicable on a real run today: the Run Integrity job is given no
+    recordings, and the plan declares no gap limit (it has no default).
+    """
+    stored = json.loads(PINS_INTEGRITY.read_text())
+    assert stored["evaluator"]["version"] == "1.5.1"
+    assert stored["descriptor"]["version"] == "1.5.1"
+    checks = {check["id"]: check for check in stored["integrity"]["checks"]}
+    assert sorted(checks) == sorted(FIVE_CHECKS)
+    assert [check["id"] for check in stored["integrity"]["checks"]] == FIVE_CHECKS
+    for check_id in FIVE_CHECKS[:4]:
+        check = checks[check_id]
+        assert check["applicable"] is True and check["success"] is True, check_id
+        assert check["percentage"] == 100 and check["findings"] == [], check_id
+    assert checks["recording"]["applicable"] is False
+    assert checks["recording"]["findings"] == []
+    assert {item["subject"] for item in checks["pins"]["not_checked"]} == {"specs", "verifier"}
+    manifest = _manifest(tmp_path, integrity=True, fixture=PINS_INTEGRITY)
+    page = _render(manifest, "html")
+    assert "Run Integrity" in _cards(page)
+    assert "1.5.1" in page
+    assert "Status: COMPLETED" in page
+    assert "100%" in page
+    assert "Matched the verification lock: runner, world, configuration." in page
+    assert "The plan, the trials and the lock agree on the trial count." in page
+    assert "Every trial that ended on its own stopped for a reason the plan allows." in page
+    assert "Not checked: specs, verifier, lock command speed." in page
+    markdown = _render(manifest, "markdown")
+    assert "Run Integrity 1.5.1" in markdown
+    rendered_json = json.loads(_render(manifest, "json"))
+    integrity = rendered_json["source_bundle"]["assessment"]["integrity_results"][EVALUATOR]
+    rendered = [check["id"] for check in integrity["integrity"]["checks"]]
+    assert rendered == FIVE_CHECKS
+    rendered_checks = {check["id"]: check for check in integrity["integrity"]["checks"]}
+    assert rendered_checks["pins"]["percentage"] == 100
+    assert rendered_checks["pins"]["success"] is True
+    assert rendered_checks["recording"]["applicable"] is False
 
 
 def test_no_run_integrity_card_when_no_integrity_result_exists(tmp_path):

@@ -26,7 +26,9 @@ neither source it exits with that explanation. It does not raise ``FileNotFoundE
 for a missing robot lock.
 
 Either way, the reporter tag, repository and image come from ``verifications/settings.toml``
-in this repository. A missing file is a ``LockError``; the reporter is not copied from a
+in this repository. When ``[evaluators.livingproof-evaluator-run]`` is set there, its
+repository and tag are resolved and written as ``evaluators.livingproof-evaluator-run``
+(tag-only). A missing file is a ``LockError``; the reporter is not copied from a
 robot lock or an existing ``0.2.0``. The commit and digest are resolved from that tag.
 The verifier pin is the commit that definition's job calls in
 ``.github/workflows/verify.yml`` (``walk-hallway.yml`` for procedure ``walk-hallway``,
@@ -69,6 +71,7 @@ FORMAT_V2 = "livingproof-verification-lock/0.2.0"
 DEFINITION_FORMAT = "livingproof-verification-definition/0.1.0"
 ROBOT_LOCK = "verification.lock.json"
 EVALUATOR = "livingproof-evaluator-scenario"
+RUN_EVALUATOR = "livingproof-evaluator-run"
 # Decision 7 of livingproof-verification#40. Used only when the pinned verifier
 # release does not declare the package (v1.16.3 and earlier). The commit is resolved
 # from the tag; it is never invented.
@@ -381,6 +384,47 @@ def reporter_pin(setting: dict, resolve, digester) -> dict:
     }
 
 
+def load_run_evaluator_setting(path: Path) -> dict | None:
+    """Optional repository and tag for ``livingproof-evaluator-run`` from ``settings.toml``."""
+    try:
+        document = tomllib.loads(path.read_text())
+    except tomllib.TOMLDecodeError as exc:
+        raise LockError(f"{path}: not valid TOML ({exc})") from None
+    evaluators = document.get("evaluators") if isinstance(document, dict) else None
+    if evaluators is None:
+        return None
+    if not isinstance(evaluators, dict):
+        raise LockError(f"{path}: evaluators must be a table")
+    pin = evaluators.get(RUN_EVALUATOR)
+    if pin is None:
+        return None
+    if not isinstance(pin, dict):
+        raise LockError(
+            f"{path}: evaluators.{RUN_EVALUATOR} must be a table with repository and tag"
+        )
+    repository, tag = pin.get("repository"), pin.get("tag")
+    problems = []
+    if not isinstance(repository, str) or not REPO.fullmatch(repository):
+        problems.append(f"evaluators.{RUN_EVALUATOR}.repository must be OWNER/NAME")
+    if not isinstance(tag, str) or not TAG.fullmatch(tag):
+        problems.append(f"evaluators.{RUN_EVALUATOR}.tag must be a vX.Y.Z release (got {tag!r})")
+    extra = sorted(set(pin) - {"repository", "tag"})
+    if extra:
+        problems.append(
+            f"evaluators.{RUN_EVALUATOR} names {extra}; only repository and tag are supported"
+        )
+    if problems:
+        raise LockError(f"{path}: " + "; ".join(problems))
+    return {"repository": repository, "tag": tag}
+
+
+def run_evaluator_pin(setting: dict, resolve) -> dict:
+    """Tag-only ``livingproof-evaluator-run`` pin; resolves the tag so missing releases fail."""
+    tag = setting["tag"]
+    resolve(setting["repository"], tag)
+    return {"repository": setting["repository"], "tag": tag}
+
+
 def lock_path(definition: Path) -> Path:
     return definition.with_name(definition.stem + ".lock.json")
 
@@ -498,7 +542,9 @@ def _relative(path: object) -> bool:
     return not Path(path).is_absolute() and ".." not in Path(path).parts
 
 
-def _pin_problems(label: str, ref: object, *, require_digest: bool = False) -> list[str]:
+def _pin_problems(
+    label: str, ref: object, *, require_digest: bool = False, require_commit: bool = True
+) -> list[str]:
     """Tag, commit and digest problems. The same rules as capability-verifier ``repin``."""
     if not isinstance(ref, dict):
         return [f"{label} must be an object"]
@@ -509,9 +555,10 @@ def _pin_problems(label: str, ref: object, *, require_digest: bool = False) -> l
     tag = ref.get("tag")
     if not isinstance(tag, str) or not TAG.fullmatch(tag):
         problems.append(f"{label}.tag must be a vX.Y.Z release tag (got {tag!r})")
-    commit = ref.get("commit")
-    if not isinstance(commit, str) or not SHA.fullmatch(commit):
-        problems.append(f"{label}.commit must be a full commit sha")
+    if require_commit:
+        commit = ref.get("commit")
+        if not isinstance(commit, str) or not SHA.fullmatch(commit):
+            problems.append(f"{label}.commit must be a full commit sha")
     if require_digest or "image" in ref or "digest" in ref:
         digest = ref.get("digest")
         if not isinstance(digest, str) or not DIGEST.fullmatch(digest):
@@ -784,6 +831,14 @@ def v2_problems(lock: dict) -> list[str]:
         problems.append(f"missing evaluators.{EVALUATOR}")
     else:
         problems.extend(_pin_problems(f"evaluators.{EVALUATOR}", evaluators[EVALUATOR]))
+    if RUN_EVALUATOR in evaluators:
+        problems.extend(
+            _pin_problems(
+                f"evaluators.{RUN_EVALUATOR}",
+                evaluators[RUN_EVALUATOR],
+                require_commit=False,
+            )
+        )
     # Optional on locks that predate source bindings; when present they must match
     # the recorded world and parameters digests and stay inside the robot root.
     if "sources" in lock:
@@ -1099,8 +1154,9 @@ def _apply_caller_pins(
         )
         if called is not None:
             releases["verifier"] = called
+    settings = settings_path(definition)
     releases["reporter"] = reporter_pin(
-        load_reporter_setting(settings_path(definition)),
+        load_reporter_setting(settings),
         resolve,
         digester or image_digest,
     )
@@ -1112,9 +1168,13 @@ def _apply_caller_pins(
     )
     if note:
         notes.append(note)
+    evaluators = {EVALUATOR: evaluator}
+    run_evaluator = load_run_evaluator_setting(settings)
+    if run_evaluator is not None:
+        evaluators[RUN_EVALUATOR] = run_evaluator_pin(run_evaluator, resolve)
     updated = dict(owned)
     updated["releases"] = releases
-    updated["evaluators"] = {EVALUATOR: evaluator}
+    updated["evaluators"] = evaluators
     return updated
 
 

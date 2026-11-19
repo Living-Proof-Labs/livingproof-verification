@@ -89,14 +89,14 @@ def inputs(root, head, branch):
         old = (root / path).read_text()
         new = command("git", "show", f"{head}:{path}", cwd=root) + "\n"
         if reporter:
-            pattern = r'(?m)^tag = "(v\d+\.\d+\.\d+)"$'
-            matches = re.findall(pattern, new)
+            pattern = r'(?m)(^\[reporter\]\r?\n(?:^(?!\[)[^\r\n]*\r?\n)*?^tag = ")(v\d+\.\d+\.\d+)(")(?=\r?$)'
+            matches = [match.group(2) for match in re.finditer(pattern, new)]
             if len(matches) != 1:
                 raise ValueError("expected one reporter tag")
             tags.update(matches)
 
             def normalize(s):
-                return re.sub(pattern, 'tag = "VERSION"', s)
+                return re.sub(pattern, r"\g<1>VERSION\g<3>", s)
         elif path.endswith("verify.yml"):
             matches = list(bundle.update_verifier.CALL.finditer(new))
             if len(matches) != len(bundle.lock.definition_paths(root)):
