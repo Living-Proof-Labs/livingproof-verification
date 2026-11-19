@@ -426,6 +426,64 @@ def check_viewport(browser, url, output, width, height, result, destinations):
         context.close()
 
 
+def check_timestamp_reflow(browser, url, output, results):
+    """#163: complete timestamps and Report links fit narrow/mobile and tablet widths."""
+    results["timestamp_reflow"] = []
+    for width in (320, 721, 768):
+        for javascript in (True, False):
+            context = browser.new_context(
+                viewport={"width": width, "height": 844}, java_script_enabled=javascript
+            )
+            if javascript:
+                context.clock.install(time="2026-11-19T07:50:30Z")
+            page = context.new_page()
+            mode = "js" if javascript else "no-js"
+            try:
+                for path, name in (
+                    ("", "index"),
+                    ("unitree-g1/stock-mujoco-hallway/", "history"),
+                ):
+                    page.goto(url + path)
+                    if name == "index":
+                        page.locator("#unitree-g1 > summary").click()
+                    if javascript:
+                        context.clock.run_for(30000)
+                        expect(page.locator("time").first).to_contain_text("1 minute ago")
+                    expect(page.locator("time").first).to_have_attribute(
+                        "datetime", "2026-11-19T07:50:00Z"
+                    )
+                    screenshot = f"{width}-{mode}-{name}-reflow.png"
+                    page.screenshot(path=output / screenshot, full_page=True)
+                    assert not page.evaluate("document.documentElement.scrollWidth > innerWidth"), (
+                        f"horizontal overflow: {width}px {mode} {name}"
+                    )
+                    timestamps = page.locator("time:visible")
+                    for index in range(timestamps.count()):
+                        timestamp = timestamps.nth(index)
+                        expect(timestamp).to_contain_text("AEDT")
+                        box = timestamp.bounding_box()
+                        assert box and box["x"] >= 0 and box["x"] + box["width"] <= width
+                    if name == "history":
+                        links = page.locator(".row a", has_text="Report")
+                        for index in range(links.count()):
+                            box = links.nth(index).bounding_box()
+                            assert box and box["x"] >= 0 and box["x"] + box["width"] <= width
+                        href = links.first.get_attribute("href")
+                        links.first.click()
+                        expect(page).to_have_url(re.compile(re.escape(href) + r"$"))
+                    results["timestamp_reflow"].append(
+                        {
+                            "width": width,
+                            "javascript": javascript,
+                            "page": name,
+                            "screenshot": screenshot,
+                            "status": "passed",
+                        }
+                    )
+            finally:
+                context.close()
+
+
 def check_timestamps_no_js_and_print(browser, url, output, results):
     """#163: verify reopening an old page, no-JavaScript browsing, and print/PDF exports."""
     evidence = {}
@@ -542,6 +600,7 @@ def main():
                             destinations,
                         )
                     check_timestamps_no_js_and_print(browser, base_url, args.output, results)
+                    check_timestamp_reflow(browser, base_url, args.output, results)
                     browser.close()
                 results["status"] = "passed"
             finally:

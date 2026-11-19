@@ -2327,6 +2327,23 @@ a.release:hover { color: var(--link); text-decoration: underline; }
 .rel-time .dot { margin: 0 0.15rem; }
 .abs-time { white-space: nowrap; }
 .robot-body { padding: 0 0 0.2rem; }
+@media (max-width: 900px) {
+  .summary-row {
+    grid-template-columns: auto 1fr auto;
+    grid-template-areas:
+      "chevron ident ident"
+      "dots    dots    meta";
+    align-items: center;
+    column-gap: 0.55rem;
+    row-gap: 0.35rem;
+  }
+  .chevron { grid-area: chevron; align-self: start; margin-top: 0.28rem; }
+  .summary-id { grid-area: ident; flex: none; min-width: 0; display: flex; }
+  .dots { grid-area: dots; max-width: 100%; }
+  .meta-latest { grid-area: meta; justify-self: end; text-align: right; }
+  .meta-latest .rel-time + .abs-time { display: block; }
+  .meta-latest .rel-time .dot { display: none; }
+}
 @media (max-width: 720px) {
   .entry-main, .row-top {
     grid-template-columns: auto 1fr;
@@ -2352,31 +2369,17 @@ a.release:hover { color: var(--link); text-decoration: underline; }
   }
   .masthead h1 { font-size: 1.4rem; }
   .wrap { width: min(72rem, 100% - 1.5rem); }
-  .summary-row {
-    grid-template-columns: auto 1fr auto;
-    grid-template-areas:
-      "chevron ident ident"
-      "dots    dots    meta";
-    align-items: center;
-    column-gap: 0.55rem;
-    row-gap: 0.35rem;
-  }
-  .chevron { grid-area: chevron; align-self: start; margin-top: 0.28rem; }
-  .summary-id { grid-area: ident; flex: none; min-width: 0; display: flex; }
-  .dots { grid-area: dots; max-width: 100%; }
-  .meta-latest { grid-area: meta; justify-self: end; text-align: right; }
-  .side-meta .rel-time + .abs-time,
-  .meta-latest .rel-time + .abs-time { display: block; }
+  .side-meta .rel-time + .abs-time { display: block; }
   .side-meta .rel-time .dot,
-  .meta-latest .rel-time .dot,
   .row-meta .rel-time .dot { display: none; }
   .row-meta { font-size: 0.82rem; }
   .row-meta:has(.rel-time) { display: block; }
-  .row-meta .dot { margin: 0 0.22rem; }
+  .row-meta > .dot { display: inline-block; }
   .row-meta .rel-time + .abs-time::before {
     content: "";
     display: block;
   }
+  .row-meta .dot { margin: 0 0.22rem; }
 }
 @media print {
   .rel-time { display: none !important; }
