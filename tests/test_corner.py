@@ -332,12 +332,12 @@ def test_every_runner_is_v3_5_0_or_later_from_a_released_robot_ref(name):
     assert re.fullmatch(r"[0-9a-f]{40}", runner["commit"])
 
 
-def test_every_lock_pins_livingproof_evaluator_run_v1_5_1():
-    """Every lock pins livingproof-evaluator-run v1.5.1, so CI runs all five Run Integrity
+def test_every_lock_pins_livingproof_evaluator_run_v1_6_0():
+    """Every lock pins livingproof-evaluator-run v1.6.0, so CI runs all five Run Integrity
     checks: pins, completeness, plan-conformance, termination and recording (#136)."""
     expected = {
         "repository": "Living-Proof-Labs/livingproof-evaluator-run",
-        "tag": "v1.5.1",
+        "tag": "v1.6.0",
     }
     for name in [*CORNER, *HALLWAY]:
         assert _lock(name)["evaluators"]["livingproof-evaluator-run"] == expected, name
