@@ -733,6 +733,9 @@ def _finding_summary(findings: list, descriptor: dict) -> str | None:
     return _stored_text(descriptor.get("details_copy"))
 
 
+INCONCLUSIVE_COPY = "Not graded: no integrity check applied to this run."
+
+
 def failing_evaluators(report: object) -> list[dict]:
     """Evaluators that spoke on a non-passing run, deduplicated by evaluator id."""
     if not isinstance(report, dict):
@@ -762,11 +765,16 @@ def failing_evaluators(report: object) -> list[dict]:
             or grade == "FAIL"
             or (isinstance(grade, (int, float)) and grade < 100)
             or (isinstance(status, str) and status.upper() in {"ERROR", "WARN", "FAIL"})
+            or status == "INCONCLUSIVE"
         )
         if not spoke:
             continue
         title = _stored_text(ev.get("display_name")) or _stored_text(desc.get("title")) or ev_id
         summary = _finding_summary(findings, desc)
+        if summary is None and status == "INCONCLUSIVE":
+            # 1.2.0: no check applied. Not graded, not failed. Any other status this site
+            # does not know is not graded and does not speak (a 1.x minor may add statuses).
+            summary = INCONCLUSIVE_COPY
         if ev_id not in seen:
             entry = {"id": ev_id, "title": title, "href": f"#evaluator-{ev_id}"}
             if summary is not None:
