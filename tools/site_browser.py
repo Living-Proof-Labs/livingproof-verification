@@ -15,6 +15,7 @@ import importlib.metadata
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import threading
 import traceback
@@ -71,8 +72,40 @@ def prepare(site):
     }
 
 
+# A commit id is a link, never text (#146): 7 to 40 hex characters with a letter in a-f.
+COMMIT_ID = re.compile(r"\b(?=[0-9]*[a-f])[0-9a-f]{7,40}\b")
+
+
+def check_no_commit_id(page, scope="body"):
+    """The text a reader sees, in `scope`, holds no commit-id-like word."""
+    found = COMMIT_ID.findall(page.locator(scope).first.inner_text())
+    assert not found, f"commit id visible as text in {scope} of {page.url}: {found}"
+
+
+def check_report(page, width, result, output):
+    """#146: the report's provenance is collapsed, below the result, in sentence case."""
+    page.locator(".row a", has_text="Report").first.click()
+    block = page.locator("details.spec-provenance")
+    expect(block).to_have_count(1)
+    assert block.get_attribute("open") is None, "the provenance block starts collapsed"
+    summary = block.locator("summary")
+    expect(summary).to_have_css("text-transform", "none")
+    expect(summary).to_have_css("letter-spacing", "normal")
+    expect(summary).to_contain_text("Spec v")
+    text = summary.inner_text()
+    assert text != text.upper(), f"summary is shouted: {text!r}"
+    summary.click()
+    assert block.get_attribute("open") is not None
+    check_no_commit_id(page, "details.spec-provenance")
+    expect(block.locator("a").first).to_have_attribute("href", re.compile(r"^https://"))
+    result.setdefault("report", {})[str(width)] = {"summary": text, "commit_ids_visible": 0}
+    page.screenshot(path=output / f"{width}-report-provenance.png")
+
+
 def check_history(page, width, height, result, output):
     """#146: rows carry no spec provenance; the header names the specs; one row flags a change."""
+    check_no_commit_id(page)
+    expect(page.locator(".masthead")).not_to_contain_text("@")
     expect(page.locator("main .spec-provenance")).to_have_count(0)
     expect(page.locator("main")).not_to_contain_text("Spec provenance")
     expect(page.locator(".masthead")).to_contain_text("specs v")
@@ -90,6 +123,7 @@ def check_history(page, width, height, result, output):
         "spec_changed_chips": 1,
     }
     page.screenshot(path=output / f"{width}-history.png")
+    check_report(page, width, result, output)
 
 
 def check_viewport(browser, url, output, width, height, result, destinations):
@@ -104,6 +138,7 @@ def check_viewport(browser, url, output, width, height, result, destinations):
             latest = card.locator(".card-link").get_attribute("href")
             history = card.locator(".history-link").get_attribute("href")
             assert latest == history + "latest/"
+            check_no_commit_id(page)
             expect(card.locator("a")).to_have_count(2)
             title = card.locator(".title").inner_text()
             expect(card.locator(".card-link")).to_have_attribute(
