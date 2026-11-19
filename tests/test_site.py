@@ -3236,7 +3236,7 @@ def test_index_robot_sections_collapsed_with_counts_dots_and_failing_first_order
 
 
 def test_index_all_pass_shows_single_quiet_line(tmp_path):
-    """#139: when nothing fails, Needs attention collapses to 'All N latest results pass.'"""
+    """#139: only an entirely passing catalog gets the all-pass message."""
     site = tmp_path / "site"
     site_tool.build(
         site,
@@ -3250,3 +3250,42 @@ def test_index_all_pass_shows_single_quiet_line(tmp_path):
     assert "failed" not in index.split('<h2 class="robots-label"', 1)[0]
     assert index.index("All 10 latest results pass.") < index.index('id="robots"')
     local_links_resolve(site)
+
+
+@pytest.mark.parametrize(
+    ("grade", "label", "robot_label"),
+    [
+        ("INSUFFICIENT_EVIDENCE", "insufficient evidence", "insufficient"),
+        ("UNSUPPORTED", "not supported", "not supported"),
+        ("UNKNOWN", "unknown", "unknown"),
+        ("UNRECOGNIZED", "unknown", "unknown"),
+        ("", "unknown", "unknown"),
+        (None, "unknown", "unknown"),
+    ],
+)
+def test_index_nonpassing_results_do_not_claim_all_pass(tmp_path, grade, label, robot_label):
+    site = tmp_path / "site"
+    site_tool.build(
+        site,
+        reports_for(tmp_path, "pass", 19, "PASS"),
+        run("200", "2026-11-18T05:20:00Z"),
+    )
+    history = site_tool.runs(site)
+    records = history[("booster-t1", "stock-mujoco-hallway")]
+    if grade is None:
+        records[0]["outcome"] = []
+    else:
+        records[0]["outcome"][0]["grade"] = grade
+    index = site_tool._index_page_html(history, "2026-11-19T08:00:00Z")
+    assert 'class="all-pass"' not in index
+    assert f'<p class="status">10 latest results: 9 passed, 1 {label}.</p>' in index
+    assert "Booster T1, 3 scenarios, " in index
+    assert f"1 {robot_label}" in index
+    assert 'id="needs-attention"' not in index
+
+
+def test_index_empty_catalog_does_not_claim_all_pass():
+    index = site_tool._index_page_html({}, "2026-11-19T08:00:00Z")
+    assert '<p class="status">No verification reports published yet.</p>' in index
+    assert 'class="all-pass"' not in index
+    assert 'id="robots"' not in index

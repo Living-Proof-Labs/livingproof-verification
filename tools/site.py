@@ -2498,7 +2498,7 @@ def _record_grade(record: dict) -> str:
         return "UNSUPPORTED"
     if "PASS" in grades:
         return "PASS"
-    return grades[0] if grades else "UNSUPPORTED"
+    return (grades[0] if grades else "") or "UNKNOWN"
 
 
 def _badge_label(grade: str) -> str:
@@ -2912,8 +2912,20 @@ def _index_page_html(history: dict, now: str) -> str:
             f'<div class="stack">{"".join(needs_cards)}</div>'
             "</section>"
         )
-    elif total_count:
+    elif total_count and all(_record_grade(r) == "PASS" for r in all_latest):
         needs_html = f'<p class="all-pass">All {total_count} latest results pass.</p>'
+    elif total_count:
+        labels = {
+            "PASS": "passed",
+            "INSUFFICIENT_EVIDENCE": "insufficient evidence",
+            "UNSUPPORTED": "not supported",
+        }
+        counts = {label: 0 for label in (*labels.values(), "unknown")}
+        for record in all_latest:
+            counts[labels.get(_record_grade(record), "unknown")] += 1
+        summary = ", ".join(f"{count} {label}" for label, count in counts.items() if count)
+        noun = "result" if total_count == 1 else "results"
+        needs_html = f'<p class="status">{total_count} latest {noun}: {summary}.</p>'
     else:
         needs_html = '<p class="status">No verification reports published yet.</p>'
 
@@ -2943,6 +2955,7 @@ def _index_page_html(history: dict, now: str) -> str:
         )
         pass_count = sum(1 for _, recs in ordered if _record_grade(recs[0]) == "PASS")
         unsup_count = sum(1 for _, recs in ordered if _record_grade(recs[0]) == "UNSUPPORTED")
+        unknown_count = scenario_count - fail_count - insuff_count - pass_count - unsup_count
         scenario_noun = "scenario" if scenario_count == 1 else "scenarios"
         count_parts = [f"{scenario_count} {scenario_noun}"]
         sr_parts = [f"{scenario_count} {scenario_noun}"]
@@ -2958,6 +2971,9 @@ def _index_page_html(history: dict, now: str) -> str:
         if unsup_count:
             count_parts.append(f'<span class="pass-count">{unsup_count} not supported</span>')
             sr_parts.append(f"{unsup_count} not supported")
+        if unknown_count:
+            count_parts.append(f'<span class="counts">{unknown_count} unknown</span>')
+            sr_parts.append(f"{unknown_count} unknown")
         counts_html = '<span class="count-sep">·</span>'.join(count_parts)
 
         dots = []

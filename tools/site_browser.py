@@ -115,6 +115,16 @@ def prepare(site):
     (site / "all-pass.html").write_text(
         site_tool._index_page_html(all_pass_history, "2026-11-19T08:00:00Z")
     )
+    for name, grade in [("insufficient", "INSUFFICIENT_EVIDENCE"), ("unknown", "UNKNOWN")]:
+        mixed = {key: json.loads(json.dumps(recs)) for key, recs in site_tool.runs(site).items()}
+        for recs in mixed.values():
+            recs[0]["outcome"][0]["grade"] = "PASS"
+            recs[0].pop("failing_evaluators", None)
+        mixed[("booster-t1", "stock-mujoco-hallway")][0]["outcome"][0]["grade"] = grade
+        (site / f"{name}.html").write_text(
+            site_tool._index_page_html(mixed, "2026-11-19T08:00:00Z")
+        )
+    (site / "empty.html").write_text(site_tool._index_page_html({}, "2026-11-19T08:00:00Z"))
 
     return {
         str(path.parents[2].relative_to(site)) + "/latest/": str(path.parent.relative_to(site))
@@ -227,7 +237,7 @@ def check_viewport(browser, url, output, width, height, result, destinations):
         expect(page.locator("details#unitree-g1 > summary .summary-row")).to_have_attribute(
             "aria-hidden", "true"
         )
-        page.screenshot(path=output / f"{width}-collapsed.png")
+        page.screenshot(path=output / f"{width}-collapsed.png", full_page=True)
 
         # 2. Hash anchor opens target robot section; cards inside are fail-first, then alphabetical.
         page.goto(url + "#booster-t1")
@@ -361,15 +371,32 @@ def check_viewport(browser, url, output, width, height, result, destinations):
             )
             assert not overflows, "dot strip overflowed at 390"
             result["dot_truncation"] = more.inner_text()
-        if width == 1280:
-            page.screenshot(path=output / "1280-all-pass.png")
+        page.screenshot(path=output / f"{width}-all-pass.png", full_page=True)
+
+        # No FAIL does not imply PASS: retain truthful counts for other outcomes.
+        for name, label in [("insufficient", "insufficient evidence"), ("unknown", "unknown")]:
+            page.goto(url + f"{name}.html")
+            expect(page.locator(".all-pass")).to_have_count(0)
+            expect(page.locator("main > .status")).to_have_text(
+                f"10 latest results: 9 passed, 1 {label}."
+            )
+            assert not page.evaluate("document.documentElement.scrollWidth > innerWidth")
+            page.screenshot(path=output / f"{width}-{name}.png", full_page=True)
+        page.goto(url + "empty.html")
+        expect(page.locator(".all-pass")).to_have_count(0)
+        expect(page.locator("main > .status")).to_have_text(
+            "No verification reports published yet."
+        )
+        result["nonpassing_and_empty"] = "passed"
 
         result["screenshots"] = [
             f"{width}-collapsed.png",
             f"{width}-expanded.png",
             f"{width}-focus.png",
             f"{width}-hover.png",
-            *(["1280-all-pass.png"] if width == 1280 else []),
+            f"{width}-all-pass.png",
+            f"{width}-insufficient.png",
+            f"{width}-unknown.png",
         ]
         result["status"] = "passed"
     except Exception:
