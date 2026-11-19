@@ -246,7 +246,24 @@ jobs:
           python3 - <<'PYCODE'
           import json, os
           results = json.loads(os.environ["RESULTS"])
-          assert results and all(job["result"] == "success" for job in results.values()), results
+          expected = {
+              "locks",
+              "unitree-g1-stock-mujoco-hallway",
+              "unitree-g1-playground-mujoco-hallway",
+              "booster-t1-stock-mujoco-hallway",
+              "unitree-go1-playground-mujoco-hallway",
+              "unitree-g1-stock-mujoco-corner-left",
+              "unitree-g1-stock-mujoco-corner-right",
+              "booster-t1-stock-mujoco-corner-left",
+              "booster-t1-stock-mujoco-corner-right",
+              "unitree-go1-playground-mujoco-corner-left",
+              "unitree-go1-playground-mujoco-corner-right",
+          }
+          if not isinstance(results, dict) or set(results) != expected:
+              raise SystemExit("Missing or unexpected verification dependencies")
+          if any(not isinstance(job, dict) or job.get("result") != "success"
+                 for job in results.values()):
+              raise SystemExit("Every verification dependency must succeed")
           PYCODE
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
