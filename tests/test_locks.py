@@ -945,7 +945,7 @@ def test_every_committed_lock_pins_the_settings_run_evaluator():
     setting = lock_tool.load_run_evaluator_setting(ROOT / "verifications" / "settings.toml")
     assert setting == {
         "repository": "Living-Proof-Labs/livingproof-evaluator-run",
-        "tag": "v1.5.1",
+        "tag": "v1.6.0",
     }
     for definition in DEFINITIONS:
         evaluators = lock_of(definition)["evaluators"]
