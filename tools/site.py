@@ -1591,13 +1591,6 @@ def _spec_repository_label(spec: dict) -> str | None:
     return _stored_text(spec.get("repository"))
 
 
-def _spec_repository_name(spec: dict) -> str | None:
-    repository = _stored_text(spec.get("repository"))
-    if repository is None:
-        return None
-    return repository.rstrip("/").removesuffix(".git").rsplit("/", 1)[-1] or None
-
-
 def _spec_assessments(report: object) -> list[dict]:
     """Every distinct assessment identity the saved summaries record, in order."""
     summaries = report.get("summaries", []) if isinstance(report, dict) else []
@@ -1610,11 +1603,11 @@ def _spec_assessments(report: object) -> list[dict]:
 
 
 def _spec_core(spec: object) -> tuple | None:
-    """What makes two recorded specs the same release: repository name, tag and commit."""
+    """What makes two recorded specs the same release: normalized owner/name, tag and commit."""
     if not isinstance(spec, dict) or not spec:
         return None
     return (
-        _spec_repository_name(spec),
+        _spec_repository_label(spec),
         _stored_text(spec.get("tag")),
         _stored_text(spec.get("commit")),
     )
