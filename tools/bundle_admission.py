@@ -107,6 +107,8 @@ def protections(read):
     for rule in checks:
         if rule["parameters"].get("strict_required_status_checks_policy") is not True:
             raise ValueError("strict required checks missing")
+        if rule["parameters"].get("do_not_enforce_on_create") is not False:
+            raise ValueError("required checks must explicitly enforce on creation")
         required.update(
             (c["context"], c.get("integration_id"))
             for c in rule["parameters"]["required_status_checks"]
@@ -130,6 +132,7 @@ def successful_checks(record, read):
     checks = result["check_runs"]
     if result["total_count"] != len(checks) or len(checks) >= 100:
         raise ValueError("incomplete check evidence")
+    snapshot = {}
     for path, name in WORKFLOWS.items():
         matching = [r for r in runs if r.get("path") == path]
         if not matching:
@@ -171,3 +174,36 @@ def successful_checks(record, read):
             or check.get("conclusion") != "success"
         ):
             raise ValueError("required check is not trusted successful exact-head evidence")
+
+        identities = (
+            run.get("id"),
+            run.get("run_attempt"),
+            run.get("check_suite_id"),
+            check.get("id"),
+        )
+        if any(type(value) is not int or value < 1 for value in identities):
+            raise ValueError("trusted run/attempt/check identity missing")
+        # Copy scalar identities, not references to mutable API response objects.
+        snapshot[path] = identities
+    return snapshot
+
+
+def revalidate_checks(record, snapshot, read):
+    if successful_checks(record, read) != snapshot:
+        raise ValueError("trusted workflow run/attempt/check changed before enqueue")
+    # The list and check reads above are not atomic. Read the current run endpoint
+    # too, catching a rerun begun during that collection. A race after the last
+    # read still requires server-enforced fresh merge-group checks.
+    for path, (run_id, attempt, suite, _check_id) in snapshot.items():
+        run = read(f"actions/runs/{run_id}")
+        if (
+            run.get("id") != run_id
+            or run.get("run_attempt") != attempt
+            or run.get("check_suite_id") != suite
+            or run.get("path") != path
+            or run.get("head_sha") != record["head"]
+            or run.get("event") != "pull_request"
+            or run.get("status") != "completed"
+            or run.get("conclusion") != "success"
+        ):
+            raise ValueError("trusted workflow attempt superseded or no longer successful")

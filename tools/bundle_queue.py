@@ -65,7 +65,7 @@ def enqueue(record, read=None):
         if not node["mergeQueueEntry"].get("id"):
             raise ValueError("queue state is uncertain; inspect before retry")
         return
-    admission.successful_checks(record, read)
+    snapshot = admission.successful_checks(record, read)
     admission.protections(read)
     # Re-read after evidence collection. A base race after this read is covered by
     # the server's required fresh merge-group checks, not a client-side base lease.
@@ -73,6 +73,7 @@ def enqueue(record, read=None):
     if writer.api("git/ref/heads/main")["object"]["sha"] != record["main"]:
         raise ValueError("base moved since publication; no queue write")
     admission.protections(read)
+    admission.revalidate_checks(record, snapshot, read)
     query = """mutation($id: ID!, $head: GitObjectID!) {
       enqueuePullRequest(input: {pullRequestId: $id, expectedHeadOid: $head, jump: false}) {
         mergeQueueEntry { id }

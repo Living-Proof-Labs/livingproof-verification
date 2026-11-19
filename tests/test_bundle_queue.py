@@ -40,6 +40,7 @@ def remote(monkeypatch):
             "ruleset_id": 1,
             "parameters": {
                 "strict_required_status_checks_policy": True,
+                "do_not_enforce_on_create": False,
                 "required_status_checks": [
                     {"context": name, "integration_id": 15368}
                     for name in ["checks", "verification"]
@@ -51,6 +52,8 @@ def remote(monkeypatch):
     for index, (path, name) in enumerate(queue.admission.WORKFLOWS.items(), 1):
         runs.append(
             {
+                "id": index,
+                "run_attempt": 1,
                 "path": path,
                 "head_sha": HEAD,
                 "event": "pull_request",
@@ -64,6 +67,7 @@ def remote(monkeypatch):
         )
         checks.append(
             {
+                "id": index + 100,
                 "name": name,
                 "head_sha": HEAD,
                 "status": "completed",
@@ -102,6 +106,9 @@ def remote(monkeypatch):
                 "total_count": state.get("total_runs", len(state["runs"])),
                 "workflow_runs": state["runs"],
             }
+        if path.startswith("actions/runs/"):
+            run_id = int(path.split("/")[-1])
+            return next(run for run in state["runs"] if run["id"] == run_id)
         if path.startswith("commits/"):
             return {"total_count": len(state["checks"]), "check_runs": state["checks"]}
         raise AssertionError(path)
@@ -401,3 +408,94 @@ def test_polling_is_bounded_and_never_retries_unknown_mutation(remote, monkeypat
     with pytest.raises(TimeoutError):
         queue.wait_for_checks(Path("receipt"), "digest")
     assert len(remote["writes"]) == 1 and len(waits) == 24
+
+
+@pytest.mark.parametrize("value", [True, None])
+def test_checks_must_explicitly_enforce_on_create(remote, value):
+    parameters = remote["rules"][1]["parameters"]
+    if value is None:
+        del parameters["do_not_enforce_on_create"]
+    else:
+        parameters["do_not_enforce_on_create"] = value
+    with pytest.raises(ValueError):
+        enqueue(remote)
+    assert not remote["writes"]
+
+
+@pytest.mark.parametrize(
+    "status,conclusion", [("in_progress", None), ("completed", "failure"), ("completed", "success")]
+)
+@pytest.mark.parametrize("replacement", ["attempt", "run"])
+def test_superseding_ci_after_snapshot_never_enqueues(remote, status, conclusion, replacement):
+    read = remote["read"]
+    changed = False
+
+    def superseding(path):
+        nonlocal changed
+        if path == "rules/branches/main" and not changed:
+            changed = True
+            run = remote["runs"][0]
+            run.update(status=status, conclusion=conclusion)
+            if replacement == "attempt":
+                run["run_attempt"] += 1
+            else:
+                run["id"] += 10
+        return read(path)
+
+    remote["read"] = superseding
+    with pytest.raises(ValueError):
+        enqueue(remote)
+    assert changed and not remote["writes"]
+
+
+@pytest.mark.parametrize(
+    "status,conclusion", [("in_progress", None), ("completed", "failure"), ("completed", "success")]
+)
+def test_current_run_read_detects_attempt_superseding_final_collection(remote, status, conclusion):
+    read = remote["read"]
+
+    def superseding(path):
+        if path == "actions/runs/1":
+            remote["runs"][0].update(run_attempt=2, status=status, conclusion=conclusion)
+        return read(path)
+
+    remote["read"] = superseding
+    with pytest.raises(ValueError):
+        enqueue(remote)
+    assert not remote["writes"]
+
+
+@pytest.mark.parametrize("field", ["id", "run_attempt", "check_suite_id"])
+def test_missing_run_identity_refuses(remote, field):
+    del remote["runs"][0][field]
+    with pytest.raises(ValueError):
+        enqueue(remote)
+    assert not remote["writes"]
+
+
+def test_replaced_check_identity_after_snapshot_refuses(remote):
+    read = remote["read"]
+
+    def replaced(path):
+        if path == "rules/branches/main":
+            remote["checks"][0]["id"] += 1
+        return read(path)
+
+    remote["read"] = replaced
+    with pytest.raises(ValueError):
+        enqueue(remote)
+    assert not remote["writes"]
+
+
+def test_inaccessible_current_attempt_refuses(remote):
+    read = remote["read"]
+
+    def denied(path):
+        if path.startswith("actions/runs/"):
+            raise PermissionError("current attempt inaccessible")
+        return read(path)
+
+    remote["read"] = denied
+    with pytest.raises(PermissionError):
+        enqueue(remote)
+    assert not remote["writes"]
