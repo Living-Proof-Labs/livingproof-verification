@@ -1,0 +1,18 @@
+{
+  "workflow_run": 44423756063,
+  "head_sha": "ee40aa3308ecf1c7fe9359042e9dd15e1d0616cb",
+  "artifact": "unitree-g1-stock-mujoco-corner-right-evidence-stock",
+  "manifest": {
+    "format": "livingproof-hallway-evidence/2.0.0",
+    "run_id": "walk-corner-right-unitree-g1-stock-20261118T235038Z",
+    "created": "2026-11-18T23:50:38+00:00",
+    "scenario": "walk-corner-right@0.1.0",
+    "environment": {
+      "runner": {
+        "version": "3.4.1",
+        "tag": "v3.4.1",
+        "commit": "4e97b6c1ee72a9f6598a91d0a1476116dc17ae13"
+      }
+    }
+  }
+}

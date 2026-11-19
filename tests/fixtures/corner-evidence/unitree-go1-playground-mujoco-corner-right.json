@@ -1,0 +1,24 @@
+{
+  "workflow_run": 44427325390,
+  "head_sha": "797c1f9958ef5f606afe026aa3aa74db5036d765",
+  "artifact": "unitree-go1-playground-mujoco-corner-right-evidence-playground",
+  "manifest": {
+    "format": "livingproof-hallway-evidence/2.0.0",
+    "run_id": "walk-corner-right-unitree-go1-playground-20261119T001623Z",
+    "created": "2026-11-19T00:16:23+00:00",
+    "scenario": "walk-corner-right@0.1.0",
+    "environment": {
+      "runner": {
+        "version": "3.6.2",
+        "tag": "v3.6.2",
+        "commit": "988a57bdb54654aac57aa4de0574d62914074fd0"
+      }
+    },
+    "sources": {
+      "parameters": {
+        "path": "specs/scenarios/walk-corner-right/parameters.json",
+        "sha256": "01e7666a3310f8d30c77ce9f5589ccb960fc495099df57e02be7724bbac880aa"
+      }
+    }
+  }
+}

@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 # Booster T1 with its stock controller walks the hallway in MuJoCo.
 # walk-hallway 0.1.0 on hallway-open 0.1.0 (livingproof-verification#100 step 5).
-# ref is livingproof-booster-t1 v2.2.10, commit a00c7d884b764c89404dc91be9232c0d55eb392c; its uv.lock
-# installs livingproof-sim-mujoco v3.4.1, which the lock records as the runner. The robot is thin,
+# ref is livingproof-booster-t1 v2.3.5, commit 56f6051fd9ee9fdb17f609bf559b7efc8220088a; its uv.lock
+# installs livingproof-sim-mujoco v3.6.2, which the lock records as the runner. The robot is thin,
 # so this definition owns scenario, world, plan and specs (v2.3.0, which has walk-hallway
 # parameters.json; v2.0.2 does not, and capability-verifier v2.0.0 refuses that pin).
 # The call is walk-hallway.yml at capability-verifier v2.0.0. Lock it with
@@ -14,7 +14,7 @@ scenario = "walk-hallway@0.1.0"
 
 [robot]
 repository = "Living-Proof-Labs/livingproof-booster-t1"
-ref = "v2.2.10"
+ref = "v2.3.5"
 configurations = ["stock"]
 
 # The world livingproof-sim-mujoco v2.0.3 vendors: livingproof-worlds v1.1.0.
