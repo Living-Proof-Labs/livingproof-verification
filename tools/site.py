@@ -1898,6 +1898,11 @@ SITE_STYLES = """:root {
   --speak: #8a6a32;
   --speak-text: #6b5428;
   --focus: #0e8785;
+  --pip-pass: #0e8785;
+  --pip-fail: #e11d48;
+  --pip-warn: #d97706;
+  --pip-muted: #94a3b8;
+  --pip-size: 0.7rem;
 }
 *, *::before, *::after { box-sizing: border-box; }
 html, body { margin: 0; }
@@ -1916,9 +1921,20 @@ a {
   text-underline-offset: 0.15em;
 }
 a:hover { color: #08524f; }
-a:focus-visible, button:focus-visible, .row:focus-visible {
+a:focus-visible, button:focus-visible, summary:focus-visible, .row:focus-visible {
   outline: 3px solid var(--focus);
   outline-offset: 3px;
+}
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
 }
 .skip {
   position: absolute;
@@ -1962,7 +1978,7 @@ a:focus-visible, button:focus-visible, .row:focus-visible {
 }
 .lede {
   margin: 0;
-  max-width: 44rem;
+  max-width: 46rem;
   color: var(--header-muted);
   font-size: 0.98rem;
 }
@@ -1980,21 +1996,26 @@ a:focus-visible, button:focus-visible, .row:focus-visible {
 .meta-line a { color: var(--teal-bright); }
 .meta-line .quiet { color: var(--header-muted); }
 .page { padding: 1.25rem 0 2.4rem; }
-.status {
-  margin: 0 0 1.15rem;
+.status, .all-pass {
+  margin: 0 0 1.35rem;
   color: var(--text-muted);
   font-size: 0.95rem;
 }
-.status strong { color: var(--text); font-weight: 650; }
-.robot-group { margin: 1.35rem 0 0; }
-.robot-group:first-child { margin-top: 0; }
-.robot-group h2 {
-  margin: 0 0 0.65rem;
+.status strong, .all-pass strong { color: var(--text); font-weight: 650; }
+.needs { margin: 0 0 1.6rem; }
+.needs h2, .robots-label {
+  margin: 0 0 0.25rem;
   font-size: 0.88rem;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--text);
+}
+.robots-label { margin-bottom: 0.55rem; }
+.needs .lede-section {
+  margin: 0 0 0.65rem;
+  color: var(--text-muted);
+  font-size: 0.95rem;
 }
 .stack {
   display: flex;
@@ -2188,6 +2209,121 @@ a.release:hover { color: var(--link); text-decoration: underline; }
   font-size: 0.88rem;
 }
 .row-meta a { font-weight: 550; }
+.card:hover .card-link { color: var(--link); text-decoration: underline; }
+.robots {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+.robot {
+  background: transparent;
+  border-radius: 0.85rem;
+}
+.robot > summary {
+  list-style: none;
+  cursor: pointer;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 0.85rem;
+  box-shadow: var(--shadow);
+  padding: 0.7rem 0.9rem;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.robot > summary::-webkit-details-marker { display: none; }
+.robot > summary::marker { content: ""; }
+.robot > summary:hover {
+  background: var(--bg-muted);
+  border-color: var(--border-strong);
+}
+.robot[open] {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 0.85rem;
+  box-shadow: var(--shadow);
+  padding-bottom: 0.55rem;
+}
+.robot[open] > summary {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  border-radius: 0.85rem 0.85rem 0 0;
+  margin-bottom: 0.35rem;
+}
+.robot[open] > summary:hover { background: var(--bg-muted); }
+.robot[open] .robot-body { padding: 0 0.7rem 0.15rem; }
+.summary-row {
+  display: grid;
+  grid-template-columns: auto minmax(16rem, 1.15fr) minmax(8rem, 1fr) auto;
+  align-items: center;
+  column-gap: 0.85rem;
+  row-gap: 0.3rem;
+}
+.chevron {
+  flex: none;
+  width: 1rem;
+  height: 1rem;
+  color: var(--teal);
+  transition: transform 0.15s ease;
+}
+.robot[open] .chevron { transform: rotate(90deg); }
+.summary-id {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 0.7rem;
+  flex: 1 1 14rem;
+  min-width: 0;
+}
+.robot-name {
+  font-weight: 700;
+  font-size: 1.02rem;
+  letter-spacing: -0.01em;
+}
+.counts {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+.fail-count { color: var(--chip-fail-fg); font-weight: 700; }
+.pass-count { color: var(--text-muted); }
+.count-sep { margin: 0 0.3rem; color: #94a3b8; }
+.dots {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  justify-self: start;
+}
+.pip {
+  flex: none;
+  width: var(--pip-size);
+  height: var(--pip-size);
+  border-radius: 50%;
+  display: block;
+}
+.pip[hidden], .pip-more[hidden] { display: none; }
+.pip-pass { background: var(--pip-pass); }
+.pip-fail { background: var(--pip-fail); }
+.pip-warn { background: var(--pip-warn); }
+.pip-muted { background: var(--pip-muted); }
+.pip-more {
+  flex: none;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+.meta-latest {
+  justify-self: end;
+  color: var(--text-muted);
+  font-size: 0.88rem;
+  white-space: nowrap;
+  flex: none;
+}
+.robot-body { padding: 0 0 0.2rem; }
 @media (max-width: 720px) {
   .entry-main, .row-top {
     grid-template-columns: auto 1fr;
@@ -2213,10 +2349,97 @@ a.release:hover { color: var(--link); text-decoration: underline; }
   }
   .masthead h1 { font-size: 1.4rem; }
   .wrap { width: min(72rem, 100% - 1.5rem); }
+  .summary-row {
+    grid-template-columns: auto 1fr auto;
+    grid-template-areas:
+      "chevron ident ident"
+      "dots    dots    meta";
+    align-items: center;
+    column-gap: 0.55rem;
+    row-gap: 0.35rem;
+  }
+  .chevron { grid-area: chevron; align-self: start; margin-top: 0.28rem; }
+  .summary-id { grid-area: ident; flex: none; min-width: 0; display: flex; }
+  .dots { grid-area: dots; max-width: 100%; }
+  .meta-latest { grid-area: meta; justify-self: end; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .card, .row { transition: none; }
+  .card, .row, .robot > summary, .chevron { transition: none; }
 }
+"""
+
+INDEX_SCRIPT = """// Open a robot section when the URL hash is its id (e.g. #unitree-g1).
+// Truncate the scenario-dot strip to one line and show +n when dots don't fit.
+(function () {
+  function hashId() {
+    try {
+      return decodeURIComponent((location.hash || "").replace(/^#/, ""));
+    } catch {
+      return "";
+    }
+  }
+
+  function openFromHash() {
+    const id = hashId();
+    if (!id) return;
+    const el = document.getElementById(id);
+    if (el && el.tagName === "DETAILS") {
+      el.open = true;
+      el.scrollIntoView({ block: "start" });
+    }
+  }
+
+  function setHashFor(details) {
+    if (!details.id) return;
+    const next = details.open ? "#" + details.id : location.pathname + location.search;
+    history.replaceState(null, "", next);
+  }
+
+  function fitDots(strip) {
+    const more = strip.querySelector(".pip-more");
+    const pips = [...strip.querySelectorAll(".pip")];
+    pips.forEach((p) => { p.hidden = false; });
+    if (more) {
+      more.hidden = true;
+      more.textContent = "";
+    }
+    if (!pips.length || strip.clientWidth === 0) return;
+    const fits = () => strip.scrollWidth <= strip.clientWidth + 1;
+    if (fits()) return;
+    if (!more) return;
+    more.hidden = false;
+    let hidden = 0;
+    for (let i = pips.length - 1; i >= 1; i--) {
+      pips[i].hidden = true;
+      hidden += 1;
+      more.textContent = "+" + hidden;
+      if (fits()) return;
+    }
+  }
+
+  function fitAll() {
+    document.querySelectorAll(".dots").forEach(fitDots);
+  }
+
+  document.querySelectorAll("details.robot").forEach((d) => {
+    d.addEventListener("toggle", () => {
+      if (d.open || hashId() === d.id) setHashFor(d);
+    });
+  });
+
+  function start() {
+    openFromHash();
+    fitAll();
+    if (document.fonts && document.fonts.ready) {
+      document.fonts.ready.then(fitAll);
+    }
+  }
+  window.addEventListener("hashchange", openFromHash);
+  window.addEventListener("resize", fitAll);
+  window.addEventListener("load", fitAll);
+  document.addEventListener("DOMContentLoaded", start);
+  if (document.readyState !== "loading") start();
+})();
 """
 
 _ROBOT_TITLES = {
@@ -2275,7 +2498,7 @@ def _record_grade(record: dict) -> str:
         return "UNSUPPORTED"
     if "PASS" in grades:
         return "PASS"
-    return grades[0] if grades else "UNSUPPORTED"
+    return (grades[0] if grades else "") or "UNKNOWN"
 
 
 def _badge_label(grade: str) -> str:
@@ -2296,7 +2519,7 @@ def _badge_html(grade: str) -> str:
     return f'<span class="badge {cls}">{html.escape(_badge_label(grade))}</span>'
 
 
-def _relative_time_html(created: str, now: str) -> str:
+def _relative_time_text(created: str, now: str) -> tuple[str, str]:
     created_dt = _stamp(created)
     now_dt = _stamp(now) if now else created_dt
     seconds = max(0, int((now_dt - created_dt).total_seconds()))
@@ -2319,10 +2542,21 @@ def _relative_time_html(created: str, now: str) -> str:
         relative = f"{created_dt.day} {created_dt.strftime('%b %Y')}"
     local = created_dt.astimezone(LOCAL_TZ)
     tooltip = f"{local.day} {local.strftime('%b %Y, %H:%M %Z')}"
+    return relative, tooltip
+
+
+def _relative_time_html(created: str, now: str) -> str:
+    relative, tooltip = _relative_time_text(created, now)
     return (
         f'<time datetime="{html.escape(created, quote=True)}" '
         f'title="{html.escape(tooltip, quote=True)}">{html.escape(relative)}</time>'
     )
+
+
+def _release_label(record: dict) -> str:
+    commit = record.get("commit") or {}
+    tag = _stored_text(record.get("bundle_tag") or commit.get("tag"))
+    return tag if tag is not None else "commit"
 
 
 def _release_html(record: dict, *, linked: bool = True) -> str:
@@ -2442,8 +2676,18 @@ def _finding_html(record: dict) -> str:
 
 
 def _styled_document(
-    title: str, css_href: str, skip_id: str, skip_label: str, masthead: str, main_body: str
+    title: str,
+    css_href: str,
+    skip_id: str,
+    skip_label: str,
+    masthead: str,
+    main_body: str,
+    *,
+    script_href: str | None = None,
 ) -> str:
+    script = (
+        f'<script src="{html.escape(script_href, quote=True)}"></script>\n' if script_href else ""
+    )
     return (
         "<!doctype html>\n"
         '<html lang="en">\n'
@@ -2458,6 +2702,7 @@ def _styled_document(
         f'<a class="skip" href="#{html.escape(skip_id, quote=True)}">{html.escape(skip_label)}</a>\n'
         f'<header class="masthead"><div class="wrap masthead-inner">{masthead}</div></header>\n'
         f'<main class="page wrap" id="{html.escape(skip_id, quote=True)}">{main_body}</main>\n'
+        f"{script}"
         "</body>\n"
         "</html>\n"
     )
@@ -2581,6 +2826,51 @@ def _history_page_html(
     )
 
 
+def _index_card_html(
+    robot: str,
+    variant: str,
+    records: list[dict],
+    ref_now: str,
+    *,
+    include_robot: bool,
+) -> str:
+    newest = records[0]
+    grade = _record_grade(newest)
+    card_class = "card is-fail" if grade in ("FAIL", "INSUFFICIENT_EVIDENCE") else "card"
+    scenario_title = _scenario_title(newest, variant)
+    subtitle = _variant_subtitle(newest, variant)
+    if include_robot:
+        robot_title = _robot_title(robot)
+        sub_text = f"{robot_title} · {subtitle}" if subtitle else robot_title
+    else:
+        sub_text = subtitle
+    latest_href = f"{robot}/{variant}/latest/"
+    history_href = f"{robot}/{variant}/"
+    run_prefix = f"{robot}/{variant}/runs/{newest['folder']}/"
+    chips = _chips_html(newest, run_prefix, linked=False)
+    finding = _finding_html(newest)
+    card_label = f"{scenario_title}, latest report ({_badge_label(grade)})"
+    return (
+        f'<article class="{card_class}">'
+        '<div class="entry-main">'
+        f"{_badge_html(grade)}"
+        '<div class="entry-body">'
+        f'<h3 class="title"><a class="card-link" href="{html.escape(latest_href, quote=True)}" '
+        f'aria-label="{html.escape(card_label, quote=True)}">{html.escape(scenario_title)}</a></h3>'
+        f'<p class="sub">{html.escape(sub_text)}</p>'
+        f"{chips}{finding}"
+        "</div>"
+        '<div class="entry-side">'
+        f'<div class="side-meta">{_release_html(newest, linked=False)}'
+        f'<span class="dot">·</span>{_relative_time_html(newest["run"]["created"], ref_now)}</div>'
+        f'<div class="links"><a class="history-link" href="{html.escape(history_href, quote=True)}">'
+        f"History ({len(records)})</a></div>"
+        "</div>"
+        "</div>"
+        "</article>"
+    )
+
+
 def _index_page_html(history: dict, now: str) -> str:
     grouped: dict[str, list[tuple[str, list[dict]]]] = {}
     all_latest: list[dict] = []
@@ -2589,65 +2879,160 @@ def _index_page_html(history: dict, now: str) -> str:
         all_latest.append(records[0])
     ref_now = now or max((r["run"]["created"] for r in all_latest), default="")
     total_count = len(all_latest)
-    failed_count = sum(1 for r in all_latest if _record_grade(r) == "FAIL")
-    if failed_count:
-        status_html = (
-            f'<p class="status"><strong>{failed_count} of {total_count}</strong> '
-            "latest results failed. Failures list the evaluators that spoke; passing rows stay quiet.</p>"
+
+    failed_entries = [
+        (robot, variant, records)
+        for (robot, variant), records in history.items()
+        if _record_grade(records[0]) == "FAIL"
+    ]
+    failed_entries.sort(
+        key=lambda item: (
+            _robot_title(item[0]).lower(),
+            _scenario_title(item[2][0], item[1]).lower(),
+            _variant_subtitle(item[2][0], item[1]).lower(),
+            item[1],
         )
-    elif total_count:
-        status_html = (
-            f'<p class="status"><strong>All {total_count}</strong> '
-            "latest results passed. Passing rows stay quiet.</p>"
-        )
-    else:
-        status_html = '<p class="status">No verification reports published yet.</p>'
-    sections = []
-    for robot, variants in grouped.items():
-        robot_title = _robot_title(robot)
-        heading_id = f"r-{robot}"
-        cards = []
-        for variant, records in variants:
-            newest = records[0]
-            grade = _record_grade(newest)
-            card_class = "card is-fail" if grade in ("FAIL", "INSUFFICIENT_EVIDENCE") else "card"
-            scenario_title = _scenario_title(newest, variant)
-            subtitle = _variant_subtitle(newest, variant)
-            latest_href = f"{robot}/{variant}/latest/"
-            history_href = f"{robot}/{variant}/"
-            run_prefix = f"{robot}/{variant}/runs/{newest['folder']}/"
-            chips = _chips_html(newest, run_prefix, linked=False)
-            card_label = f"{scenario_title}, latest report ({_badge_label(grade)})"
-            cards.append(
-                f'<article class="{card_class}">'
-                '<div class="entry-main">'
-                f"{_badge_html(grade)}"
-                '<div class="entry-body">'
-                f'<h3 class="title"><a class="card-link" href="{html.escape(latest_href, quote=True)}" '
-                f'aria-label="{html.escape(card_label, quote=True)}">{html.escape(scenario_title)}</a></h3>'
-                f'<p class="sub">{html.escape(subtitle)}</p>'
-                f"{chips}"
-                "</div>"
-                '<div class="entry-side">'
-                f'<div class="side-meta">{_release_html(newest, linked=False)}'
-                f'<span class="dot">·</span>{_relative_time_html(newest["run"]["created"], ref_now)}</div>'
-                f'<div class="links"><a class="history-link" href="{html.escape(history_href, quote=True)}">'
-                f"History ({len(records)})</a></div>"
-                "</div>"
-                "</div>"
-                "</article>"
-            )
-        sections.append(
-            f'<section class="robot-group" aria-labelledby="{html.escape(heading_id, quote=True)}">'
-            f'<h2 id="{html.escape(heading_id, quote=True)}">{html.escape(robot_title)}</h2>'
-            f'<div class="stack">{"".join(cards)}</div>'
+    )
+    failed_entries.sort(
+        key=lambda item: (item[2][0]["run"]["created"], item[2][0].get("folder", "")),
+        reverse=True,
+    )
+    if failed_entries:
+        failed_count = len(failed_entries)
+        noun = "result" if failed_count == 1 else "results"
+        needs_cards = [
+            _index_card_html(robot, variant, records, ref_now, include_robot=True)
+            for robot, variant, records in failed_entries
+        ]
+        needs_html = (
+            '<section class="needs" aria-labelledby="needs-attention">'
+            '<h2 id="needs-attention">Needs attention</h2>'
+            f'<p class="lede-section">{failed_count} latest {noun} failed, newest first. '
+            "Each card opens the latest report.</p>"
+            f'<div class="stack">{"".join(needs_cards)}</div>'
             "</section>"
         )
+    elif total_count and all(_record_grade(r) == "PASS" for r in all_latest):
+        needs_html = f'<p class="all-pass">All {total_count} latest results pass.</p>'
+    elif total_count:
+        labels = {
+            "PASS": "passed",
+            "INSUFFICIENT_EVIDENCE": "insufficient evidence",
+            "UNSUPPORTED": "not supported",
+        }
+        counts = {label: 0 for label in (*labels.values(), "unknown")}
+        for record in all_latest:
+            counts[labels.get(_record_grade(record), "unknown")] += 1
+        summary = ", ".join(f"{count} {label}" for label, count in counts.items() if count)
+        noun = "result" if total_count == 1 else "results"
+        needs_html = f'<p class="status">{total_count} latest {noun}: {summary}.</p>'
+    else:
+        needs_html = '<p class="status">No verification reports published yet.</p>'
+
+    chevron_svg = (
+        '<svg class="chevron" viewBox="0 0 16 16" aria-hidden="true" focusable="false">'
+        '<path fill="currentColor" d="M6.2 3.2a.75.75 0 0 0 0 1.06L9.94 8 6.2 11.74a.75.75 0 1 0 '
+        '1.06 1.06l4.27-4.27a.75.75 0 0 0 0-1.06L7.26 3.2a.75.75 0 0 0-1.06 0Z"/></svg>'
+    )
+    robot_sections = []
+    for robot, variants in sorted(
+        grouped.items(), key=lambda kv: (_robot_title(kv[0]).lower(), kv[0])
+    ):
+        robot_title = _robot_title(robot)
+        ordered = sorted(
+            variants,
+            key=lambda item: (
+                0 if _record_grade(item[1][0]) == "FAIL" else 1,
+                _scenario_title(item[1][0], item[0]).lower(),
+                _variant_subtitle(item[1][0], item[0]).lower(),
+                item[0],
+            ),
+        )
+        scenario_count = len(ordered)
+        fail_count = sum(1 for _, recs in ordered if _record_grade(recs[0]) == "FAIL")
+        insuff_count = sum(
+            1 for _, recs in ordered if _record_grade(recs[0]) == "INSUFFICIENT_EVIDENCE"
+        )
+        pass_count = sum(1 for _, recs in ordered if _record_grade(recs[0]) == "PASS")
+        unsup_count = sum(1 for _, recs in ordered if _record_grade(recs[0]) == "UNSUPPORTED")
+        unknown_count = scenario_count - fail_count - insuff_count - pass_count - unsup_count
+        scenario_noun = "scenario" if scenario_count == 1 else "scenarios"
+        count_parts = [f"{scenario_count} {scenario_noun}"]
+        sr_parts = [f"{scenario_count} {scenario_noun}"]
+        if fail_count:
+            count_parts.append(f'<span class="fail-count">{fail_count} failed</span>')
+            sr_parts.append(f"{fail_count} failed")
+        if insuff_count:
+            count_parts.append(f'<span class="fail-count">{insuff_count} insufficient</span>')
+            sr_parts.append(f"{insuff_count} insufficient")
+        if pass_count:
+            count_parts.append(f'<span class="pass-count">{pass_count} passed</span>')
+            sr_parts.append(f"{pass_count} passed")
+        if unsup_count:
+            count_parts.append(f'<span class="pass-count">{unsup_count} not supported</span>')
+            sr_parts.append(f"{unsup_count} not supported")
+        if unknown_count:
+            count_parts.append(f'<span class="counts">{unknown_count} unknown</span>')
+            sr_parts.append(f"{unknown_count} unknown")
+        counts_html = '<span class="count-sep">·</span>'.join(count_parts)
+
+        dots = []
+        cards = []
+        for variant, records in ordered:
+            newest = records[0]
+            grade = _record_grade(newest)
+            scenario_title = _scenario_title(newest, variant)
+            pip_cls, pip_status = {
+                "FAIL": ("pip-fail", "failed"),
+                "PASS": ("pip-pass", "passed"),
+                "INSUFFICIENT_EVIDENCE": ("pip-warn", "insufficient evidence"),
+                "UNSUPPORTED": ("pip-muted", "not supported"),
+            }.get(grade, ("pip-muted", grade.lower()))
+            dots.append(
+                f'<span class="pip {pip_cls}" '
+                f'title="{html.escape(f"{scenario_title}: {pip_status}", quote=True)}"></span>'
+            )
+            cards.append(_index_card_html(robot, variant, records, ref_now, include_robot=False))
+
+        latest_record = max(
+            (recs[0] for _, recs in ordered),
+            key=lambda r: (r["run"]["created"], r.get("folder", "")),
+        )
+        latest_rel = _release_label(latest_record)
+        latest_time_text, _ = _relative_time_text(latest_record["run"]["created"], ref_now)
+        sr_label = f"{robot_title}, {', '.join(sr_parts)}, latest {latest_rel}, {latest_time_text}"
+        meta_latest = (
+            f"{_release_html(latest_record, linked=False)}"
+            '<span class="dot">·</span>'
+            f"{_relative_time_html(latest_record['run']['created'], ref_now)}"
+        )
+        robot_sections.append(
+            f'<details class="robot" id="{html.escape(robot, quote=True)}">'
+            "<summary>"
+            f'<span class="visually-hidden">{html.escape(sr_label)}</span>'
+            '<div class="summary-row" aria-hidden="true">'
+            f"{chevron_svg}"
+            f'<div class="summary-id"><span class="robot-name">{html.escape(robot_title)}</span>'
+            f'<span class="counts">{counts_html}</span></div>'
+            f'<span class="dots">{"".join(dots)}<span class="pip-more" hidden></span></span>'
+            f'<span class="meta-latest">{meta_latest}</span>'
+            "</div>"
+            "</summary>"
+            f'<div class="robot-body"><div class="stack">{"".join(cards)}</div></div>'
+            "</details>"
+        )
+
+    robots_html = (
+        '<h2 class="robots-label" id="robots">Robots</h2>'
+        f'<div class="robots">{"".join(robot_sections)}</div>'
+        if robot_sections
+        else ""
+    )
     masthead = (
         '<p class="eyebrow">Living Proof Labs</p>'
         "<h1>Verification reports</h1>"
         '<p class="lede">The latest result for each robot and scenario. '
-        "Open a report for the evidence, or the history to scan what failed.</p>"
+        "Failures come first, so they get fixed. Open a robot to see everything it runs.</p>"
     )
     return _styled_document(
         "Living Proof verification reports",
@@ -2655,7 +3040,8 @@ def _index_page_html(history: dict, now: str) -> str:
         "results",
         "Skip to results",
         masthead,
-        status_html + "".join(sections),
+        needs_html + robots_html,
+        script_href="open.js",
     )
 
 
@@ -2665,6 +3051,7 @@ def render(site: Path, now: str = "", verifications: Path = ROOT / "verification
     prune_expired_evidence(site, now, days)
     history = runs(site)
     (site / "styles.css").write_text(SITE_STYLES)
+    (site / "open.js").write_text(INDEX_SCRIPT)
     for (robot, variant), records in sorted(history.items()):
         base = site / robot / variant
         latest = base / "latest"
