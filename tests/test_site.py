@@ -2973,3 +2973,15 @@ def test_report_provenance_summary_is_not_letter_spaced_or_uppercased():
     assert "Spec" in re.search(r"<summary[^>]*>(.*?)</summary>", block, re.S).group(1)
     # "Show" / "Hide" follow the line, and are not the reporter's capitalised chrome.
     assert 'content:"Show"' in block and 'content:"Hide"' in block
+
+
+def test_the_commit_fallback_link_is_styled_like_the_report_link():
+    """#146 (Art): underlined, link colour, same weight as the Report link in `.row-meta`."""
+    css = site_tool.SITE_STYLES
+    rule = re.search(r"a\.release\.is-fallback\s*\{([^}]*)\}", css)
+    assert rule, "no `a.release.is-fallback` rule"
+    body = rule.group(1)
+    assert "text-decoration: underline" in body
+    assert "color: var(--link)" in body
+    assert "font-weight: 550" in body  # `.row-meta a`, the Report link's weight
+    assert ".row-meta a { font-weight: 550; }" in css

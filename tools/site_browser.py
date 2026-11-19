@@ -82,6 +82,18 @@ def check_no_commit_id(page, scope="body"):
     assert not found, f"commit id visible as text in {scope} of {page.url}: {found}"
 
 
+def check_commit_link_matches_report_link(page):
+    """#146 (Art): a row's "commit" link looks like the "Report" link beside it."""
+    row = page.locator(".row", has=page.locator("a.release.is-fallback")).first
+    commit = row.locator("a.release.is-fallback")
+    report = row.locator("a", has_text="Report").first
+    expect(commit).to_have_text("commit")
+    props = "e=>{const c=getComputedStyle(e);return [c.textDecorationLine,c.color,c.fontWeight]}"
+    found, expected = commit.evaluate(props), report.evaluate(props)
+    assert found == expected, f"commit link {found} differs from the Report link {expected}"
+    assert found[0] == "underline", f"commit link is not underlined: {found}"
+
+
 def check_report(page, width, result, output):
     """#146: the report's provenance is collapsed, below the result, in sentence case."""
     page.locator(".row a", has_text="Report").first.click()
@@ -106,6 +118,7 @@ def check_history(page, width, height, result, output):
     """#146: rows carry no spec provenance; the header names the specs; one row flags a change."""
     check_no_commit_id(page)
     expect(page.locator(".masthead")).not_to_contain_text("@")
+    check_commit_link_matches_report_link(page)
     expect(page.locator("main .spec-provenance")).to_have_count(0)
     expect(page.locator("main")).not_to_contain_text("Spec provenance")
     expect(page.locator(".masthead")).to_contain_text("specs v")
