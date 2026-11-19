@@ -34,16 +34,27 @@ GlobalConfig.set({ localDir: work, cacheDir: join(work, 'cache') });
 const read = (file) => readFileSync(file, 'utf8');
 const SETTINGS = 'verifications/settings.toml';
 const REPORTER = 'Living-Proof-Labs/livingproof-capability-report';
+const ROBOTS = new Set([
+  'Living-Proof-Labs/livingproof-booster-t1',
+  'Living-Proof-Labs/livingproof-unitree-g1',
+  'Living-Proof-Labs/livingproof-unitree-go1',
+]);
 const config = JSON.parse(read('renovate.json'));
 const settings = read(SETTINGS);
 // Read the pin from the real file. A reporter bump must not require editing this test.
 const CURRENT = settings.match(/^\[reporter\][\s\S]*?^tag = "(v\d+\.\d+\.\d+)"$/m)[1];
 const [major, minor] = CURRENT.slice(1).split('.').map(Number);
 const PROPOSED = `v${major}.${minor + 1}.0`;
+const definitions = readdirSync('verifications')
+  .filter((name) => name.endsWith('.toml') && name !== 'settings.toml')
+  .sort()
+  .map((name) => `verifications/${name}`);
 const locks = readdirSync('verifications')
   .filter((name) => name.endsWith('.lock.json'))
   .sort()
   .map((name) => `verifications/${name}`);
+const frozen = definitions.filter((file) => file.endsWith('-hallway.toml'));
+const eligible = definitions.filter((file) => !frozen.includes(file));
 
 function reporterManager(cfg) {
   const found = (cfg.customManagers ?? []).filter((manager) =>
@@ -55,8 +66,21 @@ function reporterManager(cfg) {
   return found[0];
 }
 
-async function replace(content, manager, newValue) {
-  const extracted = extractPackageFile(content, SETTINGS, manager);
+function robotManager(cfg) {
+  const found = (cfg.customManagers ?? []).filter((manager) =>
+    (manager.managerFilePatterns ?? []).some(
+      (pattern) =>
+        pattern.includes('verifications') &&
+        pattern.includes('toml') &&
+        !pattern.includes('settings'),
+    ),
+  );
+  assert.equal(found.length, 1, 'one custom manager for verifications/*.toml robots');
+  return found[0];
+}
+
+async function replaceFile(content, packageFile, manager, newValue) {
+  const extracted = extractPackageFile(content, packageFile, manager);
   assert.ok(extracted?.deps?.length);
   let output = content;
   for (const [depIndex, dep] of extracted.deps.entries()) {
@@ -65,7 +89,7 @@ async function replace(content, manager, newValue) {
         ...manager,
         ...dep,
         manager: 'regex',
-        packageFile: SETTINGS,
+        packageFile,
         depIndex,
         newValue,
         autoReplaceGlobalMatch: true,
@@ -76,6 +100,10 @@ async function replace(content, manager, newValue) {
     assert.equal(typeof output, 'string');
   }
   return output;
+}
+
+async function replace(content, manager, newValue) {
+  return replaceFile(content, SETTINGS, manager, newValue);
 }
 
 function changedLines(before, after) {
@@ -222,9 +250,12 @@ test('the organization preset still governs the reporter and the locks stay disa
   assert.equal('ignoreUnstable' in config, false);
   assert.equal('schedule' in config, false);
   assert.equal('postUpgradeTasks' in config, false);
+  const presetTag = config.extends[0].split('#')[1];
   const presetUrl =
-    'https://raw.githubusercontent.com/Living-Proof-Labs/collaboration-guidelines/v7.10.8/renovate-preset.json';
-  const preset = await (await fetch(presetUrl)).json();
+    `https://raw.githubusercontent.com/Living-Proof-Labs/collaboration-guidelines/${presetTag}/renovate-preset.json`;
+  const response = await fetch(presetUrl);
+  assert.ok(response.ok, `cannot load configured preset ${presetTag}: ${response.status}`);
+  const preset = await response.json();
   const merged = mergeChildConfig(preset, config);
   for (const manager of preset.enabledManagers) {
     assert.ok(merged.enabledManagers.includes(manager), manager);
@@ -235,7 +266,7 @@ test('the organization preset still governs the reporter and the locks stay disa
   assert.equal(merged.automerge, false);
   assert.equal(merged.platformAutomerge, false);
   assert.deepEqual(merged.schedule, ['before 6am on monday']);
-  assert.equal(merged.customManagers.length, preset.customManagers.length + 1);
+  assert.equal(merged.customManagers.length, preset.customManagers.length + 2);
   assert.deepEqual(merged.customManagers.slice(0, preset.customManagers.length), preset.customManagers);
   assert.deepEqual(merged.excludeCommitPaths, ['verifications/*.lock.json']);
 
@@ -281,6 +312,44 @@ test('the organization preset still governs the reporter and the locks stay disa
   );
   assert.equal(lockRule.enabled, false);
   assert.equal(lockRule.skipReason, 'package-rules');
+
+  const rManager = robotManager(config);
+  const rDep = extractPackageFile(read(definitions[0]), definitions[0], rManager).deps[0];
+  const robotRule = await applyPackageRules(
+    {
+      ...merged,
+      ...rDep,
+      manager: 'regex',
+      packageName: rDep.depName,
+      packageFile: definitions[0],
+    },
+    'test',
+  );
+  assert.equal(robotRule.automerge, false);
+  assert.equal(robotRule.rebaseWhen, 'behind-base-branch');
+  assert.equal(robotRule.platformAutomerge, false);
+  assert.equal(robotRule.skipReason, undefined);
+  assert.equal(robotRule.groupName, undefined);
+  assert.deepEqual(robotRule.schedule, ['at any time']);
+  assert.equal(robotRule.prHourlyLimit, 0);
+  assert.equal(robotRule.prConcurrentLimit, 0);
+  assert.equal(robotRule.allowedVersions, '/^v[0-9]+\\.[0-9]+\\.[0-9]+$/');
+  assert.match(robotRule.prBodyNotes[0], /python3 tools\/lock\.py verifications\/<definition>\.toml/);
+  assert.match(robotRule.prBodyNotes[0], /\.github\/workflows\/verify\.yml/);
+  assert.match(robotRule.prBodyNotes[0], /Never hand-edit/);
+
+  const robotLockRule = await applyPackageRules(
+    {
+      ...merged,
+      ...rDep,
+      manager: 'regex',
+      packageName: rDep.depName,
+      packageFile: locks[0],
+    },
+    'test',
+  );
+  assert.equal(robotLockRule.enabled, false);
+  assert.equal(robotLockRule.skipReason, 'package-rules');
 
   const thirdParty = await applyPackageRules(
     { ...merged, depName: 'actions/checkout', packageName: 'actions/checkout', manager: 'github-actions' },
@@ -335,5 +404,76 @@ test('no tracked file other than settings.toml yields a reporter dependency', ()
       continue;
     }
     assert.equal(extractPackageFile(text, file, manager), null, file);
+  }
+});
+
+test('the robot manager extracts every eligible robot definition ref', () => {
+  const manager = robotManager(config);
+  assert.equal(manager.customType, 'regex');
+  assert.equal(manager.datasourceTemplate, 'github-releases');
+  assert.equal(manager.versioningTemplate, 'semver');
+  assert.equal(eligible.length, 6);
+  const seenRepos = new Set();
+  for (const file of eligible) {
+    const text = read(file);
+    const repo = text.match(/^\[robot\]\r?\nrepository = "([^"]+)"/m)[1];
+    const ref = text.match(/^\[robot\]\r?\nrepository = "[^"]+"\r?\nref = "(v\d+\.\d+\.\d+)"/m)[1];
+    const extracted = extractPackageFile(text, file, manager);
+    assert.equal(extracted.deps.length, 1, file);
+    const [dep] = extracted.deps;
+    assert.equal(dep.depName, repo, file);
+    assert.ok(ROBOTS.has(dep.depName), `${file}: unexpected robot ${dep.depName}`);
+    assert.equal(dep.currentValue, ref, file);
+    assert.match(dep.currentValue, /^v\d+\.\d+\.\d+$/);
+    assert.equal(dep.datasource, 'github-releases');
+    assert.equal(dep.versioning, 'semver');
+    seenRepos.add(dep.depName);
+  }
+  assert.deepEqual([...seenRepos].sort(), [...ROBOTS].sort());
+});
+
+test('a robot update changes only the [robot].ref line and leaves locks untouched', async () => {
+  const manager = robotManager(config);
+  const lockBytes = new Map(locks.map((path) => [path, read(path)]));
+  for (const file of eligible) {
+    const before = read(file);
+    const current = before.match(/^\[robot\]\r?\nrepository = "[^"]+"\r?\nref = "(v\d+\.\d+\.\d+)"/m)[1];
+    const [rMajor, rMinor] = current.slice(1).split('.').map(Number);
+    const proposed = `v${rMajor}.${rMinor + 1}.0`;
+    const twiceProposed = `v${rMajor}.${rMinor + 2}.0`;
+
+    const output = await replaceFile(before, file, manager, proposed);
+    assert.deepEqual(
+      changedLines(before, output).map((change) => [change.from, change.to]),
+      [[`ref = "${current}"`, `ref = "${proposed}"`]],
+      file,
+    );
+    const twice = await replaceFile(output, file, manager, twiceProposed);
+    assert.equal(extractPackageFile(twice, file, manager).deps[0].currentValue, twiceProposed);
+
+    const crlf = before.replaceAll('\n', '\r\n');
+    const crlfOut = await replaceFile(crlf, file, manager, proposed);
+    assert.equal(crlfOut, crlf.replace(`ref = "${current}"`, `ref = "${proposed}"`));
+    assert.match(crlfOut, /\r\n/);
+  }
+  for (const [path, bytes] of lockBytes) assert.equal(read(path), bytes, path);
+});
+
+test('the robot manager excludes frozen hallways, unclassified definitions, settings and locks', () => {
+  const manager = robotManager(config);
+  const tracked = execFileSync('git', ['ls-files'], { encoding: 'utf8' }).trim().split('\n');
+  assert.deepEqual(
+    getMatchingFiles({ ...manager, manager: 'regex' }, tracked).sort(),
+    [...eligible].sort(),
+  );
+  assert.equal(frozen.length, 4);
+  assert.deepEqual(getMatchingFiles({ ...manager, manager: 'regex' }, [
+    ...frozen,
+    'verifications/new-robot-corner-left.toml',
+    'tools/renovate/fixtures/booster-t1-stock-mujoco-corner-left.toml',
+  ]), []);
+  assert.equal(extractPackageFile(settings, SETTINGS, manager), null);
+  for (const file of locks) {
+    assert.equal(extractPackageFile(read(file), file, manager), null, file);
   }
 });

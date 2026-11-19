@@ -195,7 +195,9 @@ Pull requests run the same checks in `.github/workflows/checks.yml` (tools insta
 from `.github/requirements/`), plus a site build from fixture reports
 (`tools/site_fixture.py`) whose links must resolve. That job has `contents: read` only and
 deploys nothing. The `renovate` job runs `tools/renovate/run.sh`: `renovate-config-validator --strict`
-and the reporter extraction test against the real `verifications/settings.toml`.
+and reporter/eligible-robot extraction tests against the real definitions. The
+[robot update inventory and completion procedure](docs/robot-updates.md) records
+the frozen hallway boundary, eligible corner proposals, and Keel's completion steps.
 
 ## License
 

@@ -27,6 +27,10 @@ CONSUMER_RULE_DESCRIPTIONS = (
         "Reporter release tags stay on the organization policy. Renovate edits only "
         "verifications/settings.toml."
     ),
+    (
+        "Robot release refs stay on the organization policy. Renovate edits only "
+        "verifications/*.toml definitions."
+    ),
     "The verification locks are generator output. Renovate must not edit them.",
 )
 
@@ -49,13 +53,15 @@ def test_consumer_package_rules_stay_in_place_when_the_preset_pin_moves():
     assert rules[0]["automerge"] is False
     assert rules[1]["matchFileNames"] == ["verifications/settings.toml"]
     assert rules[1]["automerge"] is False
-    assert rules[2]["matchFileNames"] == ["verifications/*.lock.json"]
-    assert rules[2]["enabled"] is False
+    assert rules[2]["matchFileNames"] == ["verifications/*.toml"]
+    assert rules[2]["automerge"] is False
+    assert rules[3]["matchFileNames"] == ["verifications/*.lock.json"]
+    assert rules[3]["enabled"] is False
 
 
 def test_a_dropped_consumer_package_rule_is_reported():
     rules = list(_config()["packageRules"])
-    dropped = rules.pop(2)
+    dropped = rules.pop(3)
     assert dropped["enabled"] is False
     assert [rule["description"] for rule in rules] != list(CONSUMER_RULE_DESCRIPTIONS)
 

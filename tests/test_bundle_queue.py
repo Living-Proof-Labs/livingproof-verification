@@ -150,6 +150,7 @@ def test_merge_group_and_scoped_refresh_preserve_boundaries():
     assert [r.get("rebaseWhen") for r in config["packageRules"]] == [
         "behind-base-branch",
         "behind-base-branch",
+        "behind-base-branch",
         None,
     ]
     assert not (ROOT / ".github/workflows/bundle-completion.yml").exists()
