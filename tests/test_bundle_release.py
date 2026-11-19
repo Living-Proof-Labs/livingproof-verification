@@ -175,6 +175,29 @@ def test_the_verification_job_gates_on_every_job_it_needs():
     assert run_check({}) != 0
 
 
+@pytest.mark.parametrize("event", ["pull_request", "merge_group"])
+def test_queue_gate_requires_exact_complete_evidence(event):
+    # Execute the workflow's real check; this does not simulate GitHub queue admission.
+    assert event in WORKFLOW[True]
+    needed = JOBS["verification"]["needs"]
+    healthy = {name: {"result": "success"} for name in needed}
+    assert run_check(healthy) == 0
+    for name in needed:
+        assert run_check({key: value for key, value in healthy.items() if key != name}) != 0
+        for bad in (
+            {},
+            None,
+            {"result": "neutral"},
+            {"result": "failure"},
+            {"result": "cancelled"},
+            {"result": "skipped"},
+        ):
+            assert run_check({**healthy, name: bad}) != 0
+    assert run_check({**healthy, "unexpected": {"result": "success"}}) != 0
+    for bad in (None, [], {}, "success"):
+        assert run_check(bad) != 0
+
+
 def test_a_failed_or_cancelled_verification_never_releases_for_any_failing_job():
     needed = JOBS["verification"]["needs"]
     healthy = {name: {"result": "success", "outputs": {}} for name in needed}
