@@ -144,3 +144,45 @@ def test_a_real_v3_4_1_run_records_no_digest_and_is_refused(name):
     assert "sources" not in fixture["manifest"]
     found = digest_tool.problems(_lock(name), fixture["manifest"])
     assert any("records no sources.parameters" in item for item in found), found
+
+
+def _artifact_dir(root: Path, definition: str, manifest: dict) -> None:
+    folder = root / f"{definition}-evidence-stock"
+    folder.mkdir(parents=True)
+    (folder / "manifest.json").write_text(json.dumps(manifest))
+
+
+def test_the_evidence_directory_check_covers_every_run_and_names_the_bad_one(tmp_path, capsys):
+    """The `verification` job downloads every `*-evidence-*` artifact and runs this over it."""
+    evidence = tmp_path / "evidence"
+    for name in CORNERS:
+        _artifact_dir(evidence, name, _manifest_for(_lock(name)))
+    assert (
+        digest_tool.main(["--evidence", str(evidence), "--locks", str(ROOT / "verifications")]) == 0
+    )
+    assert capsys.readouterr().out.count("OK ") == len(CORNERS)
+    bad = _manifest_for(_lock(CORNERS[0]))
+    bad["sources"]["parameters"]["sha256"] = OTHER
+    (evidence / f"{CORNERS[0]}-evidence-stock" / "manifest.json").write_text(json.dumps(bad))
+    assert (
+        digest_tool.main(["--evidence", str(evidence), "--locks", str(ROOT / "verifications")]) == 1
+    )
+    out = capsys.readouterr().out
+    assert f"FAIL {evidence / (CORNERS[0] + '-evidence-stock') / 'manifest.json'}" in out
+
+
+def test_the_evidence_directory_check_refuses_an_empty_directory(tmp_path):
+    """No evidence at all must not read as a pass."""
+    assert (
+        digest_tool.main(["--evidence", str(tmp_path), "--locks", str(ROOT / "verifications")]) == 1
+    )
+
+
+def test_the_verify_workflow_runs_the_digest_check_over_the_downloaded_evidence():
+    workflow = (ROOT / ".github/workflows/verify.yml").read_text()
+    assert (
+        "python3 tools/parameters_digest.py --evidence evidence --locks verifications" in workflow
+    )
+    assert workflow.index("tools/world_guard.py evidence") < workflow.index(
+        "tools/parameters_digest.py"
+    )
