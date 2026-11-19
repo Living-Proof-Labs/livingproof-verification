@@ -42,9 +42,9 @@ tag the reviewed locks give that commit. A row shows one quiet chip,
 `Spec changed: v2.3.0 → v2.4.0`, only when its spec version or assessment revision differs
 from the run below it. An unrecorded part is never a change.
 
-The reporter's own sections of a report page (for example its Summary, which lists the spec
-and verifier commits) are the reporter's markup. This site adds no visible commit id to them
-and does not rewrite them; `tests/test_site.py` checks that the block this site adds shows none.
+The reporter's own sections of a report page, including the commit ids it records in its
+data, are the reporter's markup. This site does not rewrite them; `tests/test_site.py` checks
+that the block this site adds shows none, and the PR browser check reads the rendered text.
 
 ## How the assessment catalog is chosen
 
