@@ -199,3 +199,52 @@ def test_the_verify_workflow_runs_the_digest_check_over_the_downloaded_evidence(
     assert workflow.index("tools/world_guard.py evidence") < workflow.index(
         "tools/parameters_digest.py"
     )
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        pytest.param("{not json", id="invalid-json"),
+        pytest.param("", id="empty-file"),
+        pytest.param("[1, 2]", id="not-an-object"),
+    ],
+)
+def test_an_unreadable_manifest_prints_a_fail_line_and_exits_1_without_a_traceback(
+    tmp_path, capsys, content
+):
+    name = "booster-t1-stock-mujoco-corner-left"
+    lock_path = ROOT / "verifications" / f"{name}.lock.json"
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(content)
+    assert digest_tool.main([str(lock_path), str(manifest)]) == 1
+    out = capsys.readouterr().out
+    expected = "not a JSON object" if content.startswith("[") else "invalid JSON"
+    assert f"FAIL {manifest}: {expected}" in out
+    assert "Traceback" not in out
+
+
+def test_an_unreadable_manifest_in_the_evidence_directory_fails_and_the_rest_are_still_checked(
+    tmp_path, capsys
+):
+    evidence = tmp_path / "evidence"
+    for name in CORNERS[:2]:
+        _artifact_dir(evidence, name, _manifest_for(_lock(name)))
+    (evidence / f"{CORNERS[0]}-evidence-stock" / "manifest.json").write_text("{broken")
+    assert (
+        digest_tool.main(["--evidence", str(evidence), "--locks", str(ROOT / "verifications")]) == 1
+    )
+    out = capsys.readouterr().out
+    assert (
+        f"FAIL {evidence / (CORNERS[0] + '-evidence-stock') / 'manifest.json'}: invalid JSON" in out
+    )
+    assert f"OK   {evidence / (CORNERS[1] + '-evidence-stock') / 'manifest.json'}" in out
+
+
+def test_a_missing_manifest_or_lock_file_fails_cleanly(tmp_path, capsys):
+    lock_path = ROOT / "verifications/booster-t1-stock-mujoco-corner-left.lock.json"
+    assert digest_tool.main([str(lock_path), str(tmp_path / "absent.json")]) == 1
+    assert "FAIL" in capsys.readouterr().out
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text("{}")
+    assert digest_tool.main([str(tmp_path / "no-lock.json"), str(manifest)]) == 1
+    assert "FAIL" in capsys.readouterr().out
