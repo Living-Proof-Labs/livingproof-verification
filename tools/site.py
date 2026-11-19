@@ -1556,7 +1556,6 @@ def render_with_reporter(
 
 
 _REPO_URL = re.compile(r"https://[A-Za-z0-9._~:/@-]+")
-_SHORT_SHA = 8
 
 
 def _spec_repository_url(spec: dict) -> str | None:
@@ -1601,9 +1600,10 @@ def _spec_core(spec: object) -> tuple | None:
 
 
 def _spec_line_html(spec: object, *, assessed: bool) -> str:
-    """One recorded spec: linked version, repository name, 8-character commit.
+    """One recorded spec: linked version, repository name, scenario and revision.
 
-    The full commit is in the link and the title, never in the visible text.
+    A commit id is never visible text (#146). A release tag is the link text; a spec with no
+    tag is the link text "commit". The full commit is in the link and its title.
     """
     if _spec_core(spec) is None:
         return "Not recorded"
@@ -1614,24 +1614,24 @@ def _spec_line_html(spec: object, *, assessed: bool) -> str:
         label = html.escape(tag)
         if repository_url:
             href = f"{repository_url}/releases/tag/{urllib.parse.quote(tag, safe='')}"
+            title = f"Release {tag}" + (f", commit {commit}" if commit is not None else "")
             pieces.append(
                 f'<a href="{html.escape(href, quote=True)}" '
-                f'title="{html.escape("Release " + tag, quote=True)}">{label}</a>'
+                f'title="{html.escape(title, quote=True)}">{label}</a>'
             )
         else:
             pieces.append(label)
-    if name is not None:
-        pieces.append(html.escape(name))
-    if commit is not None:
-        short = f"<code>{html.escape(commit[:_SHORT_SHA])}</code>"
-        title = html.escape(commit, quote=True)
+    elif commit is not None:
+        title = html.escape(f"Commit {commit}", quote=True)
         if repository_url and COMMIT_SHA.fullmatch(commit):
             pieces.append(
                 f'<a href="{html.escape(repository_url, quote=True)}/commit/{commit}" '
-                f'title="{title}">{short}</a>'
+                f'title="{title}" aria-label="{title}">commit</a>'
             )
         else:
-            pieces.append(short.replace("<code>", f'<code title="{title}">', 1))
+            pieces.append(f'<span title="{title}">commit</span>')
+    if name is not None:
+        pieces.append(html.escape(name))
     if assessed:
         if _stored_text(spec.get("capability")):
             pieces.append(html.escape(_stored_text(spec["capability"])))
@@ -1645,10 +1645,8 @@ def _spec_summary_html(generation: object, assessed: list[dict]) -> str:
     spec = assessed[0] if assessed else generation
     if _spec_core(spec) is None:
         return "<strong>Spec</strong> not recorded"
-    _, tag, commit = _spec_core(spec)
-    version = tag or (commit or "")[:_SHORT_SHA]
-    # The reporter's summary style upper-cases its text; a version stays as written.
-    pieces = [f'<code style="text-transform:none">{html.escape(version)}</code>']
+    _, tag, _commit = _spec_core(spec)
+    pieces = [html.escape(tag or "commit")]
     if _stored_text(spec.get("capability")):
         pieces.append(html.escape(_stored_text(spec["capability"])))
     if _stored_text(spec.get("revision")):
@@ -1656,6 +1654,22 @@ def _spec_summary_html(generation: object, assessed: list[dict]) -> str:
     if len(assessed) > 1:
         pieces.append(f"+{len(assessed) - 1} more")
     return "<strong>Spec</strong> " + " · ".join(pieces)
+
+
+# The reporter styles every <summary> as small, letter-spaced capitals, which turns a version
+# and a scenario id into hard-to-read text. Inline, so it holds whatever the reporter's CSS
+# order is: sentence case at body size, with Show / Hide after it as the reporter's own
+# disclosures have.
+_PROVENANCE_SUMMARY_STYLE = (
+    "cursor:pointer;margin:0;font-size:inherit;font-weight:400;"
+    "text-transform:none;letter-spacing:normal;color:inherit"
+)
+_PROVENANCE_SUMMARY_CSS = (
+    "details.spec-provenance>summary::after{"
+    'content:"Show";float:none;margin-left:.6rem;text-transform:none;'
+    "letter-spacing:normal;font-weight:600;color:var(--link,#0b5cad)}"
+    'details.spec-provenance[open]>summary::after{content:"Hide"}'
+)
 
 
 def spec_provenance_html(record: dict, report: object) -> str:
@@ -1684,7 +1698,9 @@ def spec_provenance_html(record: dict, report: object) -> str:
     return (
         '<details class="spec-provenance" id="spec-provenance" '
         'style="margin:1.5rem 0 0;font-size:.875rem;overflow-wrap:anywhere">'
-        f'<summary style="cursor:pointer">{_spec_summary_html(generation, assessed)}</summary>'
+        f'<summary style="{_PROVENANCE_SUMMARY_STYLE}">'
+        f"{_spec_summary_html(generation, assessed)}</summary>"
+        f"<style>{_PROVENANCE_SUMMARY_CSS}</style>"
         f'<dl style="margin:.5rem 0 0">{rows}</dl>'
         '<p style="margin:0;font-size:.8rem;opacity:.75">'
         "Recorded at run time; not reassessed.</p></details>"
@@ -2083,11 +2099,6 @@ a:focus-visible, button:focus-visible, .row:focus-visible {
   color: var(--text-muted);
   font-weight: 550;
 }
-code.sha {
-  font-family: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
-  font-size: 0.82rem;
-  font-variant-numeric: normal;
-}
 a.chip:hover {
   background: color-mix(in srgb, var(--speak) 20%, var(--surface));
   color: var(--speak-text);
@@ -2105,10 +2116,6 @@ a.chip:hover {
 .release.is-fallback {
   font-weight: 500;
   color: var(--text-muted);
-  font-family: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
-  font-size: 0.82rem;
-  font-variant-numeric: normal;
-  letter-spacing: 0;
 }
 a.release:hover { color: var(--link); text-decoration: underline; }
 .dot { margin: 0 0.35rem; color: #94a3b8; }
@@ -2313,17 +2320,17 @@ def _release_html(record: dict, *, linked: bool = True) -> str:
             f'<span class="release" title="{html.escape(title, quote=True)}">'
             f"{html.escape(tag)}</span>"
         )
-    short = sha[:8]
-    title = "No release tag on this livingproof-verification commit; short SHA shown"
+    # No release tag: the link text is "commit". The id itself is never visible (#146).
+    title = html.escape(
+        "No release tag on this livingproof-verification commit" + (f": {sha}" if sha else ""),
+        quote=True,
+    )
     if linked and commit_url:
         return (
             f'<a class="release is-fallback" href="{html.escape(commit_url, quote=True)}" '
-            f'title="{html.escape(title, quote=True)}">{html.escape(short)}</a>'
+            f'title="{title}">commit</a>'
         )
-    return (
-        f'<span class="release is-fallback" title="{html.escape(title, quote=True)}">'
-        f"{html.escape(short)}</span>"
-    )
+    return f'<span class="release is-fallback" title="{title}">commit</span>'
 
 
 def _chips_html(record: dict, prefix: str, *, linked: bool = True, extra: str = "") -> str:
@@ -2478,12 +2485,12 @@ def _history_page_html(
         # A record stored without its tag: link the release the locks name, not the bare commit.
         site_base = robot_url.split(f"/{robot_info['repository']}/", 1)[0]
         robot_url = f"{site_base}/{robot_info['repository']}/releases/tag/{robot_tag}"
-    robot_label = (
-        html.escape(f"{repo_short} @ {robot_tag}")
-        if robot_tag
-        else f'{html.escape(repo_short)} @ <code class="sha">{html.escape(robot_info["commit"][:8])}</code>'
+    # The pin is its tag; with no tag it is "commit", linked to the commit. Never a hash (#146).
+    robot_label = html.escape(f"{repo_short} {robot_tag or 'commit'}")
+    robot_pin_title = (
+        "" if robot_tag else f' title="{html.escape("Commit " + robot_info["commit"], quote=True)}"'
     )
-    robot_line = f'<a href="{html.escape(robot_url)}">{robot_label}</a>'
+    robot_line = f'<a href="{html.escape(robot_url)}"{robot_pin_title}>{robot_label}</a>'
     software_version = _stored_text(robot_info.get("software_version"))
     if software_version is not None:
         config = _stored_text(robot_info.get("configuration")) or ""

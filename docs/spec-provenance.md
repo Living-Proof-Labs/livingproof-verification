@@ -2,7 +2,9 @@
 
 The published **report** view records two roles, in a block below the result card and the
 evaluators (#146). The block is a collapsed `<details>`; its one-line summary names the
-assessed spec, for example **Spec** `v2.3.0` · walk-hallway · revision 0.1.0. Inside:
+assessed spec, in sentence case at body size with Show / Hide after it, for example
+**Spec** v2.3.0 · walk-hallway · revision 0.1.0 (the reporter's letter-spaced capitals for
+`<summary>` are switched off for this line). Inside:
 
 - **Generation** (the evidence-generation spec, recorded pin) comes from that run's `run.json`,
   `releases.specs`, copied from the caller's resolved verification lock at publication.
@@ -15,8 +17,14 @@ assessed spec, for example **Spec** `v2.3.0` · walk-hallway · revision 0.1.0. 
 
 When the one assessed spec is the generation pin (same repository, tag and commit), one
 **Generation and assessment** line is shown instead of two. Each line links the version to its
-spec release and shows the commit as an 8-character monospace SHA that links to the commit;
-the full SHA is in the link and its title, not in the visible text. The block ends with
+spec release, then names the spec repository, scenario and revision, for example
+`v2.3.0 · robot-capability-specs · walk-hallway · revision 0.1.0`.
+
+**Commit ids are links, never visible text** (Aaron's rule on #146), on the index, history and
+report pages. When a tag resolves, the link text is the tag. When it does not, the link text is
+"commit" and it opens the commit on GitHub. The full SHA stays in the data, the link's `href`
+and its `title`; it is never body text. The same holds for the history rows (a row with no
+bundle release says "commit") and the robot pin in the history header. The block ends with
 "Recorded at run time; not reassessed." Missing identities say “Not recorded”; they are never
 filled from today's lock or the other role.
 
@@ -27,11 +35,16 @@ grades and evidence are not reassessed or rewritten by this feature. No new fiel
 backfilled into historical `run.json`.
 
 The **history** page does not repeat the block. Its header names `specs v…` (linked to the spec
-release) with the runner, verifier and reporter, and the robot pin as its tag (an 8-character
-monospace SHA when no tag resolves; a record stored without a tag takes the tag the reviewed
-locks give that commit). A row shows one quiet chip, `Spec changed: v2.3.0 → v2.4.0`, only when
-its spec version or assessment revision differs from the run below it. An unrecorded part is
-never a change.
+release) with the runner, verifier and reporter, and the robot pin as its tag, written without
+an "@" (`livingproof-booster-t1 v2.2.10`). When no tag resolves the pin reads
+`livingproof-booster-t1 commit`, linked to the commit; a record stored without a tag takes the
+tag the reviewed locks give that commit. A row shows one quiet chip,
+`Spec changed: v2.3.0 → v2.4.0`, only when its spec version or assessment revision differs
+from the run below it. An unrecorded part is never a change.
+
+The reporter's own sections of a report page (for example its Summary, which lists the spec
+and verifier commits) are the reporter's markup. This site adds no visible commit id to them
+and does not rewrite them; `tests/test_site.py` checks that the block this site adds shows none.
 
 ## How the assessment catalog is chosen
 
