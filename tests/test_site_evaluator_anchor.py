@@ -45,8 +45,14 @@ def _report(document: dict, grade: str) -> dict:
     }
 
 
-def _page(tmp_path: Path, document: dict) -> str:
-    """The v3.13.0 reporter's page for a bundle carrying this integrity result."""
+SCENARIO = json.loads((ROOT / "tests/fixtures/evaluator-result-scenario.json").read_text())
+
+
+def _page(tmp_path: Path, document: dict, scenario: bool = False) -> str:
+    """The v3.13.0 reporter's page for a bundle carrying this integrity result.
+
+    With `scenario`, the run also has a Scenario result, which the reporter orders before Run
+    Integrity, so Run Integrity is tab 2 (as on a real run page)."""
     exe = shutil.which("livingproof-capability-report")
     if exe is None:
         pytest.skip("livingproof-capability-report is not installed")
@@ -55,6 +61,8 @@ def _page(tmp_path: Path, document: dict) -> str:
     manifest = json.loads((work / "manifest.json").read_text())
     for run in manifest["assessment"]["runs"]:
         run["run_id"] = document["integrity"]["run"]["id"]
+    if scenario:
+        manifest["results"][0]["evaluator_results"] = [copy.deepcopy(SCENARIO)]
     manifest["assessment"]["integrity_results"] = {"livingproof-run-integrity": document}
     (work / "manifest.json").write_text(json.dumps(manifest))
     out = work / "report.html"
@@ -94,16 +102,29 @@ def _chips(grade: str, document: dict) -> str:
     return site_tool._chips_html(record, "../")
 
 
+def _tab_label(page: str, fragment: str) -> str | None:
+    """The evaluator name on the tab with this id, or None when the id is not a tab."""
+    found = re.search(rf"id='{re.escape(fragment)}'[^>]*>.*?eval-name-full'>([^<]*)", page, re.S)
+    return found.group(1) if found and fragment.startswith("run-evaluators-tab-") else None
+
+
+@pytest.mark.parametrize("scenario", [False, True], ids=["no scenario", "with scenario"])
 @pytest.mark.parametrize("case", CASES)
-def test_every_chip_fragment_resolves_in_the_v3_13_0_page(case: str, tmp_path: Path):
+def test_every_chip_fragment_resolves_in_the_v3_13_0_page(
+    case: str, scenario: bool, tmp_path: Path
+):
     grade, document = CASES[case]
     chips = _chips(grade, document)
     fragments = _fragments(chips)
     assert fragments, "the chip should be linked"
-    ids = _ids(_page(tmp_path, document))
+    page = _page(tmp_path, document, scenario)
+    ids = _ids(page)
     for fragment in fragments:
         assert fragment in ids, f"#{fragment} is not an id on the reporter page: {sorted(ids)}"
-    assert fragments == [TARGET[1:]] * len(fragments)
+        # A link to a tab must land on that evaluator's own tab: with a Scenario result,
+        # tab 1 is Scenario and Run Integrity is tab 2.
+        label = _tab_label(page, fragment)
+        assert label in (None, "Run Integrity"), f"the chip links to the {label} tab"
 
 
 def test_a_stored_dead_href_is_not_rendered():
