@@ -232,3 +232,25 @@ def test_a_stored_dead_href_is_still_ignored() -> None:
     }
     chips = site_tool._chips_html(record, "runs/1/", report=report)
     assert 'href="runs/1/#evaluator-e"' in chips and "#evaluator-x" not in chips
+
+
+@pytest.mark.parametrize(
+    "ev_id",
+    [
+        "Acme.Check_1",
+        "UPPER-Case",
+        "a b",
+        "a/b",
+        "--x--",
+        "x" * 80,
+        "é-ü",
+        "livingproof-run-integrity",
+        "",
+    ],
+)
+def test_the_slug_matches_the_installed_reporters_anchor_id(ev_id: str) -> None:
+    """Parity with the reporter's own `_anchor_id` (case is kept, edge characters become `-`)."""
+    from livingproof_capability_report import evaluators as reporter
+
+    anchor = reporter._anchor_id(ev_id, set())
+    assert anchor == f"evaluator-{site_tool.evaluator_slug(ev_id)}"
