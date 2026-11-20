@@ -211,13 +211,18 @@ def _open_robot(page, width, robot_id="booster-t1"):
 
 
 def check_viewport(browser, url, output, width, height, result, destinations):
-    context = browser.new_context(viewport={"width": width, "height": height}, has_touch=True)
+    context = browser.new_context(
+        viewport={"width": width, "height": height},
+        has_touch=True,
+        timezone_id="Australia/Sydney",
+        locale="en-AU",
+    )
     context.clock.install(time="2026-11-19T07:50:30Z")
     page = context.new_page()
     page.set_default_timeout(10000)
     result.update(viewport=[width, height], status="running", navigations=[])
     try:
-        # 1. Default collapsed state + Needs attention (#139) + client-side relative time (#163)
+        # 1. Default collapsed state + Needs attention (#139) + viewer-local absolute time (#163)
         page.goto(url)
         check_no_commit_id(page)
         robots = page.locator("details.robot")
@@ -234,30 +239,15 @@ def check_viewport(browser, url, output, width, height, result, destinations):
         expect(needs_cards.nth(0).locator(".finding")).to_contain_text("Drifted 0.66 m")
         g1_time = needs_cards.nth(0).locator("time")
         expect(g1_time).to_have_attribute("datetime", "2026-11-19T07:50:00Z")
-        expect(g1_time.locator(".rel-time")).to_contain_text("just now")
-        expect(g1_time.locator(".abs-time")).to_have_text("19 Nov 2026, 18:50 AEDT")
+        expect(g1_time).to_have_text("19 Nov 2026, 18:50 AEDT")
+        expect(page.locator(".rel-time")).to_have_count(0)
         expect(page.locator("details#unitree-g1 > summary .visually-hidden")).to_have_text(
-            "Unitree G1, 4 scenarios, 1 failed, 3 passed, latest commit, "
-            "just now · 19 Nov 2026, 18:50 AEDT"
+            "Unitree G1, 4 scenarios, 1 failed, 3 passed, latest commit, 19 Nov 2026, 18:50 AEDT"
         )
         expect(page.locator("details#unitree-g1 > summary .summary-row")).to_have_attribute(
             "aria-hidden", "true"
         )
         page.screenshot(path=output / f"{width}-collapsed.png", full_page=True)
-
-        # Live refresh across the 60-second boundary while the page stays open (#163).
-        context.clock.run_for(30000)
-        expect(g1_time).to_have_attribute("datetime", "2026-11-19T07:50:00Z")
-        expect(g1_time.locator(".rel-time")).to_contain_text("1 minute ago")
-        expect(g1_time.locator(".abs-time")).to_have_text("19 Nov 2026, 18:50 AEDT")
-        expect(page.locator("details#unitree-g1 > summary .visually-hidden")).to_have_text(
-            "Unitree G1, 4 scenarios, 1 failed, 3 passed, latest commit, "
-            "1 minute ago · 19 Nov 2026, 18:50 AEDT"
-        )
-        result["live_clock_boundary"] = {
-            "initial_30s": "just now · 19 Nov 2026, 18:50 AEDT",
-            "after_60s": "1 minute ago · 19 Nov 2026, 18:50 AEDT",
-        }
 
         # 2. Hash anchor opens target robot section; cards inside are fail-first, then alphabetical.
         page.goto(url + "#booster-t1")
@@ -432,12 +422,14 @@ def check_timestamp_reflow(browser, url, output, results):
     for width in (320, 721, 768):
         for javascript in (True, False):
             context = browser.new_context(
-                viewport={"width": width, "height": 844}, java_script_enabled=javascript
+                viewport={"width": width, "height": 844},
+                java_script_enabled=javascript,
+                timezone_id="Australia/Sydney",
+                locale="en-AU",
             )
-            if javascript:
-                context.clock.install(time="2026-11-19T07:50:30Z")
             page = context.new_page()
             mode = "js" if javascript else "no-js"
+            expected_zone = "AEDT" if javascript else "UTC"
             try:
                 for path, name in (
                     ("", "index"),
@@ -446,12 +438,11 @@ def check_timestamp_reflow(browser, url, output, results):
                     page.goto(url + path)
                     if name == "index":
                         page.locator("#unitree-g1 > summary").click()
-                    if javascript:
-                        context.clock.run_for(30000)
-                        expect(page.locator("time").first).to_contain_text("1 minute ago")
                     expect(page.locator("time").first).to_have_attribute(
                         "datetime", "2026-11-19T07:50:00Z"
                     )
+                    body_text = page.locator("body").inner_text().lower()
+                    assert "just now" not in body_text and "ago" not in body_text
                     screenshot = f"{width}-{mode}-{name}-reflow.png"
                     page.screenshot(path=output / screenshot, full_page=True)
                     assert not page.evaluate("document.documentElement.scrollWidth > innerWidth"), (
@@ -460,7 +451,7 @@ def check_timestamp_reflow(browser, url, output, results):
                     timestamps = page.locator("time:visible")
                     for index in range(timestamps.count()):
                         timestamp = timestamps.nth(index)
-                        expect(timestamp).to_contain_text("AEDT")
+                        expect(timestamp).to_contain_text(expected_zone)
                         box = timestamp.bounding_box()
                         assert box and box["x"] >= 0 and box["x"] + box["width"] <= width
                     if name == "history":
@@ -485,11 +476,15 @@ def check_timestamp_reflow(browser, url, output, results):
 
 
 def check_timestamps_no_js_and_print(browser, url, output, results):
-    """#163: verify reopening an old page, no-JavaScript browsing, and print/PDF exports."""
+    """#163: verify reopening an old page, two viewer timezones, no-JS UTC fallback, and print/PDF."""
     evidence = {}
 
-    # 1. Reopening an old page days and months later without rebuilding.
-    reopen_ctx = browser.new_context(viewport={"width": 1280, "height": 800})
+    # 1. Reopening an old page days and months later without rebuilding (Australia/Sydney).
+    reopen_ctx = browser.new_context(
+        viewport={"width": 1280, "height": 800},
+        timezone_id="Australia/Sydney",
+        locale="en-AU",
+    )
     try:
         reopen_ctx.clock.install(time="2027-01-03T07:50:00Z")
         page = reopen_ctx.new_page()
@@ -507,9 +502,36 @@ def check_timestamps_no_js_and_print(browser, url, output, results):
     finally:
         reopen_ctx.close()
 
-    # 2. No-JavaScript context: absolute Australia/Sydney timestamps remain readable everywhere.
+    # 2. Second viewer timezone (America/Los_Angeles): same datetime renders PST.
+    la_ctx = browser.new_context(
+        viewport={"width": 1280, "height": 800},
+        timezone_id="America/Los_Angeles",
+        locale="en-US",
+    )
+    try:
+        page = la_ctx.new_page()
+        page.goto(url)
+        first_time = page.locator(".needs .card time").first
+        expect(first_time).to_have_attribute("datetime", "2026-11-19T07:50:00Z")
+        expect(first_time).to_have_text("18 Nov 2026, 23:50 PST")
+        expect(page.locator("details#unitree-g1 > summary .visually-hidden")).to_have_text(
+            "Unitree G1, 4 scenarios, 1 failed, 3 passed, latest commit, 18 Nov 2026, 23:50 PST"
+        )
+        page.goto(url + "unitree-g1/stock-mujoco-hallway/")
+        expect(page.locator(".row time").first).to_have_attribute(
+            "datetime", "2026-11-19T07:50:00Z"
+        )
+        expect(page.locator(".row time").first).to_have_text("18 Nov 2026, 23:50 PST")
+        evidence["viewer_america_los_angeles"] = "18 Nov 2026, 23:50 PST"
+    finally:
+        la_ctx.close()
+
+    # 3. No-JavaScript context: canonical UTC timestamps remain readable everywhere.
     no_js_ctx = browser.new_context(
-        viewport={"width": 1280, "height": 800}, java_script_enabled=False
+        viewport={"width": 1280, "height": 800},
+        java_script_enabled=False,
+        timezone_id="Australia/Sydney",
+        locale="en-AU",
     )
     try:
         page = no_js_ctx.new_page()
@@ -517,23 +539,25 @@ def check_timestamps_no_js_and_print(browser, url, output, results):
             page.goto(url + target_path)
             first_time = page.locator("time").first
             expect(first_time).to_have_attribute("datetime", "2026-11-19T07:50:00Z")
-            expect(first_time).to_have_text("19 Nov 2026, 18:50 AEDT")
+            expect(first_time).to_have_text("19 Nov 2026, 07:50 UTC")
             text = page.locator("body").inner_text().lower()
             assert "just now" not in text and "minutes ago" not in text
-        evidence["no_javascript"] = "19 Nov 2026, 18:50 AEDT"
+        evidence["no_javascript"] = "19 Nov 2026, 07:50 UTC"
     finally:
         no_js_ctx.close()
 
-    # 3. Print media emulation and PDF export for index and history.
-    print_ctx = browser.new_context(viewport={"width": 1280, "height": 800})
+    # 4. Print media emulation and PDF export for index and history.
+    print_ctx = browser.new_context(
+        viewport={"width": 1280, "height": 800},
+        timezone_id="Australia/Sydney",
+        locale="en-AU",
+    )
     try:
         print_ctx.clock.install(time="2026-11-19T07:50:30Z")
         page = print_ctx.new_page()
         page.goto(url + "#booster-t1")
         expect(page.locator("details#booster-t1")).to_have_attribute("open", "")
         page.emulate_media(media="print")
-        expect(page.locator(".rel-time").first).to_be_hidden()
-        expect(page.locator(".abs-time").first).to_be_visible()
         assert page.locator(".needs .card time").first.inner_text() == "19 Nov 2026, 18:50 AEDT"
         page.screenshot(path=output / "1280-print-index.png", full_page=True)
         index_pdf = output / "index-print.pdf"
@@ -542,8 +566,6 @@ def check_timestamps_no_js_and_print(browser, url, output, results):
 
         page.goto(url + "unitree-g1/stock-mujoco-hallway/")
         page.emulate_media(media="print")
-        expect(page.locator(".rel-time").first).to_be_hidden()
-        expect(page.locator(".abs-time").first).to_be_visible()
         assert page.locator(".row time").first.inner_text() == "19 Nov 2026, 18:50 AEDT"
         page.screenshot(path=output / "1280-print-history.png", full_page=True)
         history_pdf = output / "history-print.pdf"

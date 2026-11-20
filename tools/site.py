@@ -40,7 +40,6 @@ drops those runs.
 
 import argparse
 from datetime import datetime, timedelta, timezone
-from zoneinfo import ZoneInfo
 import hashlib
 import html
 import http.client
@@ -108,7 +107,6 @@ SEED_LABEL = re.compile(r"^seed (?=\d)")
 BUNDLE_TAG = re.compile(r"v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)")
 COMMIT_SHA = re.compile(r"[0-9a-f]{40}")
 MARKER = "site.json"  # written by every build; its presence on the live site means history
-LOCAL_TZ = ZoneInfo("Australia/Sydney")  # local dates on the public site (#129, #163)
 
 
 class SiteError(Exception):
@@ -2324,9 +2322,8 @@ a.release:hover { color: var(--link); text-decoration: underline; }
   white-space: nowrap;
   flex: none;
 }
-.rel-time .dot { margin: 0 0.15rem; }
-.abs-time { white-space: nowrap; }
 .robot-body { padding: 0 0 0.2rem; }
+time { white-space: nowrap; }
 @media (max-width: 900px) {
   .summary-row {
     grid-template-columns: auto 1fr auto;
@@ -2341,17 +2338,25 @@ a.release:hover { color: var(--link); text-decoration: underline; }
   .summary-id { grid-area: ident; flex: none; min-width: 0; display: flex; }
   .dots { grid-area: dots; max-width: 100%; }
   .meta-latest { grid-area: meta; justify-self: end; text-align: right; }
-  .meta-latest .rel-time + .abs-time { display: block; }
-  .meta-latest .rel-time .dot { display: none; }
 }
 @media (max-width: 720px) {
   .entry-main, .row-top {
-    grid-template-columns: auto 1fr;
+    grid-template-columns: auto minmax(0, 1fr);
   }
   .entry-side {
     grid-column: 2;
+    min-width: 0;
+    max-width: 100%;
     text-align: left;
     align-items: flex-start;
+  }
+  .side-meta { max-width: 100%; }
+  .side-meta > .dot, .meta-latest > .dot { display: none; }
+  .side-meta time, .meta-latest time { display: block; }
+  .meta-latest {
+    white-space: normal;
+    min-width: 0;
+    max-width: 100%;
   }
   .chips, .entry-body .chips { justify-content: flex-start; }
   .links a { margin-left: 0; }
@@ -2369,24 +2374,10 @@ a.release:hover { color: var(--link); text-decoration: underline; }
   }
   .masthead h1 { font-size: 1.4rem; }
   .wrap { width: min(72rem, 100% - 1.5rem); }
-  .side-meta .rel-time + .abs-time { display: block; }
-  .side-meta .rel-time .dot,
-  .row-meta .rel-time .dot { display: none; }
   .row-meta { font-size: 0.82rem; }
-  .row-meta:has(.rel-time) { display: block; }
-  .row-meta > .dot { display: inline-block; }
-  .row-meta .rel-time + .abs-time::before {
-    content: "";
-    display: block;
-  }
   .row-meta .dot { margin: 0 0.22rem; }
 }
 @media print {
-  .rel-time { display: none !important; }
-  .side-meta .rel-time + .abs-time,
-  .meta-latest .rel-time + .abs-time { display: inline; }
-  .row-meta, .row-meta:has(.rel-time) { display: flex; }
-  .row-meta .rel-time + .abs-time::before { display: none; }
   body { background: #ffffff; }
   .masthead {
     background: none;
@@ -2408,12 +2399,8 @@ a.release:hover { color: var(--link); text-decoration: underline; }
 
 INDEX_SCRIPT = """// Open a robot section when the URL hash is its id (e.g. #unitree-g1).
 // Truncate the scenario-dot strip to one line and show +n when dots don't fit.
-// Compute relative run ages at view time from <time datetime> while keeping absolute dates visible.
+// Format <time datetime> elements in the viewer's timezone while keeping the UTC fallback.
 (function () {
-  const RELATIVE_REFRESH_MS = 15000;
-  const FUTURE_SKEW_SECONDS = 60;
-  const MAX_RELATIVE_SECONDS = 30 * 86400;
-
   function hashId() {
     try {
       return decodeURIComponent((location.hash || "").replace(/^#/, ""));
@@ -2438,77 +2425,98 @@ INDEX_SCRIPT = """// Open a robot section when the URL hash is its id (e.g. #uni
     history.replaceState(null, "", next);
   }
 
-  function relativeAge(createdMs, nowMs) {
-    if (!Number.isFinite(createdMs) || !Number.isFinite(nowMs)) return "";
-    const rawSeconds = Math.floor((nowMs - createdMs) / 1000);
-    if (rawSeconds < -FUTURE_SKEW_SECONDS) return "";
-    const seconds = Math.max(0, rawSeconds);
-    if (seconds < 60) return "just now";
-    if (seconds < 3600) {
-      const minutes = Math.floor(seconds / 60);
-      return minutes + " minute" + (minutes === 1 ? "" : "s") + " ago";
+  function formatLocalTime(iso) {
+    const ms = Date.parse(iso);
+    if (!Number.isFinite(ms) || typeof Intl === "undefined" || !Intl.DateTimeFormat) {
+      return "";
     }
-    if (seconds < 86400) {
-      const hours = Math.floor(seconds / 3600);
-      return hours + " hour" + (hours === 1 ? "" : "s") + " ago";
+    try {
+      const date = new Date(ms);
+      const dateFmt = new Intl.DateTimeFormat("en-GB", {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        hourCycle: "h23",
+      });
+      const parts = {};
+      for (const part of dateFmt.formatToParts(date)) {
+        parts[part.type] = part.value;
+      }
+      if (!parts.day || !parts.month || !parts.year || !parts.hour || !parts.minute) {
+        return "";
+      }
+      let zone = "";
+      try {
+        const tzFmt = new Intl.DateTimeFormat(undefined, { timeZoneName: "short" });
+        const tzPart = tzFmt.formatToParts(date).find((p) => p.type === "timeZoneName");
+        if (tzPart && tzPart.value) zone = tzPart.value;
+      } catch {
+        zone = "";
+      }
+      if (!zone) {
+        const offsetMin = -date.getTimezoneOffset();
+        if (offsetMin === 0) {
+          zone = "UTC";
+        } else {
+          const sign = offsetMin >= 0 ? "+" : "-";
+          const abs = Math.abs(offsetMin);
+          const hh = String(Math.floor(abs / 60)).padStart(2, "0");
+          const mm = String(abs % 60).padStart(2, "0");
+          zone = mm === "00" ? "UTC" + sign + hh : "UTC" + sign + hh + ":" + mm;
+        }
+      }
+      return (
+        parts.day +
+        " " +
+        parts.month +
+        " " +
+        parts.year +
+        ", " +
+        parts.hour +
+        ":" +
+        parts.minute +
+        " " +
+        zone
+      );
+    } catch {
+      return "";
     }
-    if (seconds < 172800) return "yesterday";
-    if (seconds < MAX_RELATIVE_SECONDS) {
-      const days = Math.floor(seconds / 86400);
-      return days + " days ago";
-    }
-    return "";
   }
 
-  function updateTimeElement(el, nowMs) {
-    const iso = el.getAttribute("datetime") || "";
-    let abs = el.getAttribute("data-abs");
-    if (abs === null) {
-      abs = (el.textContent || "").trim() || el.getAttribute("title") || iso;
-      el.setAttribute("data-abs", abs);
+  function updateTimeElement(el) {
+    if (el.getAttribute("data-utc") === null) {
+      el.setAttribute("data-utc", (el.textContent || "").trim());
     }
-    const rel = relativeAge(Date.parse(iso), nowMs);
-    if (el.getAttribute("data-rel") === rel && el.querySelector(".abs-time")) {
+    const iso = el.getAttribute("datetime") || "";
+    const formatted = formatLocalTime(iso);
+    if (!formatted) return false;
+    if ((el.textContent || "").trim() === formatted && el.getAttribute("title") === formatted) {
       return false;
     }
-    el.setAttribute("data-rel", rel);
-    el.textContent = "";
-    if (rel) {
-      const relSpan = document.createElement("span");
-      relSpan.className = "rel-time";
-      relSpan.append(rel);
-      const dot = document.createElement("span");
-      dot.className = "dot";
-      dot.textContent = " · ";
-      relSpan.append(dot);
-      el.append(relSpan);
-    }
-    const absSpan = document.createElement("span");
-    absSpan.className = "abs-time";
-    absSpan.textContent = abs;
-    el.append(absSpan);
+    el.textContent = formatted;
+    el.setAttribute("title", formatted);
     return true;
   }
 
-  function updateSummaryLabel(summary, nowMs) {
+  function updateSummaryLabel(summary) {
     const sr = summary.querySelector(".visually-hidden");
     const timeEl = summary.querySelector(".meta-latest time[datetime]");
     if (!sr || !timeEl) return;
-    const abs = timeEl.getAttribute("data-abs") || (timeEl.textContent || "").trim();
+    const formatted = (timeEl.textContent || "").trim();
+    if (!formatted) return;
     let prefix = sr.getAttribute("data-sr-prefix");
     if (prefix === null) {
+      const initial = timeEl.getAttribute("data-utc") || formatted;
       const current = (sr.textContent || "").trim();
-      const suffix = ", " + abs;
+      const suffix = ", " + initial;
       prefix = current.endsWith(suffix)
         ? current.slice(0, current.length - suffix.length)
         : current;
       sr.setAttribute("data-sr-prefix", prefix);
     }
-    const rel =
-      timeEl.getAttribute("data-rel") !== null
-        ? timeEl.getAttribute("data-rel")
-        : relativeAge(Date.parse(timeEl.getAttribute("datetime") || ""), nowMs);
-    sr.textContent = rel ? prefix + ", " + rel + " · " + abs : prefix + ", " + abs;
+    sr.textContent = prefix + ", " + formatted;
   }
 
   function fitDots(strip) {
@@ -2538,13 +2546,12 @@ INDEX_SCRIPT = """// Open a robot section when the URL hash is its id (e.g. #uni
   }
 
   function updateTimes() {
-    const nowMs = Date.now();
     let changed = false;
     document.querySelectorAll("time[datetime]").forEach((el) => {
-      if (updateTimeElement(el, nowMs)) changed = true;
+      if (updateTimeElement(el)) changed = true;
     });
     document.querySelectorAll("details.robot > summary").forEach((summary) => {
-      updateSummaryLabel(summary, nowMs);
+      updateSummaryLabel(summary);
     });
     if (changed) fitAll();
   }
@@ -2555,8 +2562,6 @@ INDEX_SCRIPT = """// Open a robot section when the URL hash is its id (e.g. #uni
     });
   });
 
-  let refreshTimer = null;
-
   function start() {
     openFromHash();
     updateTimes();
@@ -2564,19 +2569,10 @@ INDEX_SCRIPT = """// Open a robot section when the URL hash is its id (e.g. #uni
     if (document.fonts && document.fonts.ready) {
       document.fonts.ready.then(fitAll);
     }
-    if (refreshTimer === null) {
-      refreshTimer = window.setInterval(updateTimes, RELATIVE_REFRESH_MS);
-    }
   }
   window.addEventListener("hashchange", openFromHash);
   window.addEventListener("resize", fitAll);
-  window.addEventListener("load", () => {
-    updateTimes();
-    fitAll();
-  });
-  document.addEventListener("visibilitychange", () => {
-    if (!document.hidden) updateTimes();
-  });
+  window.addEventListener("load", fitAll);
   document.addEventListener("DOMContentLoaded", start);
   if (document.readyState !== "loading") start();
 })();
@@ -2659,17 +2655,16 @@ def _badge_html(grade: str) -> str:
     return f'<span class="badge {cls}">{html.escape(_badge_label(grade))}</span>'
 
 
-def _local_time_text(created: str) -> str:
+def _utc_time_text(created: str) -> str:
     created_dt = _stamp(created)
-    local = created_dt.astimezone(LOCAL_TZ)
-    return f"{local.day} {local.strftime('%b %Y, %H:%M %Z')}"
+    return f"{created_dt.day} {created_dt.strftime('%b %Y, %H:%M')} UTC"
 
 
 def _time_html(created: str) -> str:
-    local_text = _local_time_text(created)
+    utc_text = _utc_time_text(created)
     return (
         f'<time datetime="{html.escape(created, quote=True)}" '
-        f'title="{html.escape(local_text, quote=True)}">{html.escape(local_text)}</time>'
+        f'title="{html.escape(utc_text, quote=True)}">{html.escape(utc_text)}</time>'
     )
 
 
@@ -2854,7 +2849,7 @@ def _history_page_html(
     reports: dict | None = None,
     robot_tags: dict | None = None,
 ) -> str:
-    del now  # timestamps render canonical local dates; relative age is client-side (#163)
+    del now  # timestamps render canonical UTC dates; browser formats viewer timezone (#163)
     newest = records[0]
     robot_title = _robot_title(robot)
     scenario_title = _scenario_title(newest, variant)
@@ -2992,7 +2987,7 @@ def _index_card_html(
 
 
 def _index_page_html(history: dict, now: str = "") -> str:
-    del now  # timestamps render canonical local dates; relative age is client-side (#163)
+    del now  # timestamps render canonical UTC dates; browser formats viewer timezone (#163)
     grouped: dict[str, list[tuple[str, list[dict]]]] = {}
     all_latest: list[dict] = []
     for (robot, variant), records in sorted(history.items()):
@@ -3119,7 +3114,7 @@ def _index_page_html(history: dict, now: str = "") -> str:
             key=lambda r: (r["run"]["created"], r.get("folder", "")),
         )
         latest_rel = _release_label(latest_record)
-        latest_time_text = _local_time_text(latest_record["run"]["created"])
+        latest_time_text = _utc_time_text(latest_record["run"]["created"])
         sr_label = f"{robot_title}, {', '.join(sr_parts)}, latest {latest_rel}, {latest_time_text}"
         meta_latest = (
             f"{_release_html(latest_record, linked=False)}"

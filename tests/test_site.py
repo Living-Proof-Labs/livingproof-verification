@@ -7,6 +7,7 @@ import html as html_module
 import importlib.util
 import io
 import json
+import os
 from pathlib import Path
 import re
 import shutil
@@ -2213,8 +2214,8 @@ def test_failing_evaluators_chips_and_clean_history_view(tmp_path):
     assert 'class="release is-fallback"' in history
     assert ">v1.0.0</a>" in history
     assert '<time datetime="2026-11-18T05:00:00Z"' in history
-    assert 'title="18 Nov 2026, 16:00 AEDT">18 Nov 2026, 16:00 AEDT</time>' in history
-    assert 'title="18 Nov 2026, 16:20 AEDT">18 Nov 2026, 16:20 AEDT</time>' in history
+    assert 'title="18 Nov 2026, 05:00 UTC">18 Nov 2026, 05:00 UTC</time>' in history
+    assert 'title="18 Nov 2026, 05:20 UTC">18 Nov 2026, 05:20 UTC</time>' in history
     assert "20 minutes ago" not in history and "just now" not in history
     assert '<script src="../../open.js"></script>' in history
     assert "newest first. Older runs are trimmed over time.</p>" in history
@@ -2257,8 +2258,8 @@ def test_old_run_json_records_fall_back_without_new_fields(tmp_path):
     local_links_resolve(site)
 
 
-def test_time_tooltip_uses_australia_sydney(tmp_path):
-    """#129 / #163: visible <time> text and tooltip use Australia/Sydney (AEDT/AEST), not UTC."""
+def test_time_static_fallback_uses_utc(tmp_path):
+    """#129 / #163: static HTML emits canonical UTC timestamps for no-JavaScript fallback."""
     site = tmp_path / "site"
     site_tool.build(
         site, reports_for(tmp_path, "one", 19, "PASS"), run("100", "2026-11-18T05:00:00Z")
@@ -2267,8 +2268,7 @@ def test_time_tooltip_uses_australia_sydney(tmp_path):
     index = (site / "index.html").read_text()
     for page in (history, index):
         assert '<time datetime="2026-11-18T05:00:00Z"' in page
-        assert 'title="18 Nov 2026, 16:00 AEDT">18 Nov 2026, 16:00 AEDT</time>' in page
-        assert "UTC" not in page
+        assert 'title="18 Nov 2026, 05:00 UTC">18 Nov 2026, 05:00 UTC</time>' in page
         assert "just now" not in page
     path = site / "booster-t1/stock-mujoco-hallway/runs/100/run.json"
     record = json.loads(path.read_text())
@@ -2279,7 +2279,7 @@ def test_time_tooltip_uses_australia_sydney(tmp_path):
     winter_index = (site / "index.html").read_text()
     for page in (winter, winter_index):
         assert '<time datetime="2026-06-18T05:00:00Z"' in page
-        assert 'title="18 Jun 2026, 15:00 AEST">18 Jun 2026, 15:00 AEST</time>' in page
+        assert 'title="18 Jun 2026, 05:00 UTC">18 Jun 2026, 05:00 UTC</time>' in page
         assert "20 minutes ago" not in page and "just now" not in page
 
 
@@ -3218,7 +3218,7 @@ def test_index_robot_sections_collapsed_with_counts_dots_and_failing_first_order
     )[0]
     assert (
         '<span class="visually-hidden">'
-        "Booster T1, 3 scenarios, 1 failed, 2 passed, latest v1.1.0, 18 Nov 2026, 16:30 AEDT"
+        "Booster T1, 3 scenarios, 1 failed, 2 passed, latest v1.1.0, 18 Nov 2026, 05:30 UTC"
         "</span>"
     ) in booster_block
     assert '<div class="summary-row" aria-hidden="true">' in booster_block
@@ -3368,8 +3368,15 @@ def _extract_time_dom(page_html: str) -> dict:
     return {"times": parser.times, "summaries": parser.summaries}
 
 
-def _run_open_js_with_clock(open_js: str, page_html: str, clock_steps: list[str]) -> list[dict]:
-    """Execute emitted open.js against extracted page DOM under a controlled clock in Node."""
+def _run_open_js_with_clock(
+    open_js: str,
+    page_html: str,
+    clock_steps: list[str],
+    *,
+    tz: str = "Australia/Sydney",
+    locale: str = "en-AU",
+) -> list[dict]:
+    """Execute emitted open.js against extracted page DOM under a controlled clock and timezone."""
     dom_seed = _extract_time_dom(page_html)
     driver = r"""
 const fs = require("fs");
@@ -3411,8 +3418,6 @@ function makeElement(tagName, attrs = {}, text = "") {
       return this.querySelectorAll(sel)[0] || null;
     },
     querySelectorAll(sel) {
-      if (sel === ".abs-time") return children.filter((c) => c.className === "abs-time");
-      if (sel === ".rel-time") return children.filter((c) => c.className === "rel-time");
       if (sel === ".visually-hidden") return this._sr ? [this._sr] : [];
       if (sel === ".meta-latest time[datetime]") return this._time ? [this._time] : [];
       if (sel === ".pip" || sel === ".pip-more") return [];
@@ -3435,8 +3440,7 @@ const summaryElements = payload.dom.summaries.map((s) => {
 });
 
 let currentNowMs = Date.parse(payload.steps[0]);
-let intervalCallback = null;
-let intervalDelay = null;
+let intervalCalled = false;
 
 function CustomDate(...args) {
   if (args.length === 0) return new Date(currentNowMs);
@@ -3445,8 +3449,18 @@ function CustomDate(...args) {
 CustomDate.now = () => currentNowMs;
 CustomDate.parse = Date.parse.bind(Date);
 
+const BaseDateTimeFormat = Intl.DateTimeFormat;
+function ViewerDateTimeFormat(loc, opts) {
+  return new BaseDateTimeFormat(loc === undefined ? payload.locale : loc, {
+    ...(opts || {}),
+    timeZone: (opts && opts.timeZone) || payload.tz,
+  });
+}
+const CustomIntl = { ...Intl, DateTimeFormat: ViewerDateTimeFormat };
+
 const sandbox = {
   Date: CustomDate,
+  Intl: CustomIntl,
   Math,
   Number,
   decodeURIComponent,
@@ -3454,9 +3468,8 @@ const sandbox = {
   history: { replaceState() {} },
   window: {
     addEventListener() {},
-    setInterval(fn, ms) {
-      intervalCallback = fn;
-      intervalDelay = ms;
+    setInterval() {
+      intervalCalled = true;
       return 1;
     },
   },
@@ -3481,18 +3494,12 @@ vm.runInNewContext(payload.script, sandbox);
 function snapshot(stepIso) {
   return {
     now: stepIso,
-    interval_ms: intervalDelay,
-    times: timeElements.map((el) => {
-      const relEl = el.querySelector(".rel-time");
-      const absEl = el.querySelector(".abs-time");
-      return {
-        datetime: el.getAttribute("datetime"),
-        title: el.getAttribute("title"),
-        rel: relEl ? relEl.textContent : "",
-        abs: absEl ? absEl.textContent : el.textContent,
-        full: el.textContent,
-      };
-    }),
+    interval_called: intervalCalled,
+    times: timeElements.map((el) => ({
+      datetime: el.getAttribute("datetime"),
+      title: el.getAttribute("title"),
+      text: el.textContent,
+    })),
     summaries: summaryElements.map((s) => ({
       id: s._id,
       sr: s._sr.textContent,
@@ -3503,23 +3510,32 @@ function snapshot(stepIso) {
 const snapshots = [snapshot(payload.steps[0])];
 for (let i = 1; i < payload.steps.length; i++) {
   currentNowMs = Date.parse(payload.steps[i]);
-  if (intervalCallback) intervalCallback();
   snapshots.push(snapshot(payload.steps[i]));
 }
 process.stdout.write(JSON.stringify(snapshots));
 """
+    env = {**os.environ, "TZ": tz}
     completed = subprocess.run(
         ["node", "-e", driver],
-        input=json.dumps({"script": open_js, "dom": dom_seed, "steps": clock_steps}),
+        input=json.dumps(
+            {
+                "script": open_js,
+                "dom": dom_seed,
+                "steps": clock_steps,
+                "tz": tz,
+                "locale": locale,
+            }
+        ),
         check=True,
         capture_output=True,
         text=True,
+        env=env,
     )
     return json.loads(completed.stdout)
 
 
 def test_index_and_history_never_emit_build_time_relative_age(tmp_path):
-    """#163: no-JS static pages emit Australia/Sydney dates with timezone, never frozen relative age."""
+    """#163: no-JS static pages emit canonical UTC dates, never frozen relative age."""
     site = tmp_path / "site"
     site_tool.build(
         site,
@@ -3559,16 +3575,16 @@ def test_index_and_history_never_emit_build_time_relative_age(tmp_path):
             assert phrase not in lowered, phrase
         assert (
             '<time datetime="2026-11-18T05:20:00Z" '
-            'title="18 Nov 2026, 16:20 AEDT">18 Nov 2026, 16:20 AEDT</time>'
+            'title="18 Nov 2026, 05:20 UTC">18 Nov 2026, 05:20 UTC</time>'
         ) in page_text
 
     assert (
         '<time datetime="2026-11-18T05:00:00Z" '
-        'title="18 Nov 2026, 16:00 AEDT">18 Nov 2026, 16:00 AEDT</time>'
+        'title="18 Nov 2026, 05:00 UTC">18 Nov 2026, 05:00 UTC</time>'
     ) in history_first
     assert (
         '<span class="visually-hidden">'
-        "Unitree G1, 4 scenarios, 1 failed, 3 passed, latest v1.4.0, 18 Nov 2026, 16:20 AEDT"
+        "Unitree G1, 4 scenarios, 1 failed, 3 passed, latest v1.4.0, 18 Nov 2026, 05:20 UTC"
         "</span>"
     ) in index_first
 
@@ -3580,8 +3596,8 @@ def test_index_and_history_never_emit_build_time_relative_age(tmp_path):
         assert path.read_bytes() == before_bytes
 
 
-def test_client_side_relative_time_controlled_clock_boundaries_and_old_page_reopen(tmp_path):
-    """#163: controlled clock covers live refresh across boundaries and reopening an old page."""
+def test_client_side_viewer_timezone_and_old_page_reopen(tmp_path):
+    """#163: viewer-timezone formatting (AEDT/AEST, PST/PDT, offset) and unchanged old-page reopen."""
     site = tmp_path / "site"
     site_tool.build(
         site,
@@ -3593,89 +3609,94 @@ def test_client_side_relative_time_controlled_clock_boundaries_and_old_page_reop
         reports_for(tmp_path, "second", 19, "PASS"),
         {**run("200", "2026-11-18T05:20:00Z"), "tag": "v1.4.0"},
     )
+    # Also add a winter run (June -> AEST / PDT) on one variant so both seasons are tested.
+    winter_run = site / "booster-t1/stock-mujoco-hallway/runs/100/run.json"
+    winter_rec = json.loads(winter_run.read_text())
+    winter_rec["run"]["created"] = "2026-06-18T05:00:00Z"
+    winter_run.write_text(json.dumps(winter_rec, indent=2) + "\n")
+    site_tool.render(site, now="2026-11-18T05:20:00Z")
+
     open_js = (site / "open.js").read_text()
     index_html = (site / "index.html").read_text()
     history_html = (site / "booster-t1/stock-mujoco-hallway/index.html").read_text()
 
-    # 1. Live view starting 30s after run 200 (05:20:00Z) and stepping across every boundary.
-    steps = [
-        "2026-11-18T05:20:30Z",  # 30s -> just now
-        "2026-11-18T05:20:59Z",  # 59s -> just now
-        "2026-11-18T05:21:00Z",  # 60s -> 1 minute ago
-        "2026-11-18T05:22:00Z",  # 120s -> 2 minutes ago
-        "2026-11-18T06:19:59Z",  # 3599s -> 59 minutes ago
-        "2026-11-18T06:20:00Z",  # 3600s -> 1 hour ago
-        "2026-11-18T07:20:00Z",  # 7200s -> 2 hours ago
-        "2026-11-19T05:20:00Z",  # 86400s -> yesterday
-        "2026-11-20T05:20:00Z",  # 172800s -> 2 days ago
-        "2026-12-18T05:20:00Z",  # 30 days -> absolute date only
-    ]
-    index_snapshots = _run_open_js_with_clock(open_js, index_html, steps)
-    expected_rels = [
-        "just now · ",
-        "just now · ",
-        "1 minute ago · ",
-        "2 minutes ago · ",
-        "59 minutes ago · ",
-        "1 hour ago · ",
-        "2 hours ago · ",
-        "yesterday · ",
-        "2 days ago · ",
-        "",
-    ]
-    assert index_snapshots[0]["interval_ms"] == 15000
-    for snap, expected_rel in zip(index_snapshots, expected_rels, strict=True):
+    # 1. Australia/Sydney (en-AU): AEDT in Nov, AEST in Jun; unchanged when reopened later.
+    sydney_snaps = _run_open_js_with_clock(
+        open_js,
+        index_html,
+        ["2026-11-18T05:20:30Z", "2026-11-23T05:20:00Z", "2027-01-25T05:20:00Z"],
+        tz="Australia/Sydney",
+        locale="en-AU",
+    )
+    assert not sydney_snaps[0]["interval_called"]
+    for snap in sydney_snaps:
         first_time = snap["times"][0]
         assert first_time["datetime"] == "2026-11-18T05:20:00Z"
+        assert first_time["text"] == "18 Nov 2026, 16:20 AEDT"
         assert first_time["title"] == "18 Nov 2026, 16:20 AEDT"
-        assert first_time["rel"] == expected_rel
-        assert first_time["abs"] == "18 Nov 2026, 16:20 AEDT"
-        assert first_time["full"] == f"{expected_rel}18 Nov 2026, 16:20 AEDT"
         booster_sr = next(s["sr"] for s in snap["summaries"] if s["id"] == "booster-t1")
-        if expected_rel:
-            rel_word = expected_rel.removesuffix(" · ")
-            assert booster_sr == (
-                "Booster T1, 3 scenarios, 3 passed, latest v1.4.0, "
-                f"{rel_word} · 18 Nov 2026, 16:20 AEDT"
-            )
-        else:
-            assert booster_sr == (
-                "Booster T1, 3 scenarios, 3 passed, latest v1.4.0, 18 Nov 2026, 16:20 AEDT"
-            )
+        assert booster_sr == (
+            "Booster T1, 3 scenarios, 3 passed, latest v1.4.0, 18 Nov 2026, 16:20 AEDT"
+        )
+        dumped = json.dumps(snap).lower()
+        assert "just now" not in dumped and "ago" not in dumped and "yesterday" not in dumped
 
-    # 2. History rows: run 200 (05:20:00Z) and run 100 (05:00:00Z) both update live.
-    history_snapshots = _run_open_js_with_clock(
+    sydney_history = _run_open_js_with_clock(
         open_js,
         history_html,
-        ["2026-11-18T05:20:30Z", "2026-11-18T05:21:00Z"],
+        ["2026-11-18T05:20:30Z"],
+        tz="Australia/Sydney",
+        locale="en-AU",
+    )[0]
+    assert [t["text"] for t in sydney_history["times"]] == [
+        "18 Nov 2026, 16:20 AEDT",
+        "18 Jun 2026, 15:00 AEST",
+    ]
+
+    # 2. America/Los_Angeles (en-US): PST in Nov, PDT in Jun for the exact same datetime.
+    la_index = _run_open_js_with_clock(
+        open_js,
+        index_html,
+        ["2026-11-18T05:20:30Z"],
+        tz="America/Los_Angeles",
+        locale="en-US",
+    )[0]
+    assert la_index["times"][0]["datetime"] == "2026-11-18T05:20:00Z"
+    assert la_index["times"][0]["text"] == "17 Nov 2026, 21:20 PST"
+    assert (
+        next(s["sr"] for s in la_index["summaries"] if s["id"] == "booster-t1")
+        == "Booster T1, 3 scenarios, 3 passed, latest v1.4.0, 17 Nov 2026, 21:20 PST"
     )
-    row_200_initial, row_100_initial = history_snapshots[0]["times"]
-    assert row_200_initial["datetime"] == "2026-11-18T05:20:00Z"
-    assert row_200_initial["full"] == "just now · 18 Nov 2026, 16:20 AEDT"
-    assert row_100_initial["datetime"] == "2026-11-18T05:00:00Z"
-    assert row_100_initial["full"] == "20 minutes ago · 18 Nov 2026, 16:00 AEDT"
 
-    row_200_after, row_100_after = history_snapshots[1]["times"]
-    assert row_200_after["full"] == "1 minute ago · 18 Nov 2026, 16:20 AEDT"
-    assert row_100_after["full"] == "21 minutes ago · 18 Nov 2026, 16:00 AEDT"
+    la_history = _run_open_js_with_clock(
+        open_js,
+        history_html,
+        ["2026-11-18T05:20:30Z"],
+        tz="America/Los_Angeles",
+        locale="en-US",
+    )[0]
+    assert [t["text"] for t in la_history["times"]] == [
+        "17 Nov 2026, 21:20 PST",
+        "17 Jun 2026, 22:00 PDT",
+    ]
 
-    # 3. Reopening the old static page days and months later without rebuilding.
-    reopened_five_days = _run_open_js_with_clock(open_js, index_html, ["2026-11-23T05:20:00Z"])[0]
-    assert reopened_five_days["times"][0]["full"] == "5 days ago · 18 Nov 2026, 16:20 AEDT"
-    assert "just now" not in json.dumps(reopened_five_days)
+    # 3. Zone without a short name in viewer locale falls back to explicit offset (e.g. GMT+5:30).
+    kolkata_history = _run_open_js_with_clock(
+        open_js,
+        history_html,
+        ["2026-11-18T05:20:30Z"],
+        tz="Asia/Kolkata",
+        locale="en-US",
+    )[0]
+    assert kolkata_history["times"][0]["text"] == "18 Nov 2026, 10:50 GMT+5:30"
 
-    reopened_two_months = _run_open_js_with_clock(open_js, index_html, ["2027-01-25T05:20:00Z"])[0]
-    assert reopened_two_months["times"][0]["rel"] == ""
-    assert reopened_two_months["times"][0]["full"] == "18 Nov 2026, 16:20 AEDT"
-    assert "just now" not in json.dumps(reopened_two_months)
-    assert "ago" not in json.dumps(reopened_two_months)
 
-
-def test_print_styles_hide_relative_age_and_keep_absolute_timestamps():
-    """#163: @media print hides client-side relative labels so PDF/print keeps only absolute dates."""
+def test_print_styles_and_no_relative_time_markup():
+    """#163: @media print is configured and no relative-time CSS or JS classes remain."""
     css = site_tool.SITE_STYLES
     assert "@media print {" in css
-    print_block = css.split("@media print {", 1)[1].split("\n}\n", 1)[0]
-    assert ".rel-time { display: none !important; }" in print_block
-    assert ".abs-time" in css
-    assert ".abs-time { display: none" not in css
+    assert ".rel-time" not in css
+    assert ".abs-time" not in css
+    assert "time { white-space: nowrap; }" in css
+    assert "rel-time" not in site_tool.INDEX_SCRIPT
+    assert "setInterval" not in site_tool.INDEX_SCRIPT
