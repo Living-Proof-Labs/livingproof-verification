@@ -406,6 +406,81 @@ def check_viewport(browser, url, output, width, height, result, destinations):
         context.close()
 
 
+def check_themes(browser, url, output, results):
+    """#179: verify OS dark/light mode, Light/Dark switch, 320px layout, and light print."""
+    history_url = url + "unitree-g1/stock-mujoco-hallway/"
+    light_bg = "rgb(244, 247, 251)"
+    dark_bg = "rgb(11, 17, 32)"
+    dark_surface = "rgb(21, 31, 50)"
+    light_surface = "rgb(255, 255, 255)"
+    theme_results = {}
+
+    for scheme, expected_bg, expected_surface in [
+        ("light", light_bg, light_surface),
+        ("dark", dark_bg, dark_surface),
+    ]:
+        for width, height in [(1280, 800), (320, 720)]:
+            context = browser.new_context(
+                viewport={"width": width, "height": height},
+                color_scheme=scheme,
+            )
+            page = context.new_page()
+            page.set_default_timeout(10000)
+            try:
+                page.goto(url)
+                expect(page.locator("body")).to_have_css("background-color", expected_bg)
+                expect(page.locator(".card").first).to_have_css(
+                    "background-color", expected_surface
+                )
+                assert not page.evaluate("document.documentElement.scrollWidth > innerWidth"), (
+                    f"index overflowed at {width} in {scheme}"
+                )
+                page.screenshot(path=output / f"theme-{width}-index-{scheme}.png")
+
+                page.goto(history_url)
+                expect(page.locator("body")).to_have_css("background-color", expected_bg)
+                expect(page.locator(".row").first).to_have_css("background-color", expected_surface)
+                assert not page.evaluate("document.documentElement.scrollWidth > innerWidth"), (
+                    f"history overflowed at {width} in {scheme}"
+                )
+                page.screenshot(path=output / f"theme-{width}-history-{scheme}.png")
+            finally:
+                context.close()
+
+    # Manual Light/Dark override without JavaScript, plus print stays light
+    context = browser.new_context(viewport={"width": 1280, "height": 800}, color_scheme="dark")
+    page = context.new_page()
+    page.set_default_timeout(10000)
+    try:
+        page.goto(url)
+        expect(page.locator("body")).to_have_css("background-color", dark_bg)
+        page.locator("label:has(#theme-light)").click()
+        expect(page.locator("body")).to_have_css("background-color", light_bg)
+        page.locator("label:has(#theme-dark)").click()
+        expect(page.locator("body")).to_have_css("background-color", dark_bg)
+
+        # Print stays light even when OS is dark and Dark radio is checked
+        page.emulate_media(media="print")
+        expect(page.locator("body")).to_have_css("background-color", light_surface)
+        expect(page.locator(".card").first).to_have_css("background-color", light_surface)
+        expect(page.locator(".theme")).to_be_hidden()
+        page.screenshot(path=output / "theme-1280-index-print.png")
+
+        page.emulate_media(media="screen")
+        page.goto(history_url)
+        page.locator("label:has(#theme-dark)").click()
+        expect(page.locator("body")).to_have_css("background-color", dark_bg)
+        page.emulate_media(media="print")
+        expect(page.locator("body")).to_have_css("background-color", light_surface)
+        expect(page.locator(".row").first).to_have_css("background-color", light_surface)
+        expect(page.locator(".theme")).to_be_hidden()
+        page.screenshot(path=output / "theme-1280-history-print.png")
+        theme_results["status"] = "passed"
+    finally:
+        context.close()
+    results["themes"] = theme_results
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("site", type=Path)
@@ -443,6 +518,12 @@ def main():
                             result,
                             destinations,
                         )
+                    check_themes(
+                        browser,
+                        f"http://127.0.0.1:{server.server_port}/",
+                        args.output,
+                        results,
+                    )
                     browser.close()
                 results["status"] = "passed"
             finally:

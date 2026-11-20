@@ -3289,3 +3289,47 @@ def test_index_empty_catalog_does_not_claim_all_pass():
     assert '<p class="status">No verification reports published yet.</p>' in index
     assert 'class="all-pass"' not in index
     assert 'id="robots"' not in index
+
+
+def _css_tokens(css: str, pattern: str) -> dict[str, str]:
+    match = re.search(pattern, css, re.S)
+    assert match is not None, f"missing CSS block: {pattern}"
+    return dict(re.findall(r"(--[a-z0-9-]+|color-scheme):\s*([^;]+);", match.group(1)))
+
+
+def test_site_theme_tokens_match_capability_report():
+    """#179: index and history theme tokens match livingproof_capability_report.html_theme."""
+    from livingproof_capability_report.html_theme import CSS as REPORT_CSS
+
+    blocks = [
+        (r":root\s*\{([^}]+)\}", "light :root"),
+        (r"@media\s*\(prefers-color-scheme:\s*dark\)\s*\{\s*:root\s*\{([^}]+)\}", "dark media"),
+        (r"html:has\(#theme-light:checked\)\s*\{([^}]+)\}", "forced light"),
+        (r"html:has\(#theme-dark:checked\)\s*\{([^}]+)\}", "forced dark"),
+        (r"@media\s+print\s*\{\s*:root[^{]*\{([^}]+)\}", "print light"),
+    ]
+    for pattern, label in blocks:
+        report_tokens = _css_tokens(REPORT_CSS, pattern)
+        site_tokens = _css_tokens(site_tool.SITE_STYLES, pattern)
+        for name, value in report_tokens.items():
+            assert site_tokens.get(name) == value, (
+                f"{label}: token {name} is {site_tokens.get(name)!r}, expected {value!r}"
+            )
+
+
+def test_index_and_history_include_theme_switch(tmp_path):
+    """#179: both index and history mastheads carry the CSS-only Colour theme switch."""
+    site = tmp_path / "site"
+    site_tool.build(
+        site,
+        reports_for(tmp_path, "one", 12, "FAIL"),
+        run("100", "2026-11-19T00:00:00Z"),
+    )
+    index = (site / "index.html").read_text()
+    history = (site / "unitree-g1/stock-mujoco-hallway/index.html").read_text()
+    for page in (index, history):
+        assert '<div class="masthead-top">' in page
+        assert '<fieldset class="theme"><legend>Colour theme</legend>' in page
+        assert 'id="theme-system" value="system" checked' in page
+        assert 'id="theme-light" value="light"' in page
+        assert 'id="theme-dark" value="dark"' in page
