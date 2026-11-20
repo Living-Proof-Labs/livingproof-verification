@@ -14,7 +14,7 @@ import tomllib
 ROOT = Path(__file__).parents[1]
 DEFINITIONS = sorted((ROOT / "verifications").glob("*.toml"))
 DEFINITIONS = [p for p in DEFINITIONS if p.name != "settings.toml"]
-EVALUATOR_RUN = {"repository": "Living-Proof-Labs/livingproof-evaluator-run", "tag": "v1.6.0"}
+EVALUATOR_RUN = {"repository": "Living-Proof-Labs/livingproof-evaluator-run", "tag": "v1.7.0"}
 
 
 def test_there_are_ten_definitions():
