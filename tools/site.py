@@ -787,6 +787,34 @@ def failing_evaluators(report: object) -> list[dict]:
     return list(seen.values())
 
 
+MARKED_INTEGRITY_STATUSES = ("ERROR", "INCONCLUSIVE")
+
+
+def integrity_markers(report: object) -> list[dict]:
+    """Run Integrity results whose status is ERROR or INCONCLUSIVE, by evaluator id.
+
+    Shown on a PASS or UNSUPPORTED run, which has no chips of its own (#168). Any other
+    status, including one this site does not know, is not marked.
+    """
+    if not isinstance(report, dict):
+        return []
+    found: dict[str, dict] = {}
+    for doc in _evaluator_documents(report):
+        integrity = doc.get("integrity") if isinstance(doc.get("integrity"), dict) else {}
+        run_info = integrity.get("run") if isinstance(integrity.get("run"), dict) else {}
+        status = run_info.get("test_system_status")
+        if status not in MARKED_INTEGRITY_STATUSES:
+            continue
+        ev = doc.get("evaluator") if isinstance(doc.get("evaluator"), dict) else {}
+        ev_id = _stored_text(ev.get("id"))
+        if ev_id is None or ev_id in found:
+            continue
+        desc = doc.get("descriptor") if isinstance(doc.get("descriptor"), dict) else {}
+        title = _stored_text(ev.get("display_name")) or _stored_text(desc.get("title")) or ev_id
+        found[ev_id] = {"id": ev_id, "title": title, "status": status}
+    return list(found.values())
+
+
 def provenance(target: dict, run: dict, report: object = None) -> dict:
     lock, server = target["lock"], run["server"]
     releases = lock["releases"]
@@ -954,6 +982,9 @@ def add_run(
     failing = failing_evaluators(report_data)
     if failing:
         record["failing_evaluators"] = failing
+    markers = integrity_markers(report_data)
+    if markers:
+        record["integrity_status"] = markers
     if inputs:
         record["grading_inputs"] = [
             {key: item[key] for key in ("role", "path", "sha256")} for item in inputs
@@ -2163,6 +2194,17 @@ a.chip:hover {
   color: var(--speak-text);
   border-color: color-mix(in srgb, var(--speak) 65%, var(--border));
 }
+.chip-integrity-error {
+  border-color: color-mix(in srgb, var(--chip-fail-fg) 45%, var(--border));
+  background: var(--chip-fail-bg);
+  color: var(--chip-fail-fg);
+}
+.chip-integrity-inconclusive {
+  border-style: dashed;
+  border-color: var(--border-strong);
+  background: var(--chip-muted-bg);
+  color: var(--chip-muted-fg);
+}
 a.chip-spec:hover {
   background: var(--bg-muted);
   color: var(--text);
@@ -2636,6 +2678,23 @@ def _chips_html(record: dict, prefix: str, *, linked: bool = True, extra: str = 
                 )
             else:
                 items.append(f'<span class="{klass}">{html.escape(title)}</span>')
+    markers = record.get("integrity_status") or []
+    if grade in ("PASS", "UNSUPPORTED") and isinstance(markers, list):
+        for marker in markers:
+            if not isinstance(marker, dict):
+                continue
+            title = _stored_text(marker.get("title"))
+            status = marker.get("status")
+            if title is None or status not in MARKED_INTEGRITY_STATUSES:
+                continue
+            label = f"{title}: integrity status {status}"
+            if status == "INCONCLUSIVE":
+                label += " (not graded)"
+            items.append(
+                f'<span class="chip chip-integrity chip-integrity-{status.lower()}" '
+                f'role="img" aria-label="{html.escape(label, quote=True)}">'
+                f"{html.escape(title)}: {status}</span>"
+            )
     if extra:
         items.append(extra)
     if not items:
