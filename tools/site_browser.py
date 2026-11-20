@@ -190,6 +190,17 @@ def check_history(page, width, height, result, output):
     expect(page.locator(".chip-spec")).to_contain_text("Spec changed: v0.0.1 → ")
     rows = page.locator(".row")
     assert rows.count() == len(SEEDED_RUNS) + 1
+    page.evaluate("document.fonts.ready")
+    page.evaluate("window.scrollTo(0, 0)")
+    history_name = page.url.rstrip("/").split("/")[-2:]
+    layout = {
+        "url": page.url,
+        "masthead_height": page.locator(".masthead").bounding_box()["height"],
+        "row_tops": [rows.nth(index).bounding_box()["y"] for index in range(rows.count())],
+        "font_family": page.locator("body").evaluate("e => getComputedStyle(e).fontFamily"),
+    }
+    result.setdefault("history_layouts", []).append(layout)
+    page.screenshot(path=output / f"{width}-history-{'-'.join(history_name)}.png")
     visible = sum(
         1 for index in range(rows.count()) if rows.nth(index).bounding_box()["y"] + 60 < height
     )

@@ -2741,6 +2741,12 @@ a.release:hover { color: var(--link); text-decoration: underline; }
   .dots { grid-area: dots; max-width: 100%; }
   .meta-latest { grid-area: meta; justify-self: end; }
 }
+@media screen and (max-width: 720px) {
+  .masthead:has(.crumb) .masthead-inner { padding: 0.75rem 0 0.85rem; }
+  .masthead:has(.crumb) .lede { line-height: 1.4; }
+  .masthead:has(.crumb) .meta-line { margin-top: 0.35rem; line-height: 1.4; }
+  .history .row { padding: 0.75rem; }
+}
 @media (prefers-reduced-motion: reduce) {
   .card, .row, .robot > summary, .chevron { transition: none; }
 }
