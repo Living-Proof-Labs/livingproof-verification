@@ -4,7 +4,7 @@
 # verification.lock.json.
 [reporter]
 repository = "Living-Proof-Labs/livingproof-capability-report"
-tag = "v3.12.5"
+tag = "v3.13.0"
 image = "ghcr.io/living-proof-labs/livingproof-capability-report"
 
 # Days a run's copied evidence stays on the public site. tools/site.py prunes
@@ -17,4 +17,4 @@ evidence_retention_days = 7
 # Recorded as evaluators.livingproof-evaluator-run (repository and tag) in every lock.
 [evaluators.livingproof-evaluator-run]
 repository = "Living-Proof-Labs/livingproof-evaluator-run"
-tag = "v1.6.0"
+tag = "v1.7.0"

@@ -153,7 +153,7 @@ def test_published_history_names_the_verifier_and_reporter_releases(tmp_path):
     """The public history and run.json name both pinned releases (issue 62)."""
     settings = tomllib.loads((ROOT / "verifications/settings.toml").read_text())
     reporter_tag = settings["reporter"]["tag"]
-    assert reporter_tag == "v3.12.5"
+    assert reporter_tag == "v3.13.0"
     site = tmp_path / "site"
     site_tool.build(
         site, reports_for(tmp_path, "one", 12, "PASS"), run("100", "2026-11-02T06:00:00Z")
@@ -162,8 +162,8 @@ def test_published_history_names_the_verifier_and_reporter_releases(tmp_path):
         lock = json.loads((ROOT / "verifications" / f"{target['id']}.lock.json").read_text())
         verifier = lock["releases"]["verifier"]
         reporter = lock["releases"]["reporter"]
-        assert verifier["tag"] == "v2.7.5"
-        assert verifier["commit"] == "9e32d4759f5118b868d451757812c36ed8b883a5"
+        assert verifier["tag"] == "v2.8.0"
+        assert verifier["commit"] == "7ebde8b4ca03d51cfac22a87bf2f49e4b25a6677"
         assert reporter["tag"] == reporter_tag
         assert reporter["repository"] == settings["reporter"]["repository"]
         history = (site / target["robot"] / target["variant"] / "index.html").read_text()
@@ -2187,7 +2187,7 @@ def test_failing_evaluators_chips_and_clean_history_view(tmp_path):
         {
             "id": "livingproof-scenario",
             "title": "Scenario",
-            "href": "#evaluator-livingproof-scenario",
+            "href": "#summary",
             "summary": "Drifted 0.66 m from the centreline, then touched the wall.",
         }
     ]
@@ -2205,7 +2205,7 @@ def test_failing_evaluators_chips_and_clean_history_view(tmp_path):
     assert "livingproof-booster-t1 v2.3.5" in history
     assert "livingproof-booster-t1 @" not in history
     assert "software stock 1.0.0" in history
-    assert 'href="runs/100/#evaluator-livingproof-scenario"' in history
+    assert 'href="runs/100/#summary"' in history
     assert ">Scenario</a>" in history
     assert 'aria-label="Open the Scenario finding in the report"' in history
     assert "Drifted 0.66 m from the centreline, then touched the wall." in history
@@ -2302,7 +2302,7 @@ def test_human_reviewer_chip_renders_when_a_finding_was_stored(tmp_path):
     site_tool.render(site, now="2026-11-18T05:20:00Z")
     history = (base / "index.html").read_text()
     assert 'aria-label="Open the Aaron Roller finding in the report"' in history
-    assert 'href="runs/150/#evaluator-aaron-roller"' in history
+    assert 'href="runs/150/#summary"' in history
     assert ">Aaron Roller</a>" in history
     assert 'class="poster">Aaron Roller</span>' in history
     local_links_resolve(site)

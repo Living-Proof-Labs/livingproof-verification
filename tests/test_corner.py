@@ -30,13 +30,13 @@ WORKFLOW = ROOT / ".github/workflows/verify.yml"
 VERIFIER = "Living-Proof-Labs/capability-verifier"
 
 # Released tags, resolved once by hand (git ls-remote) and recorded here.
-VERIFIER_RELEASE = ("v2.7.5", "9e32d4759f5118b868d451757812c36ed8b883a5")
+VERIFIER_RELEASE = ("v2.8.0", "7ebde8b4ca03d51cfac22a87bf2f49e4b25a6677")
 EVALUATOR_RELEASE = ("v1.3.0", "965629ab1e9508cb3090931abbae6a957bf5d294")
 # The first reporter release whose HTML step card writes out corner-turned's list of
 # places (livingproof-capability-report#79, 3453a14). v3.10.1 fails with
 # "float() argument must be a string or a real number, not 'list'".
 # The constant is the settings pin; every lock must name that same release.
-REPORTER_RELEASE = ("v3.12.5", "df7a74e56b77e89a3608b78c98b13deae8311118")
+REPORTER_RELEASE = ("v3.13.0", "ca8e4eb4162133ebd74d4b6e30b913c873d45d72")
 WORLD = {
     "id": "hallway-corner",
     "version": "0.2.0",
@@ -340,12 +340,12 @@ def test_every_runner_is_v3_5_0_or_later_from_a_released_robot_ref(name):
     assert re.fullmatch(r"[0-9a-f]{40}", runner["commit"])
 
 
-def test_every_lock_pins_livingproof_evaluator_run_v1_6_0():
-    """Every lock pins livingproof-evaluator-run v1.6.0, so CI runs all five Run Integrity
+def test_every_lock_pins_livingproof_evaluator_run_v1_7_0():
+    """Every lock pins livingproof-evaluator-run v1.7.0, so CI runs all five Run Integrity
     checks: pins, completeness, plan-conformance, termination and recording (#136)."""
     expected = {
         "repository": "Living-Proof-Labs/livingproof-evaluator-run",
-        "tag": "v1.6.0",
+        "tag": "v1.7.0",
     }
     for name in [*CORNER, *HALLWAY]:
         assert _lock(name)["evaluators"]["livingproof-evaluator-run"] == expected, name
