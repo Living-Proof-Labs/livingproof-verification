@@ -733,6 +733,9 @@ def _finding_summary(findings: list, descriptor: dict) -> str | None:
     return _stored_text(descriptor.get("details_copy"))
 
 
+INCONCLUSIVE_COPY = "Not graded: no check applied to this run."
+
+
 def failing_evaluators(report: object) -> list[dict]:
     """Evaluators that spoke on a non-passing run, deduplicated by evaluator id."""
     if not isinstance(report, dict):
@@ -762,15 +765,22 @@ def failing_evaluators(report: object) -> list[dict]:
             or grade == "FAIL"
             or (isinstance(grade, (int, float)) and grade < 100)
             or (isinstance(status, str) and status.upper() in {"ERROR", "WARN", "FAIL"})
+            or status == "INCONCLUSIVE"
         )
         if not spoke:
             continue
         title = _stored_text(ev.get("display_name")) or _stored_text(desc.get("title")) or ev_id
         summary = _finding_summary(findings, desc)
+        if summary is None and status == "INCONCLUSIVE":
+            # 1.2.0: no check applied. Not graded, not failed. Any other status this site
+            # does not know is not graded and does not speak (a 1.x minor may add statuses).
+            summary = INCONCLUSIVE_COPY
         if ev_id not in seen:
             entry = {"id": ev_id, "title": title, "href": f"#evaluator-{ev_id}"}
             if summary is not None:
                 entry["summary"] = summary
+            if status == "INCONCLUSIVE":
+                entry["not_graded"] = True
             seen[ev_id] = entry
         elif "summary" not in seen[ev_id] and summary is not None:
             seen[ev_id]["summary"] = summary
@@ -2099,6 +2109,12 @@ a:focus-visible, button:focus-visible, summary:focus-visible, .row:focus-visible
   font-size: 0.92rem;
   font-weight: 550;
 }
+.finding-neutral {
+  border-left-color: var(--border-strong);
+  background: var(--bg-muted);
+  color: var(--text-muted);
+  font-weight: 450;
+}
 .badge {
   display: inline-flex;
   align-items: center;
@@ -2146,6 +2162,11 @@ a.chip:hover {
   background: color-mix(in srgb, var(--speak) 20%, var(--surface));
   color: var(--speak-text);
   border-color: color-mix(in srgb, var(--speak) 65%, var(--border));
+}
+a.chip-spec:hover {
+  background: var(--bg-muted);
+  color: var(--text);
+  border-color: var(--border-strong);
 }
 .when, .release, .poster, .links {
   font-size: 0.88rem;
@@ -2604,15 +2625,17 @@ def _chips_html(record: dict, prefix: str, *, linked: bool = True, extra: str = 
             href = _stored_text(ev.get("href"))
             if title is None or href is None:
                 continue
+            # INCONCLUSIVE is not graded, not failing: the neutral chip-spec style.
+            klass = "chip chip-spec" if ev.get("not_graded") is True else "chip"
             if linked:
                 tip = f"Open the {title} finding in the report"
                 items.append(
-                    f'<a class="chip" href="{html.escape(prefix + href, quote=True)}" '
+                    f'<a class="{klass}" href="{html.escape(prefix + href, quote=True)}" '
                     f'title="{html.escape(tip, quote=True)}" '
                     f'aria-label="{html.escape(tip, quote=True)}">{html.escape(title)}</a>'
                 )
             else:
-                items.append(f'<span class="chip">{html.escape(title)}</span>')
+                items.append(f'<span class="{klass}">{html.escape(title)}</span>')
     if extra:
         items.append(extra)
     if not items:
@@ -2666,7 +2689,8 @@ def _finding_html(record: dict) -> str:
         if isinstance(ev, dict):
             summary = _stored_text(ev.get("summary"))
             if summary is not None:
-                return f'<p class="finding">{html.escape(summary)}</p>'
+                klass = "finding finding-neutral" if ev.get("not_graded") is True else "finding"
+                return f'<p class="{klass}">{html.escape(summary)}</p>'
     for item in record.get("outcome") or []:
         if isinstance(item, dict):
             finding = _stored_text(item.get("finding"))
