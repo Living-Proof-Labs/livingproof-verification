@@ -742,8 +742,11 @@ INCONCLUSIVE_COPY = "Not graded: no check applied to this run."
 # whenever a Scenario result is also present. The site cannot derive that order reliably (it is
 # the reporter's private rule, it differs between the reporter versions the locks pin, and it
 # depends on results the site does not read), and a wrong tab number focuses another evaluator.
-# So chips link to the summary section that holds the evaluators row: a stable id that never
-# names the wrong evaluator.
+# So chips link to `section#summary`, a stable id that never names the wrong evaluator. It is a
+# stopgap, not a precise landing: that section sits inside the first evaluators panel
+# (run-evaluators-panel-1, display:none unless its tab is open), and it is not the evaluators row
+# (that is article.summary-card, which has no id). A link to it may not visibly move the page.
+# A real per-evaluator anchor needs the reporter to emit one (capability-report issue, see PR body).
 EVALUATOR_ANCHOR = "#summary"
 
 
