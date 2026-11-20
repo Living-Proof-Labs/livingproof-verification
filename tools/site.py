@@ -2692,9 +2692,8 @@ def _chips_html(record: dict, prefix: str, *, linked: bool = True, extra: str = 
                 tip += " (not graded)"
             words = "error" if status == "ERROR" else "not graded"
             icon = "\u2715" if status == "ERROR" else "?"
-            sentence = title[:1].upper() + title[1:].lower()
             klass = f"chip chip-integrity chip-integrity-{status.lower()}"
-            body = f'<span aria-hidden="true">{icon}</span> {html.escape(sentence)} {words}'
+            body = f'<span aria-hidden="true">{icon}</span> {html.escape(title)} {words}'
             href = _stored_text(marker.get("id"))
             if linked and href is not None:
                 target = html.escape(f"{prefix}#evaluator-{href}", quote=True)
