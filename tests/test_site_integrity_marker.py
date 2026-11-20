@@ -51,7 +51,7 @@ def test_a_passing_run_shows_a_distinct_labelled_marker(status: str, grade: str)
         {"id": "livingproof-run-integrity", "title": "Run Integrity", "status": status}
     ]
     kind = status.lower()
-    words = {"ERROR": "Run integrity error", "INCONCLUSIVE": "Run integrity not graded"}[status]
+    words = {"ERROR": "Run Integrity error", "INCONCLUSIVE": "Run Integrity not graded"}[status]
     icon = {"ERROR": "\u2715", "INCONCLUSIVE": "?"}[status]
     tip = f"Run Integrity: integrity status {status}"
     if status == "INCONCLUSIVE":
@@ -96,3 +96,22 @@ def test_a_failing_run_keeps_its_own_chips_and_no_second_marker():
     html = site_tool._chips_html(record, "../")
     assert "chip-integrity" not in html
     assert 'class="chip"' in html
+
+
+@pytest.mark.parametrize("status", ["ERROR", "INCONCLUSIVE"])
+def test_the_evaluator_title_keeps_its_case(status: str):
+    """Only the suffix is lowercase: an acronym title is rendered exactly as supplied."""
+    extra = {"success": False, "percentage": 0} if status == "ERROR" else {}
+    report = _report(status, "PASS", **extra)
+    document = report["source_bundle"]["assessment"]["integrity_results"][
+        "livingproof-run-integrity"
+    ]
+    document["evaluator"]["display_name"] = "ROS Integrity"
+    record = _record(report, "PASS")
+    suffix = "error" if status == "ERROR" else "not graded"
+    for html in (
+        site_tool._chips_html(record, "../"),
+        site_tool._chips_html(record, "../", linked=False),
+    ):
+        assert f"ROS Integrity {suffix}</" in html
+        assert "Ros integrity" not in html
