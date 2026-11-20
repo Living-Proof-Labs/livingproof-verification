@@ -736,18 +736,62 @@ def _finding_summary(findings: list, descriptor: dict) -> str | None:
 INCONCLUSIVE_COPY = "Not graded: no check applied to this run."
 
 
-# Reporter v3.13.x has no element per evaluator: its ids are run-evaluators-tab-N,
-# run-evaluators-panel-N, summary and theme-*. The tabs are ordered by the reporter (tier, then
-# title, over every evaluator result of the run, merged by evaluator id), so Run Integrity is tab 2
-# whenever a Scenario result is also present. The site cannot derive that order reliably (it is
-# the reporter's private rule, it differs between the reporter versions the locks pin, and it
-# depends on results the site does not read), and a wrong tab number focuses another evaluator.
-# So chips link to `section#summary`, a stable id that never names the wrong evaluator. It is a
-# stopgap, not a precise landing: that section sits inside the first evaluators panel
-# (run-evaluators-panel-1, display:none unless its tab is open), and it is not the evaluators row
-# (that is article.summary-card, which has no id). A link to it may not visibly move the page.
-# A real per-evaluator anchor needs the reporter to emit one (capability-report issue, see PR body).
+# Reporter v3.14.0 and newer (capability-report#109) put the id `evaluator-<slug>` on every
+# evaluator's tab; the link opens and focuses that tab, with or without a Scenario result. The
+# slug is the reporter's rule exactly: every character outside A-Za-z0-9._- becomes "-", and an
+# id with nothing left is "evaluator". Two evaluators whose slugs are equal get -2, -3 in the
+# reporter's own tab order (tier, then title), which the site cannot derive, so a chip whose slug
+# is shared on its page keeps the fallback rather than guess a suffix.
+#
+# Which pages have the anchor: the record's reporter tag (releases.reporter.tag, the release the
+# run's report was made with) is v3.14.0 or newer. A run page is built from the saved report by
+# the installed reporter, or, when the report cannot be rendered, from the report.html saved with
+# the run. Either way the page was built by a reporter at least as new as the recorded tag, so a
+# recorded v3.14.0+ is safe. An older tag, a tag that is not vX.Y.Z, or no tag keeps the old
+# fallback, `section#summary`: a stable id that never names the wrong evaluator, but which sits in
+# the first (often hidden) evaluators panel, so it may not visibly move the page.
 EVALUATOR_ANCHOR = "#summary"
+ANCHOR_REPORTER = (3, 14, 0)
+_REPORTER_TAG = re.compile(r"v(\d+)\.(\d+)\.(\d+)")
+
+
+def evaluator_slug(ev_id: str) -> str:
+    """The reporter's slug for an evaluator id (its `_anchor_id`, before any -2 suffix)."""
+    return re.sub(r"[^A-Za-z0-9._-]", "-", str(ev_id)) or "evaluator"
+
+
+def reporter_has_evaluator_anchors(record: dict) -> bool:
+    releases = record.get("releases") if isinstance(record.get("releases"), dict) else {}
+    reporter = releases.get("reporter") if isinstance(releases.get("reporter"), dict) else {}
+    tag = _stored_text(reporter.get("tag"))
+    found = _REPORTER_TAG.fullmatch(tag) if tag else None
+    return found is not None and tuple(int(n) for n in found.groups()) >= ANCHOR_REPORTER
+
+
+def page_evaluator_ids(report: object) -> set[str]:
+    """Every evaluator id on the run page: the reporter gives each one a tab."""
+    ids = set()
+    for doc in _evaluator_documents(report):
+        ev = doc.get("evaluator") if isinstance(doc.get("evaluator"), dict) else {}
+        ev_id = _stored_text(ev.get("id"))
+        if ev_id is not None:
+            ids.add(ev_id)
+    return ids
+
+
+def evaluator_fragment(record: dict, ev_id: object, report: object = None) -> str:
+    """`#evaluator-<slug>` when the page has it and the slug is not shared; else `#summary`.
+
+    Without the report the evaluators on the page are unknown, so the slug cannot be checked
+    for a twin: the fallback."""
+    ev_id = _stored_text(ev_id)
+    if ev_id is None or not reporter_has_evaluator_anchors(record):
+        return EVALUATOR_ANCHOR
+    ids = page_evaluator_ids(report)
+    slug = evaluator_slug(ev_id)
+    if ev_id not in ids or any(o != ev_id and evaluator_slug(o) == slug for o in ids):
+        return EVALUATOR_ANCHOR
+    return f"#evaluator-{slug}"
 
 
 def failing_evaluators(report: object) -> list[dict]:
@@ -2669,7 +2713,9 @@ def _release_html(record: dict, *, linked: bool = True) -> str:
     return f'<span class="release is-fallback" title="{title}">commit</span>'
 
 
-def _integrity_chip(title: str, status: str, prefix: str, linked: bool) -> str:
+def _integrity_chip(
+    title: str, status: str, prefix: str, linked: bool, fragment: str = EVALUATOR_ANCHOR
+) -> str:
     """The marker chip for an ERROR or INCONCLUSIVE integrity result (neutral if not graded)."""
     tip = f"{title}: integrity status {status}"
     if status == "INCONCLUSIVE":
@@ -2679,14 +2725,16 @@ def _integrity_chip(title: str, status: str, prefix: str, linked: bool) -> str:
     klass = f"chip chip-integrity chip-integrity-{status.lower()}"
     body = f'<span aria-hidden="true">{icon}</span> {html.escape(title)} {words}'
     if linked:
-        target = html.escape(prefix + EVALUATOR_ANCHOR, quote=True)
+        target = html.escape(prefix + fragment, quote=True)
         return (
             f'<a class="{klass}" href="{target}" title="{html.escape(tip, quote=True)}">{body}</a>'
         )
     return f'<span class="{klass}" title="{html.escape(tip, quote=True)}">{body}</span>'
 
 
-def _chips_html(record: dict, prefix: str, *, linked: bool = True, extra: str = "") -> str:
+def _chips_html(
+    record: dict, prefix: str, *, linked: bool = True, extra: str = "", report: object = None
+) -> str:
     grade = _record_grade(record)
     evaluators = record.get("failing_evaluators") or []
     items = []
@@ -2700,13 +2748,22 @@ def _chips_html(record: dict, prefix: str, *, linked: bool = True, extra: str = 
                 continue
             if ev.get("not_graded") is True:
                 # INCONCLUSIVE is not graded, not failing: the same neutral chip as on a PASS run.
-                items.append(_integrity_chip(title, "INCONCLUSIVE", prefix, linked))
+                items.append(
+                    _integrity_chip(
+                        title,
+                        "INCONCLUSIVE",
+                        prefix,
+                        linked,
+                        evaluator_fragment(record, ev.get("id"), report),
+                    )
+                )
             elif linked:
                 # The stored href is ignored: records written before #168 carry a dead
-                # #evaluator-<id> fragment that no reporter page has.
+                # #evaluator-<id> fragment; the fragment is derived from the stored id.
+                fragment = evaluator_fragment(record, ev.get("id"), report)
                 tip = f"Open the {title} finding in the report"
                 items.append(
-                    f'<a class="chip" href="{html.escape(prefix + EVALUATOR_ANCHOR, quote=True)}" '
+                    f'<a class="chip" href="{html.escape(prefix + fragment, quote=True)}" '
                     f'title="{html.escape(tip, quote=True)}" '
                     f'aria-label="{html.escape(tip, quote=True)}">{html.escape(title)}</a>'
                 )
@@ -2723,7 +2780,15 @@ def _chips_html(record: dict, prefix: str, *, linked: bool = True, extra: str = 
                 continue
             if _stored_text(marker.get("id")) is None:
                 continue
-            items.append(_integrity_chip(title, status, prefix, linked))
+            items.append(
+                _integrity_chip(
+                    title,
+                    status,
+                    prefix,
+                    linked,
+                    evaluator_fragment(record, marker.get("id"), report),
+                )
+            )
     if extra:
         items.append(extra)
     if not items:
@@ -2905,7 +2970,12 @@ def _history_page_html(
                 _spec_versions(record, (reports or {}).get(record["folder"])),
                 _spec_versions(below, (reports or {}).get(below["folder"])),
             )
-        chips = _chips_html(record, run_prefix, extra=_spec_chip_html(change))
+        chips = _chips_html(
+            record,
+            run_prefix,
+            extra=_spec_chip_html(change),
+            report=(reports or {}).get(record["folder"]),
+        )
         finding = _finding_html(record)
         row_cards.append(
             f'<article class="{row_class}">'

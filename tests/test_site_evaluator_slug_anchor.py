@@ -104,7 +104,7 @@ def test_the_reporter_pin_is_v3_14_0_and_the_installed_reporter_is_the_pin() -> 
     out = subprocess.run(
         ["livingproof-capability-report", "--version"], capture_output=True, text=True
     )
-    assert out.returncode == 0 and out.stdout.strip().endswith("3.14.0"), out.stdout
+    assert out.returncode == 0 and "version 3.14.0" in out.stdout, out.stdout
 
 
 @pytest.mark.parametrize(
@@ -208,7 +208,7 @@ def test_two_evaluators_with_one_slug_keep_the_fallback_not_a_guessed_suffix() -
     }
     record = _record(report)
     chips = site_tool._chips_html(record, "../", report=report)
-    assert _fragments(chips) == ["summary"]
+    assert _fragments(chips) == ["summary", "summary"]
     # An id that merely looks like it has a twin on another page is not affected.
     solo = {
         "source_bundle": {"assessment": {"integrity_results": {"one": one}}},

@@ -2205,7 +2205,7 @@ def test_failing_evaluators_chips_and_clean_history_view(tmp_path):
     assert "livingproof-booster-t1 v2.3.5" in history
     assert "livingproof-booster-t1 @" not in history
     assert "software stock 1.0.0" in history
-    assert 'href="runs/100/#summary"' in history
+    assert 'href="runs/100/#evaluator-livingproof-scenario"' in history
     assert ">Scenario</a>" in history
     assert 'aria-label="Open the Scenario finding in the report"' in history
     assert "Drifted 0.66 m from the centreline, then touched the wall." in history
