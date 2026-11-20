@@ -50,12 +50,28 @@ def test_a_passing_run_shows_a_distinct_labelled_marker(status: str, grade: str)
     assert record["integrity_status"] == [
         {"id": "livingproof-run-integrity", "title": "Run Integrity", "status": status}
     ]
-    html = site_tool._chips_html(record, "../")
     kind = status.lower()
-    assert f'class="chip chip-integrity chip-integrity-{kind}"' in html
-    assert f'aria-label="Run Integrity: integrity status {status}' in html
-    assert f"Run Integrity: {status}" in html
+    words = {"ERROR": "Run integrity error", "INCONCLUSIVE": "Run integrity not graded"}[status]
+    icon = {"ERROR": "\u2715", "INCONCLUSIVE": "?"}[status]
+    tip = f"Run Integrity: integrity status {status}"
+    if status == "INCONCLUSIVE":
+        tip += " (not graded)"
+    # Linked, like the failing chips: the run page's evaluator anchor.
+    html = site_tool._chips_html(record, "../")
+    assert (
+        f'<a class="chip chip-integrity chip-integrity-{kind}" '
+        f'href="../#evaluator-livingproof-run-integrity" title="{tip}">'
+        f'<span aria-hidden="true">{icon}</span> {words}</a>'
+    ) in html
+    # Visible text is what a screen reader reads: no role="img", no aria-label override.
+    assert "role=" not in html and "aria-label" not in html
     assert "chip-spec" not in html
+    # Not linked (a card that is itself a link): a span with the same text and title.
+    plain = site_tool._chips_html(record, "../", linked=False)
+    assert (
+        f'<span class="chip chip-integrity chip-integrity-{kind}" title="{tip}">'
+        f'<span aria-hidden="true">{icon}</span> {words}</span>'
+    ) in plain
 
 
 def test_the_marker_has_its_own_style_not_chip_spec():
