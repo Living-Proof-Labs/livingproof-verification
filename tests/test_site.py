@@ -1386,13 +1386,13 @@ def test_the_build_refuses_a_site_that_links_to_github_actions(tmp_path, monkeyp
             site, reports_for(tmp_path, "r1", 12, "FAIL"), run("7", "2026-11-02T00:00:00Z")
         )
     pages = tmp_path / "pages"
-    pages.mkdir()
-    (pages / "page.html").write_text("<p>CI run 101, commit abc, sha256 deadbeef</p>")
+    (pages / "reports").mkdir(parents=True)
+    (pages / "reports/page.html").write_text("<p>CI run 101, commit abc, sha256 deadbeef</p>")
     assert site_tool.public_page_problems(pages) == []
-    (pages / "page.html").write_text("<p>Actions artifact 101</p>")
-    assert site_tool.public_page_problems(pages) == ["page.html mentions an artifact"]
-    (pages / "page.html").write_text(f"<a href='{ART}/101'>x</a>")
-    assert site_tool.actions_links(pages) == ["page.html"]
+    (pages / "reports/page.html").write_text("<p>Actions artifact 101</p>")
+    assert site_tool.public_page_problems(pages) == ["reports/page.html mentions an artifact"]
+    (pages / "reports/page.html").write_text(f"<a href='{ART}/101'>x</a>")
+    assert site_tool.actions_links(pages) == ["reports/page.html"]
 
 
 def test_published_report_drops_the_actions_link_once_expired(tmp_path):
@@ -3347,3 +3347,117 @@ def test_reports_pages_include_shared_site_nav(tmp_path):
     assert f'href="{site_tool.DOCS_HOME_URL}"' in report
     assert 'href="../../../../../index.html">Overview</a>' in report
     assert 'href="../../../../index.html">Reports</a>' in report
+
+
+def _css_tokens(css: str, pattern: str) -> dict[str, str]:
+    match = re.search(pattern, css, re.S)
+    assert match is not None, f"missing CSS block: {pattern}"
+    return dict(re.findall(r"(--[a-z0-9-]+|color-scheme):\s*([^;]+);", match.group(1)))
+
+
+def test_site_theme_tokens_match_capability_report():
+    """#179: index and history theme tokens match livingproof_capability_report.html_theme."""
+    from livingproof_capability_report.html_theme import CSS as REPORT_CSS
+
+    blocks = [
+        (r":root\s*\{([^}]+)\}", "light :root"),
+        (r"@media\s*\(prefers-color-scheme:\s*dark\)\s*\{\s*:root\s*\{([^}]+)\}", "dark media"),
+        (r"html:has\(#theme-light:checked\)\s*\{([^}]+)\}", "forced light"),
+        (r"html:has\(#theme-dark:checked\)\s*\{([^}]+)\}", "forced dark"),
+        (r"@media\s+print\s*\{\s*:root[^{]*\{([^}]+)\}", "print light"),
+    ]
+    for pattern, label in blocks:
+        report_tokens = _css_tokens(REPORT_CSS, pattern)
+        site_tokens = _css_tokens(site_tool.SITE_STYLES, pattern)
+        for name, value in report_tokens.items():
+            assert site_tokens.get(name) == value, (
+                f"{label}: token {name} is {site_tokens.get(name)!r}, expected {value!r}"
+            )
+
+
+def test_index_and_history_include_theme_switch(tmp_path):
+    """#179: both index and history mastheads carry the CSS-only Colour theme switch."""
+    site = tmp_path / "site"
+    site_tool.build(
+        site,
+        reports_for(tmp_path, "one", 12, "FAIL"),
+        run("100", "2026-11-19T00:00:00Z"),
+    )
+    index = (site / "reports/index.html").read_text()
+    history = (site / "reports/unitree-g1/stock-mujoco-hallway/index.html").read_text()
+    for page in (index, history):
+        assert '<div class="masthead-top">' in page
+        assert '<fieldset class="theme"><legend>Colour theme</legend>' in page
+        assert 'id="theme-system" value="system" checked' in page
+        assert 'id="theme-light" value="light"' in page
+        assert 'id="theme-dark" value="dark"' in page
+
+
+def test_two_combined_publications_preserve_runs_and_replace_docs(tmp_path):
+    """Restored docs may mention Actions; stale docs must not survive publication."""
+    assembly_spec = importlib.util.spec_from_file_location(
+        "docs_assembly", ROOT / "tools/docs/assemble.py"
+    )
+    assembly = importlib.util.module_from_spec(assembly_spec)
+    assembly_spec.loader.exec_module(assembly)
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "index.html").write_text('<a href="reports/index.html">Reports</a>')
+    (docs / "obsolete.html").write_text("Old artifact documentation")
+    (docs / "assets").mkdir()
+    (docs / "assets/obsolete.css").write_text("/* old theme */")
+    (docs / "search.json").write_text('{"text":"artifact https://github.com/org/repo/actions/"}')
+    first = tmp_path / "first"
+    evidence, artifacts = evidence_for(tmp_path)
+    site_tool.build(
+        first,
+        reports_with_links(tmp_path, "first-reports"),
+        run("7", "2026-11-02T00:00:00Z"),
+        evidence=evidence,
+        artifacts=artifacts,
+    )
+    assembly.assemble(docs, first)
+    historical = {
+        path.relative_to(first): path.read_bytes()
+        for folder in first.glob("reports/*/*/runs/7")
+        for path in folder.rglob("*")
+        if path.is_file() and path.name not in {"index.html", "SHA256SUMS"}
+    }
+    assert historical
+    assert any("evidence" in path.parts for path in historical)
+    restored = tmp_path / "restored"
+    shutil.copytree(first, restored)
+    assert site_tool._migrate_legacy_reports(restored) == 0
+    # The report lint runs before docs assembly, with old docs still present.
+    site_tool.build(
+        restored,
+        reports_with_links(tmp_path, "second-reports"),
+        run("8", "2026-11-02T01:00:00Z"),
+        evidence=evidence,
+        artifacts=artifacts,
+    )
+    # Report HTML and its checksum are regenerated by the existing renderer.
+    # Assembly itself must preserve every report file, including generated pages.
+    before_assembly = {
+        path.relative_to(restored): path.read_bytes()
+        for path in (restored / "reports").rglob("*")
+        if path.is_file()
+    }
+    marker = (restored / "site.json").read_bytes()
+    (docs / "obsolete.html").unlink()
+    (docs / "assets/obsolete.css").unlink()
+    (docs / "assets/current.css").write_text("/* current theme */")
+    assembly.assemble(docs, restored)
+    assert not (restored / "obsolete.html").exists()
+    assert not (restored / "assets/obsolete.css").exists()
+    assert (restored / "assets/current.css").is_file()
+    assert (restored / "site.json").read_bytes() == marker
+    assert all((restored / path).read_bytes() == data for path, data in before_assembly.items())
+    assert (restored / "search.json").read_bytes() == (docs / "search.json").read_bytes()
+    assert all((restored / path).read_bytes() == data for path, data in historical.items())
+    assert len(list(restored.glob("reports/*/*/runs/8/run.json"))) == len(site_tool.targets())
+    assert site_tool._migrate_legacy_reports(restored) == 0
+    assert site_tool.public_page_problems(restored) == []
+    # Scoping must not weaken the existing report lint.
+    (restored / "reports/invalid.txt").write_text("artifact https://github.com/org/repo/actions/")
+    assert site_tool.public_page_problems(restored)

@@ -62,7 +62,7 @@ jobs:
             --created "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           task docs:setup
           task docs:build
-          cp -a artifacts/site/. "$RUNNER_TEMP/site/"
+          python3 tools/docs/assemble.py --site "$RUNNER_TEMP/site"
           python3 tools/docs/verify.py --site "$RUNNER_TEMP/site" --require-reports
           python3 tools/site_fixture.py check "$RUNNER_TEMP/site"
       - name: Install pinned browser tools and Chromium

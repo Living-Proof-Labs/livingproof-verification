@@ -2021,9 +2021,9 @@ def published_text(path: Path) -> bool:
 
 
 def public_page_problems(site: Path) -> list[str]:
-    """Published text, other than run.json, that names an artifact or an Actions URL."""
+    """Report text, other than run.json, that names an artifact or an Actions URL."""
     problems = []
-    for path in sorted(site.rglob("*")):
+    for path in sorted((site / REPORTS_DIR).rglob("*")):
         if not published_text(path):
             continue
         text = path.read_text(errors="replace")
@@ -2079,6 +2079,7 @@ SITE_STYLES = """:root {
   --navy: #01152d;
   --teal: #0e8785;
   --teal-bright: #64dfc7;
+  --track: #0b4f4d;
   --text: #0f172a;
   --text-muted: #475569;
   --bg: #f4f7fb;
@@ -2097,16 +2098,106 @@ SITE_STYLES = """:root {
   --chip-muted-bg: #e2e8f0;
   --header-text: #f8fafc;
   --header-muted: #b7c5d6;
+  --focus: #0e8785;
+  --pre-bg: #0b1120;
+  --pre-text: #e2e8f0;
   --link: #0b6e6c;
+  --link-hover: #08524f;
   --speak: #8a6a32;
   --speak-text: #6b5428;
-  --focus: #0e8785;
   --pip-pass: #0e8785;
   --pip-fail: #e11d48;
-  --pip-warn: #d97706;
-  --pip-muted: #94a3b8;
+  --pip-warn: #b45309;
+  --pip-muted: #64748b;
   --pip-size: 0.7rem;
 }
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --text: #e2e8f0;
+    --text-muted: #94a3b8;
+    --bg: #0b1120;
+    --bg-muted: #111827;
+    --surface: #151f32;
+    --border: #2a364a;
+    --border-strong: #3d4b63;
+    --shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
+    --chip-pass-fg: #5eead4;
+    --chip-pass-bg: #0f2e2b;
+    --chip-fail-fg: #fda4af;
+    --chip-fail-bg: #4c0519;
+    --chip-warn-fg: #fcd34d;
+    --chip-warn-bg: #33260a;
+    --chip-muted-fg: #cbd5e1;
+    --chip-muted-bg: #1e293b;
+    --link: #64dfc7;
+    --link-hover: #8ef3e4;
+    --speak: #c4a46a;
+    --speak-text: #e0c48a;
+    --pip-pass: #14b8a6;
+    --pip-fail: #fb7185;
+    --pip-warn: #fbbf24;
+    --pip-muted: #94a3b8;
+  }
+}
+
+html:has(#theme-light:checked) {
+  color-scheme: light;
+  --text: #0f172a;
+  --text-muted: #475569;
+  --bg: #f4f7fb;
+  --bg-muted: #e8eef5;
+  --surface: #ffffff;
+  --border: #d5dee9;
+  --border-strong: #c3cedb;
+  --shadow: 0 12px 32px rgba(1, 21, 45, 0.06);
+  --chip-pass-fg: #0f5f5c;
+  --chip-pass-bg: #d7f3ef;
+  --chip-fail-fg: #9f1239;
+  --chip-fail-bg: #ffe4e6;
+  --chip-warn-fg: #92400e;
+  --chip-warn-bg: #fef3c7;
+  --chip-muted-fg: #334155;
+  --chip-muted-bg: #e2e8f0;
+  --link: #0b6e6c;
+  --link-hover: #08524f;
+  --speak: #8a6a32;
+  --speak-text: #6b5428;
+  --pip-pass: #0e8785;
+  --pip-fail: #e11d48;
+  --pip-warn: #b45309;
+  --pip-muted: #64748b;
+}
+
+html:has(#theme-dark:checked) {
+  color-scheme: dark;
+  --text: #e2e8f0;
+  --text-muted: #94a3b8;
+  --bg: #0b1120;
+  --bg-muted: #111827;
+  --surface: #151f32;
+  --border: #2a364a;
+  --border-strong: #3d4b63;
+  --shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
+  --chip-pass-fg: #5eead4;
+  --chip-pass-bg: #0f2e2b;
+  --chip-fail-fg: #fda4af;
+  --chip-fail-bg: #4c0519;
+  --chip-warn-fg: #fcd34d;
+  --chip-warn-bg: #33260a;
+  --chip-muted-fg: #cbd5e1;
+  --chip-muted-bg: #1e293b;
+  --link: #64dfc7;
+  --link-hover: #8ef3e4;
+  --speak: #c4a46a;
+  --speak-text: #e0c48a;
+  --pip-pass: #14b8a6;
+  --pip-fail: #fb7185;
+  --pip-warn: #fbbf24;
+  --pip-muted: #94a3b8;
+}
+
 *, *::before, *::after { box-sizing: border-box; }
 html, body { margin: 0; }
 body {
@@ -2123,8 +2214,8 @@ a {
   text-decoration-thickness: 1px;
   text-underline-offset: 0.15em;
 }
-a:hover { color: #08524f; }
-a:focus-visible, button:focus-visible, summary:focus-visible, .row:focus-visible {
+a:hover { color: var(--link-hover); }
+a:focus-visible, button:focus-visible, summary:focus-visible, input:focus-visible, .row:focus-visible {
   outline: 3px solid var(--focus);
   outline-offset: 3px;
 }
@@ -2158,6 +2249,68 @@ a:focus-visible, button:focus-visible, summary:focus-visible, .row:focus-visible
     var(--navy);
   color: var(--header-text);
   border-bottom: 3px solid var(--teal);
+}
+.masthead-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  margin-bottom: 0.65rem;
+}
+.masthead-top .eyebrow,
+.masthead-top .crumb {
+  margin: 0;
+}
+.theme {
+  position: relative;
+  display: flex;
+  gap: 0.15rem;
+  margin: 0;
+  min-inline-size: 0;
+  padding: 0.15rem;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+}
+.theme legend {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+.theme label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 1.7rem;
+  padding: 0 0.7rem;
+  border: 2px solid transparent;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--header-muted);
+  cursor: pointer;
+}
+.theme input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+.theme label:has(input:checked) {
+  background: rgba(14, 135, 133, 0.35);
+  color: #fff;
+  border-color: var(--header-text);
+}
+.theme label:hover { color: #fff; }
+.theme label:focus-within {
+  outline: 3px solid var(--teal-bright);
+  outline-offset: 2px;
 }
 .wrap {
   width: min(72rem, 100% - 2.25rem);
@@ -2387,9 +2540,9 @@ a.release.is-fallback {
   color: var(--link);
   text-decoration: underline;
 }
-a.release.is-fallback:hover { color: #08524f; }
+a.release.is-fallback:hover { color: var(--link-hover); }
 a.release:hover { color: var(--link); text-decoration: underline; }
-.dot { margin: 0 0.35rem; color: #94a3b8; }
+.dot { margin: 0 0.35rem; color: var(--text-muted); }
 .links a { margin-left: 0.7rem; }
 .links a:first-child { margin-left: 0; }
 .side-meta { color: var(--text-muted); font-size: 0.88rem; }
@@ -2510,7 +2663,7 @@ a.release:hover { color: var(--link); text-decoration: underline; }
 }
 .fail-count { color: var(--chip-fail-fg); font-weight: 700; }
 .pass-count { color: var(--text-muted); }
-.count-sep { margin: 0 0.3rem; color: #94a3b8; }
+.count-sep { margin: 0 0.3rem; color: var(--text-muted); }
 .dots {
   display: flex;
   flex-wrap: nowrap;
@@ -2591,7 +2744,50 @@ a.release:hover { color: var(--link); text-decoration: underline; }
 @media (prefers-reduced-motion: reduce) {
   .card, .row, .robot > summary, .chevron { transition: none; }
 }
+@media print {
+  :root, html:has(#theme-light:checked), html:has(#theme-dark:checked) {
+    color-scheme: light;
+    --text: #0f172a;
+    --text-muted: #475569;
+    --bg: #fff;
+    --bg-muted: #f1f5f9;
+    --surface: #fff;
+    --border: #cbd5e1;
+    --border-strong: #c3cedb;
+    --shadow: none;
+    --chip-pass-fg: #0f5f5c;
+    --chip-pass-bg: #d7f3ef;
+    --chip-fail-fg: #9f1239;
+    --chip-fail-bg: #ffe4e6;
+    --chip-warn-fg: #92400e;
+    --chip-warn-bg: #fef3c7;
+    --chip-muted-fg: #334155;
+    --chip-muted-bg: #e2e8f0;
+    --link: #0b6e6c;
+    --link-hover: #08524f;
+    --speak: #8a6a32;
+    --speak-text: #6b5428;
+    --pip-pass: #0e8785;
+    --pip-fail: #e11d48;
+    --pip-warn: #b45309;
+    --pip-muted: #64748b;
+  }
+  .theme { display: none; }
+  .masthead { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .card, .row { box-shadow: none; break-inside: avoid; }
+  .card, .row, .robot > summary { transition: none; }
+  .robot[open], .robot > summary { box-shadow: none; }
+}
 """
+
+THEME_SWITCH = (
+    '<fieldset class="theme"><legend>Colour theme</legend>'
+    '<label><input type="radio" name="theme" id="theme-system" value="system" checked> '
+    "System</label>"
+    '<label><input type="radio" name="theme" id="theme-light" value="light"> Light</label>'
+    '<label><input type="radio" name="theme" id="theme-dark" value="dark"> Dark</label>'
+    "</fieldset>"
+)
 
 INDEX_SCRIPT = """// Open a robot section when the URL hash is its id (e.g. #unitree-g1).
 // Truncate the scenario-dot strip to one line and show +n when dots don't fit.
@@ -3049,7 +3245,10 @@ def _history_page_html(
         robot_line += f'<span class="quiet"> · software {html.escape(sw_label)}</span>'
     masthead = (
         f"{_site_nav_html('../../../index.html', '../../index.html')}"
+        '<div class="masthead-top">'
         '<p class="crumb"><a href="../../index.html">← All verification reports</a></p>'
+        f"{THEME_SWITCH}"
+        "</div>"
         f'<p class="eyebrow">{html.escape(robot_title)} · {html.escape(subtitle)}</p>'
         f"<h1>{html.escape(scenario_title)}</h1>"
         f'<p class="lede">{count} run{plural}, newest first. '
@@ -3317,7 +3516,10 @@ def _index_page_html(history: dict, now: str) -> str:
     )
     masthead = (
         f"{_site_nav_html('../index.html', 'index.html', on_reports_index=True)}"
+        '<div class="masthead-top">'
         '<p class="eyebrow">Living Proof Labs</p>'
+        f"{THEME_SWITCH}"
+        "</div>"
         "<h1>Verification reports</h1>"
         '<p class="lede">The latest result for each robot and scenario. '
         "Failures come first, so they get fixed. Open a robot to see everything it runs.</p>"

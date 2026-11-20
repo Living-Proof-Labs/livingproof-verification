@@ -4,7 +4,7 @@
 
 This repository verifies selected robot configurations against capability scenarios on every release and publishes the evidence-backed reports.
 
-[See the reports](reports/index.html){ .md-button }
+[See the reports](reports/index.html)
 
 ## What this repository owns
 

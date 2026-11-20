@@ -34,4 +34,4 @@ Each run folder (`reports/<robot>/<variant>/runs/<run-id>/`) holds the styled HT
 
 ## Times on the reports
 
-Timestamps on the index and history pages are stored as UTC in `run.json` and emitted in canonical UTC in the static HTML. When JavaScript runs in the browser, times are formatted in the viewer's own local timezone.
+Run creation times are stored as UTC in `run.json`. The index and history pages show relative times; hover over a time to see the date and time in Australia/Sydney (AEST or AEDT). Times do not yet follow the viewer's browser timezone.
