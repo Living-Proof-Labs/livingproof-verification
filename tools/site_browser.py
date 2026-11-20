@@ -52,7 +52,8 @@ def seed_history(site, path):
 
 def prepare(site):
     # Exercise FAIL and PASS badges, newest-first Needs attention, evaluator chips, and findings.
-    records = sorted(site.glob("*/*/runs/*/run.json"))
+    reports_dir = site / site_tool.REPORTS_DIR
+    records = sorted(reports_dir.glob("*/*/runs/*/run.json"))
     assert records, "Build the fixture site first"
     fail_specs = {
         "booster-t1/stock-mujoco-hallway": (
@@ -77,7 +78,7 @@ def prepare(site):
         ),
     }
     for path in records:
-        key = str(path.parents[2].relative_to(site))
+        key = str(path.parents[2].relative_to(reports_dir))
         record = json.loads(path.read_text())
         if key in fail_specs:
             created, evaluators, summary = fail_specs[key]
@@ -112,7 +113,7 @@ def prepare(site):
         cloned = json.loads(json.dumps(sample_recs))
         cloned[0]["outcome"][0]["capability"] = f"extra-scenario-{extra:02d}"
         all_pass_history[("unitree-g1", extra_variant)] = cloned
-    (site / "all-pass.html").write_text(
+    (reports_dir / "all-pass.html").write_text(
         site_tool._index_page_html(all_pass_history, "2026-11-19T08:00:00Z")
     )
     for name, grade in [("insufficient", "INSUFFICIENT_EVIDENCE"), ("unknown", "UNKNOWN")]:
@@ -121,13 +122,15 @@ def prepare(site):
             recs[0]["outcome"][0]["grade"] = "PASS"
             recs[0].pop("failing_evaluators", None)
         mixed[("booster-t1", "stock-mujoco-hallway")][0]["outcome"][0]["grade"] = grade
-        (site / f"{name}.html").write_text(
+        (reports_dir / f"{name}.html").write_text(
             site_tool._index_page_html(mixed, "2026-11-19T08:00:00Z")
         )
-    (site / "empty.html").write_text(site_tool._index_page_html({}, "2026-11-19T08:00:00Z"))
+    (reports_dir / "empty.html").write_text(site_tool._index_page_html({}, "2026-11-19T08:00:00Z"))
 
     return {
-        str(path.parents[2].relative_to(site)) + "/latest/": str(path.parent.relative_to(site))
+        str(path.parents[2].relative_to(reports_dir)) + "/latest/": str(
+            path.parent.relative_to(reports_dir)
+        )
         + "/"
         for path in records
     }
@@ -187,6 +190,17 @@ def check_history(page, width, height, result, output):
     expect(page.locator(".chip-spec")).to_contain_text("Spec changed: v0.0.1 → ")
     rows = page.locator(".row")
     assert rows.count() == len(SEEDED_RUNS) + 1
+    page.evaluate("document.fonts.ready")
+    page.evaluate("window.scrollTo(0, 0)")
+    history_name = page.url.rstrip("/").split("/")[-2:]
+    layout = {
+        "url": page.url,
+        "masthead_height": page.locator(".masthead").bounding_box()["height"],
+        "row_tops": [rows.nth(index).bounding_box()["y"] for index in range(rows.count())],
+        "font_family": page.locator("body").evaluate("e => getComputedStyle(e).fontFamily"),
+    }
+    result.setdefault("history_layouts", []).append(layout)
+    page.screenshot(path=output / f"{width}-history-{'-'.join(history_name)}.png")
     visible = sum(
         1 for index in range(rows.count()) if rows.nth(index).bounding_box()["y"] + 60 < height
     )
@@ -406,6 +420,208 @@ def check_viewport(browser, url, output, width, height, result, destinations):
         context.close()
 
 
+def checked_indicator_contrast(label):
+    """Conservative contrast against both sides of the checked border.
+
+    Composite each radial-gradient endpoint over the masthead, then the theme
+    fieldset and selected fill. The brightest endpoint bounds every interpolated
+    background under this light indicator, without assuming its screen position.
+    """
+    expect(label).to_have_css("border-top-style", "solid")
+    expect(label).to_have_css("border-top-width", "2px")
+    colors = label.evaluate("""e => {
+        const selected = getComputedStyle(e);
+        const fieldset = getComputedStyle(e.closest('.theme'));
+        const header = getComputedStyle(e.closest('.masthead'));
+        return [selected.borderTopColor, selected.backgroundColor,
+                fieldset.backgroundColor, header.backgroundColor, header.backgroundImage];
+    }""")
+
+    def rgba(value):
+        parts = [float(x) for x in re.findall(r"[\d.]+", value)]
+        return parts if len(parts) == 4 else [*parts, 1.0]
+
+    def over(foreground, background):
+        return [
+            foreground[i] * foreground[3] + background[i] * (1 - foreground[3]) for i in range(3)
+        ] + [1.0]
+
+    def luminance(color):
+        linear = [
+            x / 255 / 12.92 if x / 255 <= 0.04045 else ((x / 255 + 0.055) / 1.055) ** 2.4
+            for x in color[:3]
+        ]
+        return sum(x * weight for x, weight in zip(linear, (0.2126, 0.7152, 0.0722)))
+
+    border, fill, fieldset, base = map(rgba, colors[:4])
+    assert border[3] == 1, "checked border must remain opaque after blur"
+    stops = re.findall(r"rgba?\([^)]+\)", colors[4])
+    assert stops, "masthead gradient endpoints must be included in contrast measurement"
+    ratios = []
+    for stop in stops:
+        outside = over(fieldset, over(rgba(stop), base))
+        inside = over(fill, outside)
+        for background in (outside, inside):
+            light, dark = sorted((luminance(border), luminance(background)), reverse=True)
+            ratios.append((light + 0.05) / (dark + 0.05))
+    return min(ratios)
+
+
+def check_themes(browser, url, output, results):
+    """#179: verify OS dark/light mode, Light/Dark switch, 320px layout, and light print."""
+    history_url = url + "unitree-g1/stock-mujoco-hallway/"
+    light_bg = "rgb(244, 247, 251)"
+    dark_bg = "rgb(11, 17, 32)"
+    dark_surface = "rgb(21, 31, 50)"
+    light_surface = "rgb(255, 255, 255)"
+    theme_results = {}
+
+    for scheme, expected_bg, expected_surface in [
+        ("light", light_bg, light_surface),
+        ("dark", dark_bg, dark_surface),
+    ]:
+        for width, height in [(1280, 800), (320, 720)]:
+            context = browser.new_context(
+                viewport={"width": width, "height": height},
+                color_scheme=scheme,
+            )
+            page = context.new_page()
+            page.set_default_timeout(10000)
+            try:
+                page.goto(url)
+                expect(page.locator("body")).to_have_css("background-color", expected_bg)
+                expect(page.locator(".card").first).to_have_css(
+                    "background-color", expected_surface
+                )
+                assert not page.evaluate("document.documentElement.scrollWidth > innerWidth"), (
+                    f"index overflowed at {width} in {scheme}"
+                )
+                page.screenshot(path=output / f"theme-{width}-index-{scheme}.png")
+
+                page.goto(history_url)
+                expect(page.locator("body")).to_have_css("background-color", expected_bg)
+                expect(page.locator(".row").first).to_have_css("background-color", expected_surface)
+                assert not page.evaluate("document.documentElement.scrollWidth > innerWidth"), (
+                    f"history overflowed at {width} in {scheme}"
+                )
+                page.screenshot(path=output / f"theme-{width}-history-{scheme}.png")
+            finally:
+                context.close()
+
+    # Exercise real CSS-only overrides on both pages, against the opposite OS theme.
+    theme_results["no_javascript"] = []
+    for scheme in ("light", "dark"):
+        for width, height in ((1280, 800), (320, 720)):
+            context = browser.new_context(
+                viewport={"width": width, "height": height},
+                color_scheme=scheme,
+                java_script_enabled=False,
+            )
+            page = context.new_page()
+            page.set_default_timeout(10000)
+            try:
+                for name, address, surface in (
+                    ("index", url, ".card"),
+                    ("history", history_url, ".row"),
+                ):
+                    page.goto(address)
+                    measurements = []
+                    for choice in ("light", "dark", "system"):
+                        selected = page.locator(f"label:has(#theme-{choice})")
+                        selected.click()
+                        effective = scheme if choice == "system" else choice
+                        expect(page.locator("body")).to_have_css(
+                            "background-color", light_bg if effective == "light" else dark_bg
+                        )
+                        expect(page.locator(surface).first).to_have_css(
+                            "background-color",
+                            light_surface if effective == "light" else dark_surface,
+                        )
+                        # Tab out of the radio group: selection must remain apparent
+                        # without relying on either hover or the keyboard-focus outline.
+                        page.keyboard.press("Tab")
+                        page.mouse.move(0, height - 1)
+                        expect(page.locator(".theme:focus-within")).to_have_count(0)
+                        expect(selected).to_have_css("outline-style", "none")
+                        ratio = checked_indicator_contrast(selected)
+                        assert ratio >= 3, f"{name}/{scheme}/{choice}: checked contrast {ratio}"
+                        measurements.append({"choice": choice, "contrast": round(ratio, 2)})
+                        assert not page.evaluate(
+                            "document.documentElement.scrollWidth > innerWidth"
+                        ), f"{name} overflowed at {width} in {choice}"
+                        page.screenshot(
+                            path=output / f"theme-nojs-{width}-{name}-{scheme}-{choice}.png"
+                        )
+                        # Shift-Tab back into the group verifies a separate focus ring.
+                        page.keyboard.press("Shift+Tab")
+                        expect(selected).to_have_css("outline-style", "solid")
+                        expect(selected).to_have_css("outline-width", "3px")
+                        assert selected.evaluate(
+                            "e => getComputedStyle(e).outlineColor !== "
+                            "getComputedStyle(e).borderTopColor"
+                        )
+                    page.locator("label:has(#theme-dark)").click()
+                    page.emulate_media(media="print")
+                    expect(page.locator("body")).to_have_css("background-color", light_surface)
+                    expect(page.locator(surface).first).to_have_css(
+                        "background-color", light_surface
+                    )
+                    expect(page.locator(".theme")).to_be_hidden()
+                    page.screenshot(path=output / f"theme-{width}-{name}-{scheme}-print.png")
+                    page.emulate_media(media="screen")
+                    theme_results["no_javascript"].append(
+                        {"page": name, "os": scheme, "width": width, "checked": measurements}
+                    )
+            finally:
+                context.close()
+    theme_results["status"] = "passed"
+
+    results["themes"] = theme_results
+
+
+def check_documentation(browser, url, output, results):
+    """Exercise the combined docs/report navigation in both palettes and widths."""
+    cases = []
+    for width in (390, 1280):
+        for scheme in ("light", "dark"):
+            context = browser.new_context(
+                viewport={"width": width, "height": 900}, color_scheme=scheme
+            )
+            try:
+                page = context.new_page()
+                for name, path in (
+                    ("overview", "index.html"),
+                    ("how-reports-work", "how-reports-work.html"),
+                    ("reports", "reports/index.html"),
+                ):
+                    page.goto(url + path)
+                    expect(page.locator("h1")).to_be_visible()
+                    assert "{ .md-button }" not in page.locator("body").inner_text()
+                    assert page.evaluate(
+                        "document.documentElement.scrollWidth <= window.innerWidth"
+                    ), f"{name} overflows at {width}px"
+                    if name == "reports":
+                        expect(page.locator(".site-nav")).to_be_visible()
+                        expect(page.locator('.site-nav a[href="../index.html"]')).to_be_visible()
+                    else:
+                        expect(page.locator("body")).to_have_attribute(
+                            "data-md-color-scheme", "slate" if scheme == "dark" else "default"
+                        )
+                        assert page.locator('a[href="reports/index.html"]').count() > 0
+                    page.evaluate("document.fonts.ready")
+                    page.evaluate(
+                        "() => new Promise(resolve => "
+                        "requestAnimationFrame(() => requestAnimationFrame(resolve)))"
+                    )
+                    page.screenshot(
+                        path=output / f"docs-{width}-{name}-{scheme}.png", animations="disabled"
+                    )
+                    cases.append({"page": name, "width": width, "scheme": scheme})
+            finally:
+                context.close()
+    results["documentation"] = cases
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("site", type=Path)
@@ -436,12 +652,25 @@ def main():
                         results["viewports"].append(result)
                         check_viewport(
                             browser,
-                            f"http://127.0.0.1:{server.server_port}/",
+                            f"http://127.0.0.1:{server.server_port}/{site_tool.REPORTS_DIR}/",
                             args.output,
                             width,
                             height,
                             result,
                             destinations,
+                        )
+                    check_themes(
+                        browser,
+                        f"http://127.0.0.1:{server.server_port}/{site_tool.REPORTS_DIR}/",
+                        args.output,
+                        results,
+                    )
+                    if (args.site / "how-reports-work.html").is_file():
+                        check_documentation(
+                            browser,
+                            f"http://127.0.0.1:{server.server_port}/",
+                            args.output,
+                            results,
                         )
                     browser.close()
                 results["status"] = "passed"

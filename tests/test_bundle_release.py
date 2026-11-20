@@ -487,7 +487,7 @@ def test_a_published_site_keeps_old_runs_untouched_when_a_later_run_has_a_tag(tm
     ]
     assert tagged and all(r["commit"]["tag"] == "v1.0.0" for r in tagged)
     assert all(r["run"]["id"] == "2000" for r in tagged)
-    history = next(site.glob("*/*/index.html")).read_text()
+    history = next(site.glob("reports/*/*/index.html")).read_text()
     assert ">v1.0.0</a>" in history  # the new row shows the tag, not tag-and-SHA
     assert history.count("releases/tag/v1.0.0") >= 1
     assert 'class="release is-fallback"' in history

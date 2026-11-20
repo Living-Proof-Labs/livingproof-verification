@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: Apache-2.0
+# Adapted from Living Proof Labs collaboration-guidelines templates/python/Taskfile.yml
+# at v7.8.2, licensed under Apache-2.0.
+version: "3"
+
+tasks:
+  docs:setup:
+    desc: Install locked documentation tools separately from verification tools
+    cmds:
+      - uv venv --python 3.12 .docs-venv
+      - uv pip sync --python .docs-venv/bin/python --require-hashes tools/docs/requirements.lock
+  docs:build:
+    desc: Stage authored pages, fold repository docs, and build the branded site
+    cmds:
+      - python3 tools/docs/build.py
+      - .docs-venv/bin/zensical build --clean
+  docs:verify:
+    desc: Check rendered local links, fragments and shared branding
+    cmds:
+      - python3 tools/docs/verify.py

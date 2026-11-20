@@ -1,0 +1,34 @@
+# SPDX-License-Identifier: Apache-2.0
+site_name: Living Proof Labs verification
+site_url: https://docs.livingprooflabs.com/livingproof-verification/
+repo_url: https://github.com/Living-Proof-Labs/livingproof-verification
+strict: true
+use_directory_urls: false
+docs_dir: artifacts/docs-source
+site_dir: artifacts/site
+theme:
+  name: zensical
+  font: false
+  palette:
+    - media: '(prefers-color-scheme: light)'
+      scheme: default
+      primary: custom
+      accent: custom
+    - media: '(prefers-color-scheme: dark)'
+      scheme: slate
+      primary: custom
+      accent: custom
+extra_css:
+  - assets/brand.css
+markdown_extensions:
+  - tables
+  - toc: {permalink: true}
+  - pymdownx.superfences
+nav:
+  - Documentation home: https://docs.livingprooflabs.com/
+  - Overview: index.md
+  - Reports: reports/index.html
+  - How the reports work: how-reports-work.md
+  - Contribute: contribute.md
+  - Version and source: version.md
+  - License: license.md

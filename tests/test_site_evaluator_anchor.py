@@ -3,7 +3,7 @@
 Reporter v3.13.0 has no `evaluator-<id>` element: its ids are `run-evaluators-tab-N`,
 `run-evaluators-panel-N`, `summary` and `theme-*`. The tab number of an evaluator depends on the
 reporter's own ordering (Run Integrity is tab 2 when a Scenario result exists), which the site
-cannot derive reliably, so the chips link to `#summary`, the section holding the evaluators. A chip for a not-graded run on a FAIL run uses the same
+cannot derive reliably, so the chips link to `#summary`, a stable id inside the first evaluators panel (a stopgap until the reporter emits a per-evaluator anchor). A chip for a not-graded run on a FAIL run uses the same
 neutral dashed style as the marker on a PASS run, not the chip-spec "Spec changed" style.
 """
 

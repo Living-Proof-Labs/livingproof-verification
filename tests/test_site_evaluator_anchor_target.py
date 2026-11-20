@@ -2,7 +2,7 @@
 
 A real run page has the Scenario result first and Run Integrity second, so a link to
 `#run-evaluators-tab-1` would focus Scenario. The test passes when the chip links to the Run
-Integrity tab itself, or to the `summary` section (the approach taken: the site cannot derive
+Integrity tab itself, or to the `summary` id (the approach taken, a stopgap: the site cannot derive
 the reporter's tab order reliably).
 """
 
