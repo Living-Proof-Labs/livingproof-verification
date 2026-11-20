@@ -736,10 +736,15 @@ def _finding_summary(findings: list, descriptor: dict) -> str | None:
 INCONCLUSIVE_COPY = "Not graded: no check applied to this run."
 
 
-# Reporter v3.13.0 has no element per evaluator: its ids are run-evaluators-tab-N,
-# run-evaluators-panel-N, summary and theme-*. The panel is display:none until its tab is open,
-# so a link to it goes nowhere visible; the tab (a <summary>) is always shown. Chips link to it.
-EVALUATOR_ANCHOR = "#run-evaluators-tab-1"
+# Reporter v3.13.x has no element per evaluator: its ids are run-evaluators-tab-N,
+# run-evaluators-panel-N, summary and theme-*. The tabs are ordered by the reporter (tier, then
+# title, over every evaluator result of the run, merged by evaluator id), so Run Integrity is tab 2
+# whenever a Scenario result is also present. The site cannot derive that order reliably (it is
+# the reporter's private rule, it differs between the reporter versions the locks pin, and it
+# depends on results the site does not read), and a wrong tab number focuses another evaluator.
+# So chips link to the summary section that holds the evaluators row: a stable id that never
+# names the wrong evaluator.
+EVALUATOR_ANCHOR = "#summary"
 
 
 def failing_evaluators(report: object) -> list[dict]:

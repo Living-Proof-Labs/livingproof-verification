@@ -51,7 +51,7 @@ def test_an_inconclusive_run_is_surfaced_with_not_graded_copy():
         {
             "id": "livingproof-run-integrity",
             "title": "Run Integrity",
-            "href": "#run-evaluators-tab-1",
+            "href": "#summary",
             "summary": COPY,
             "not_graded": True,
         }

@@ -1,9 +1,9 @@
 """Evaluator chip links must land on an element of the reporter page (#168, #129).
 
 Reporter v3.13.0 has no `evaluator-<id>` element: its ids are `run-evaluators-tab-N`,
-`run-evaluators-panel-N`, `summary` and `theme-*`. The panel is `display: none` until its tab
-is open, so a link to it goes nowhere visible; the tab (a `<summary>`) is always shown, so the
-chips link to `#run-evaluators-tab-1`. A chip for a not-graded run on a FAIL run uses the same
+`run-evaluators-panel-N`, `summary` and `theme-*`. The tab number of an evaluator depends on the
+reporter's own ordering (Run Integrity is tab 2 when a Scenario result exists), which the site
+cannot derive reliably, so the chips link to `#summary`, the section holding the evaluators. A chip for a not-graded run on a FAIL run uses the same
 neutral dashed style as the marker on a PASS run, not the chip-spec "Spec changed" style.
 """
 
@@ -27,7 +27,7 @@ spec.loader.exec_module(site_tool)
 FIXTURE = ROOT / "tests/fixtures/evaluator-result-run-integrity-all-not-applicable.json"
 BASE = json.loads(FIXTURE.read_text(encoding="utf-8"))
 BUNDLE = ROOT / "tests/fixtures/repeats/identical"
-TARGET = "#run-evaluators-tab-1"
+TARGET = "#summary"
 
 
 def _document(status: str, **run) -> dict:

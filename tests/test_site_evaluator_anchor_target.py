@@ -1,8 +1,9 @@
-"""The integrity chip's link opens the Run Integrity tab, not the first tab (#168).
+"""An integrity chip never links to another evaluator's tab (#168).
 
 A real run page has the Scenario result first and Run Integrity second, so a link to
-`#run-evaluators-tab-1` focuses Scenario. Strict xfail: it passes once the site links the
-integrity chips to the tab that holds Run Integrity.
+`#run-evaluators-tab-1` would focus Scenario. The test passes when the chip links to the Run
+Integrity tab itself, or to the `summary` section (the approach taken: the site cannot derive
+the reporter's tab order reliably).
 """
 
 import json
@@ -39,12 +40,15 @@ def _page(tmp_path: Path, document: dict) -> str:
     return out.read_text(encoding="utf-8")
 
 
-@pytest.mark.xfail(strict=True, reason="chips link to tab 1, which is Scenario on a real run page")
 @pytest.mark.parametrize("status", ["ERROR", "INCONCLUSIVE"])
 def test_an_integrity_chip_links_to_the_run_integrity_tab(status: str, tmp_path: Path):
     extra = {"success": False, "percentage": 0} if status == "ERROR" else {}
     document = _document(status, **extra)
     fragment = re.search(r'href="[^"]*#([^"]+)"', _chips("PASS", document)).group(1)
     page = _page(tmp_path, document)
-    tab = re.search(rf"id='{fragment}'.*?eval-name-full'>([^<]*)", page, re.S).group(1)
-    assert tab == "Run Integrity"
+    if fragment.startswith("run-evaluators-tab-"):
+        tab = re.search(rf"id='{fragment}'.*?eval-name-full'>([^<]*)", page, re.S).group(1)
+        assert tab == "Run Integrity"
+    else:
+        # The site cannot derive the tab number reliably: a stable, non-tab target instead.
+        assert fragment == "summary" and f"id='{fragment}'" in page
