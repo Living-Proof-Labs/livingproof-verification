@@ -143,7 +143,7 @@ jobs:
       pull-requests: write
     with:
       repository: Living-Proof-Labs/livingproof-unitree-g1
-      ref: aa10b46f7e0480065d86edc909828d93da4b4a3a
+      ref: 379a20e29caf136414ca3413e7244a73a0298290
       configurations: '["stock"]'
       verification-lock: verifications/unitree-g1-stock-mujoco-corner-left.lock.json
       artifact-prefix: unitree-g1-stock-mujoco-corner-left-
@@ -157,7 +157,7 @@ jobs:
       pull-requests: write
     with:
       repository: Living-Proof-Labs/livingproof-unitree-g1
-      ref: aa10b46f7e0480065d86edc909828d93da4b4a3a
+      ref: 379a20e29caf136414ca3413e7244a73a0298290
       configurations: '["stock"]'
       verification-lock: verifications/unitree-g1-stock-mujoco-corner-right.lock.json
       artifact-prefix: unitree-g1-stock-mujoco-corner-right-
@@ -171,7 +171,7 @@ jobs:
       pull-requests: write
     with:
       repository: Living-Proof-Labs/livingproof-booster-t1
-      ref: 56f6051fd9ee9fdb17f609bf559b7efc8220088a
+      ref: eefadce5bb8692bee7052912f4a807a33e022c0e
       configurations: '["stock"]'
       verification-lock: verifications/booster-t1-stock-mujoco-corner-left.lock.json
       artifact-prefix: booster-t1-stock-mujoco-corner-left-
@@ -185,7 +185,7 @@ jobs:
       pull-requests: write
     with:
       repository: Living-Proof-Labs/livingproof-booster-t1
-      ref: 56f6051fd9ee9fdb17f609bf559b7efc8220088a
+      ref: eefadce5bb8692bee7052912f4a807a33e022c0e
       configurations: '["stock"]'
       verification-lock: verifications/booster-t1-stock-mujoco-corner-right.lock.json
       artifact-prefix: booster-t1-stock-mujoco-corner-right-
@@ -199,7 +199,7 @@ jobs:
       pull-requests: write
     with:
       repository: Living-Proof-Labs/livingproof-unitree-go1
-      ref: fe48f8bda30aa0a65bd01b06107fc76874195f35
+      ref: 5f4cdd048cedb6e51e830f2f703056da2fb86fdf
       configurations: '["playground"]'
       verification-lock: verifications/unitree-go1-playground-mujoco-corner-left.lock.json
       artifact-prefix: unitree-go1-playground-mujoco-corner-left-
@@ -213,7 +213,7 @@ jobs:
       pull-requests: write
     with:
       repository: Living-Proof-Labs/livingproof-unitree-go1
-      ref: fe48f8bda30aa0a65bd01b06107fc76874195f35
+      ref: 5f4cdd048cedb6e51e830f2f703056da2fb86fdf
       configurations: '["playground"]'
       verification-lock: verifications/unitree-go1-playground-mujoco-corner-right.lock.json
       artifact-prefix: unitree-go1-playground-mujoco-corner-right-

@@ -2,14 +2,14 @@
   "format": "livingproof-verification-lock/0.2.0",
   "definition": {
     "path": "booster-t1-stock-mujoco-corner-left.toml",
-    "sha256": "ce0ea67049751954012d3a539b3d8fc0a92ecf9f0206148ca4aa6cd9ed7e2e09"
+    "sha256": "dfe91f131dc8defa100b5f8f855ca00de9b3241f6cbc039b66dadf2a00481ca2"
   },
   "procedure": "scenario",
   "scenario": "walk-corner-left@0.2.0",
   "robot": {
     "repository": "Living-Proof-Labs/livingproof-booster-t1",
-    "ref": "v2.3.5",
-    "commit": "56f6051fd9ee9fdb17f609bf559b7efc8220088a",
+    "ref": "v2.3.13",
+    "commit": "eefadce5bb8692bee7052912f4a807a33e022c0e",
     "configurations": [
       "stock"
     ],
@@ -27,8 +27,8 @@
     },
     "runner": {
       "repository": "Living-Proof-Labs/livingproof-sim-mujoco",
-      "tag": "v3.6.2",
-      "commit": "988a57bdb54654aac57aa4de0574d62914074fd0"
+      "tag": "v3.7.4",
+      "commit": "91890b7ecc3a5203670177d344dbb84cbc2a0ebc"
     },
     "verifier": {
       "repository": "Living-Proof-Labs/capability-verifier",
