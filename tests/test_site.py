@@ -153,7 +153,7 @@ def test_published_history_names_the_verifier_and_reporter_releases(tmp_path):
     """The public history and run.json name both pinned releases (issue 62)."""
     settings = tomllib.loads((ROOT / "verifications/settings.toml").read_text())
     reporter_tag = settings["reporter"]["tag"]
-    assert reporter_tag == "v3.12.5"
+    assert reporter_tag == "v3.13.0"
     site = tmp_path / "site"
     site_tool.build(
         site, reports_for(tmp_path, "one", 12, "PASS"), run("100", "2026-11-02T06:00:00Z")
@@ -162,8 +162,8 @@ def test_published_history_names_the_verifier_and_reporter_releases(tmp_path):
         lock = json.loads((ROOT / "verifications" / f"{target['id']}.lock.json").read_text())
         verifier = lock["releases"]["verifier"]
         reporter = lock["releases"]["reporter"]
-        assert verifier["tag"] == "v2.7.5"
-        assert verifier["commit"] == "9e32d4759f5118b868d451757812c36ed8b883a5"
+        assert verifier["tag"] == "v2.8.0"
+        assert verifier["commit"] == "7ebde8b4ca03d51cfac22a87bf2f49e4b25a6677"
         assert reporter["tag"] == reporter_tag
         assert reporter["repository"] == settings["reporter"]["repository"]
         history = (site / target["robot"] / target["variant"] / "index.html").read_text()
