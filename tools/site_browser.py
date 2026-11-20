@@ -52,7 +52,8 @@ def seed_history(site, path):
 
 def prepare(site):
     # Exercise FAIL and PASS badges, newest-first Needs attention, evaluator chips, and findings.
-    records = sorted(site.glob("*/*/runs/*/run.json"))
+    reports_dir = site / site_tool.REPORTS_DIR
+    records = sorted(reports_dir.glob("*/*/runs/*/run.json"))
     assert records, "Build the fixture site first"
     fail_specs = {
         "booster-t1/stock-mujoco-hallway": (
@@ -77,7 +78,7 @@ def prepare(site):
         ),
     }
     for path in records:
-        key = str(path.parents[2].relative_to(site))
+        key = str(path.parents[2].relative_to(reports_dir))
         record = json.loads(path.read_text())
         if key in fail_specs:
             created, evaluators, summary = fail_specs[key]
@@ -112,7 +113,7 @@ def prepare(site):
         cloned = json.loads(json.dumps(sample_recs))
         cloned[0]["outcome"][0]["capability"] = f"extra-scenario-{extra:02d}"
         all_pass_history[("unitree-g1", extra_variant)] = cloned
-    (site / "all-pass.html").write_text(
+    (reports_dir / "all-pass.html").write_text(
         site_tool._index_page_html(all_pass_history, "2026-11-19T08:00:00Z")
     )
     for name, grade in [("insufficient", "INSUFFICIENT_EVIDENCE"), ("unknown", "UNKNOWN")]:
@@ -121,13 +122,15 @@ def prepare(site):
             recs[0]["outcome"][0]["grade"] = "PASS"
             recs[0].pop("failing_evaluators", None)
         mixed[("booster-t1", "stock-mujoco-hallway")][0]["outcome"][0]["grade"] = grade
-        (site / f"{name}.html").write_text(
+        (reports_dir / f"{name}.html").write_text(
             site_tool._index_page_html(mixed, "2026-11-19T08:00:00Z")
         )
-    (site / "empty.html").write_text(site_tool._index_page_html({}, "2026-11-19T08:00:00Z"))
+    (reports_dir / "empty.html").write_text(site_tool._index_page_html({}, "2026-11-19T08:00:00Z"))
 
     return {
-        str(path.parents[2].relative_to(site)) + "/latest/": str(path.parent.relative_to(site))
+        str(path.parents[2].relative_to(reports_dir)) + "/latest/": str(
+            path.parent.relative_to(reports_dir)
+        )
         + "/"
         for path in records
     }
@@ -187,6 +190,17 @@ def check_history(page, width, height, result, output):
     expect(page.locator(".chip-spec")).to_contain_text("Spec changed: v0.0.1 → ")
     rows = page.locator(".row")
     assert rows.count() == len(SEEDED_RUNS) + 1
+    page.evaluate("document.fonts.ready")
+    page.evaluate("window.scrollTo(0, 0)")
+    history_name = page.url.rstrip("/").split("/")[-2:]
+    layout = {
+        "url": page.url,
+        "masthead_height": page.locator(".masthead").bounding_box()["height"],
+        "row_tops": [rows.nth(index).bounding_box()["y"] for index in range(rows.count())],
+        "font_family": page.locator("body").evaluate("e => getComputedStyle(e).fontFamily"),
+    }
+    result.setdefault("history_layouts", []).append(layout)
+    page.screenshot(path=output / f"{width}-history-{'-'.join(history_name)}.png")
     visible = sum(
         1 for index in range(rows.count()) if rows.nth(index).bounding_box()["y"] + 60 < height
     )
@@ -565,6 +579,49 @@ def check_themes(browser, url, output, results):
     results["themes"] = theme_results
 
 
+def check_documentation(browser, url, output, results):
+    """Exercise the combined docs/report navigation in both palettes and widths."""
+    cases = []
+    for width in (390, 1280):
+        for scheme in ("light", "dark"):
+            context = browser.new_context(
+                viewport={"width": width, "height": 900}, color_scheme=scheme
+            )
+            try:
+                page = context.new_page()
+                for name, path in (
+                    ("overview", "index.html"),
+                    ("how-reports-work", "how-reports-work.html"),
+                    ("reports", "reports/index.html"),
+                ):
+                    page.goto(url + path)
+                    expect(page.locator("h1")).to_be_visible()
+                    assert "{ .md-button }" not in page.locator("body").inner_text()
+                    assert page.evaluate(
+                        "document.documentElement.scrollWidth <= window.innerWidth"
+                    ), f"{name} overflows at {width}px"
+                    if name == "reports":
+                        expect(page.locator(".site-nav")).to_be_visible()
+                        expect(page.locator('.site-nav a[href="../index.html"]')).to_be_visible()
+                    else:
+                        expect(page.locator("body")).to_have_attribute(
+                            "data-md-color-scheme", "slate" if scheme == "dark" else "default"
+                        )
+                        assert page.locator('a[href="reports/index.html"]').count() > 0
+                    page.evaluate("document.fonts.ready")
+                    page.evaluate(
+                        "() => new Promise(resolve => "
+                        "requestAnimationFrame(() => requestAnimationFrame(resolve)))"
+                    )
+                    page.screenshot(
+                        path=output / f"docs-{width}-{name}-{scheme}.png", animations="disabled"
+                    )
+                    cases.append({"page": name, "width": width, "scheme": scheme})
+            finally:
+                context.close()
+    results["documentation"] = cases
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("site", type=Path)
@@ -595,7 +652,7 @@ def main():
                         results["viewports"].append(result)
                         check_viewport(
                             browser,
-                            f"http://127.0.0.1:{server.server_port}/",
+                            f"http://127.0.0.1:{server.server_port}/{site_tool.REPORTS_DIR}/",
                             args.output,
                             width,
                             height,
@@ -604,10 +661,17 @@ def main():
                         )
                     check_themes(
                         browser,
-                        f"http://127.0.0.1:{server.server_port}/",
+                        f"http://127.0.0.1:{server.server_port}/{site_tool.REPORTS_DIR}/",
                         args.output,
                         results,
                     )
+                    if (args.site / "how-reports-work.html").is_file():
+                        check_documentation(
+                            browser,
+                            f"http://127.0.0.1:{server.server_port}/",
+                            args.output,
+                            results,
+                        )
                     browser.close()
                 results["status"] = "passed"
             finally:

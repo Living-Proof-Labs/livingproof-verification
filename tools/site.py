@@ -108,6 +108,8 @@ SEED_LABEL = re.compile(r"^seed (?=\d)")
 BUNDLE_TAG = re.compile(r"v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)")
 COMMIT_SHA = re.compile(r"[0-9a-f]{40}")
 MARKER = "site.json"  # written by every build; its presence on the live site means history
+REPORTS_DIR = "reports"  # reports index, history and runs live under reports/ (#180)
+DOCS_HOME_URL = "https://docs.livingprooflabs.com/"
 LOCAL_TZ = ZoneInfo("Australia/Sydney")  # tooltip dates on the public site (#129)
 
 
@@ -414,6 +416,36 @@ def live_history(site_url: str) -> str | None:
     return None
 
 
+def _migrate_legacy_reports(destination: Path) -> int:
+    """Move legacy root-level <robot>/<variant>/runs/... into reports/ once (#180)."""
+    reports_dir = destination / REPORTS_DIR
+    migrated = 0
+    for entry in sorted(destination.iterdir()):
+        if not entry.is_dir() or entry.name == REPORTS_DIR:
+            continue
+        if not any(entry.glob("*/runs/*/run.json")):
+            continue
+        for variant_dir in sorted(entry.iterdir()):
+            if not variant_dir.is_dir() or not any(variant_dir.glob("runs/*/run.json")):
+                continue
+            target = reports_dir / entry.name / variant_dir.name
+            if not target.exists():
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(variant_dir), str(target))
+            else:
+                shutil.copytree(variant_dir, target, dirs_exist_ok=True)
+                shutil.rmtree(variant_dir)
+            migrated += 1
+        if entry.exists() and not any(p.is_file() or p.is_symlink() for p in entry.rglob("*")):
+            shutil.rmtree(entry)
+    if migrated:
+        for stale in ("index.html", "styles.css", "open.js"):
+            stale_path = destination / stale
+            if stale_path.is_file():
+                stale_path.unlink()
+    return migrated
+
+
 def restore(
     destination: Path,
     repository: str,
@@ -464,6 +496,9 @@ def restore(
     count = _unpack_pages_archive(
         _download_pages_archive(artifact["archive_download_url"], token), destination
     )
+    migrated = _migrate_legacy_reports(destination)
+    if migrated:
+        print(f"Migrated {migrated} legacy variant directories into {REPORTS_DIR}/.")
     print(f"Restored {count} files.")
     return artifact
 
@@ -1019,7 +1054,7 @@ def add_run(
     inputs = grading_inputs(source, read_report(source / "report.json"))
     if not RUN_ID.fullmatch(run["id"]):
         raise SiteError(f"Unexpected run id {run['id']!r}")
-    folder = site / target["robot"] / target["variant"] / "runs" / run["id"]
+    folder = site / REPORTS_DIR / target["robot"] / target["variant"] / "runs" / run["id"]
     if folder.exists():
         shutil.rmtree(folder)  # a re-run attempt of the same run replaces itself
     folder.mkdir(parents=True)
@@ -1149,7 +1184,10 @@ def preserve_evidence(
 def runs(site: Path) -> dict:
     """{(robot, variant): [run records, newest first]} from every runs/*/run.json."""
     found = {}
-    for path in site.glob("*/*/runs/*/run.json"):
+    reports_dir = site / REPORTS_DIR
+    if not reports_dir.is_dir():
+        return found
+    for path in reports_dir.glob("*/*/runs/*/run.json"):
         record = json.loads(path.read_text())
         record["folder"] = path.parent.name
         found.setdefault((path.parts[-5], path.parts[-4]), []).append(record)
@@ -1298,9 +1336,10 @@ def prune_expired_evidence(site: Path, now: str, days: int) -> list[str]:
     Report pages and run.json stay. Runs that never received copies are untouched.
     """
     removed = []
-    if not now:
+    reports_dir = site / REPORTS_DIR
+    if not now or not reports_dir.is_dir():
         return removed
-    for record_path in sorted(site.glob("*/*/runs/*/run.json")):
+    for record_path in sorted(reports_dir.glob("*/*/runs/*/run.json")):
         record = json.loads(record_path.read_text())
         created = (record.get("run") or {}).get("created")
         if not isinstance(created, str) or not evidence_expired(created, now, days):
@@ -1842,6 +1881,66 @@ def with_spec_provenance(public: str, record: dict, report: object) -> str:
     return public + section
 
 
+SITE_NAV_STYLES = """.site-nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.6rem;
+  margin: 0 0 0.85rem;
+  font-size: 0.86rem;
+}
+.site-nav a {
+  color: var(--teal-bright);
+  font-weight: 500;
+  text-decoration: none;
+}
+.site-nav a:hover {
+  text-decoration: underline;
+}
+.site-nav a[aria-current="page"] {
+  color: var(--header-text);
+  font-weight: 650;
+}
+.site-nav-sep {
+  color: var(--header-muted);
+  opacity: 0.72;
+}
+"""
+
+
+def _site_nav_html(overview_href: str, reports_href: str, *, on_reports_index: bool = False) -> str:
+    reports_attr = ' aria-current="page"' if on_reports_index else ""
+    return (
+        '<nav class="site-nav" aria-label="Site">'
+        f'<a href="{html.escape(DOCS_HOME_URL, quote=True)}">Documentation home</a>'
+        '<span class="site-nav-sep" aria-hidden="true">/</span>'
+        f'<a href="{html.escape(overview_href, quote=True)}">Overview</a>'
+        '<span class="site-nav-sep" aria-hidden="true">/</span>'
+        f'<a href="{html.escape(reports_href, quote=True)}"{reports_attr}>Reports</a>'
+        "</nav>"
+    )
+
+
+def with_site_nav(public: str, *, overview_href: str, reports_href: str) -> str:
+    """Inject the shared site navigation links into a run report masthead (#180)."""
+    nav = _site_nav_html(overview_href, reports_href)
+    if '<nav class="site-nav"' in public:
+        return public
+    style_tag = f"<style>{SITE_NAV_STYLES}</style>"
+    if "</head>" in public and ".site-nav" not in public:
+        public = public.replace("</head>", f"{style_tag}</head>", 1)
+    masthead_inner = re.search(r"<div\s+class=[\"']masthead-inner[\"'][^>]*>", public, re.I)
+    if masthead_inner:
+        pos = masthead_inner.end()
+        return public[:pos] + nav + public[pos:]
+    body_open = re.search(r"<body[^>]*>", public, re.I)
+    if body_open:
+        pos = body_open.end()
+        header = f'<header class="masthead"><div class="wrap masthead-inner">{nav}</div></header>'
+        return public[:pos] + header + public[pos:]
+    return nav + public
+
+
 def publish_run_page(folder: Path, record: dict, *, now: str, days: int, trial: bool) -> None:
     """The run directory's index is the styled report, not a frame around it."""
     html_text = reporter_html(folder)
@@ -1869,6 +1968,11 @@ def publish_run_page(folder: Path, record: dict, *, now: str, days: int, trial: 
         )
     else:
         public = scrub_reporter_html(html_text, record, trial=trial, expired=expired)
+    public = with_site_nav(
+        public,
+        overview_href="../../../../../index.html",
+        reports_href="../../../../index.html",
+    )
     public = with_spec_provenance(public, record, report)
     if html_is_dirty(public):
         raise SiteError(
@@ -1917,9 +2021,9 @@ def published_text(path: Path) -> bool:
 
 
 def public_page_problems(site: Path) -> list[str]:
-    """Published text, other than run.json, that names an artifact or an Actions URL."""
+    """Report text, other than run.json, that names an artifact or an Actions URL."""
     problems = []
-    for path in sorted(site.rglob("*")):
+    for path in sorted((site / REPORTS_DIR).rglob("*")):
         if not published_text(path):
             continue
         text = path.read_text(errors="replace")
@@ -2637,6 +2741,12 @@ a.release:hover { color: var(--link); text-decoration: underline; }
   .dots { grid-area: dots; max-width: 100%; }
   .meta-latest { grid-area: meta; justify-self: end; }
 }
+@media screen and (max-width: 720px) {
+  .masthead:has(.crumb) .masthead-inner { padding: 0.75rem 0 0.85rem; }
+  .masthead:has(.crumb) .lede { line-height: 1.4; }
+  .masthead:has(.crumb) .meta-line { margin-top: 0.35rem; line-height: 1.4; }
+  .history .row { padding: 0.75rem; }
+}
 @media (prefers-reduced-motion: reduce) {
   .card, .row, .robot > summary, .chevron { transition: none; }
 }
@@ -3140,6 +3250,7 @@ def _history_page_html(
         sw_label = f"{config} {software_version}".strip()
         robot_line += f'<span class="quiet"> · software {html.escape(sw_label)}</span>'
     masthead = (
+        f"{_site_nav_html('../../../index.html', '../../index.html')}"
         '<div class="masthead-top">'
         '<p class="crumb"><a href="../../index.html">← All verification reports</a></p>'
         f"{THEME_SWITCH}"
@@ -3410,6 +3521,7 @@ def _index_page_html(history: dict, now: str) -> str:
         else ""
     )
     masthead = (
+        f"{_site_nav_html('../index.html', 'index.html', on_reports_index=True)}"
         '<div class="masthead-top">'
         '<p class="eyebrow">Living Proof Labs</p>'
         f"{THEME_SWITCH}"
@@ -3434,10 +3546,12 @@ def render(site: Path, now: str = "", verifications: Path = ROOT / "verification
     robot_tags = known_robot_tags(verifications)
     prune_expired_evidence(site, now, days)
     history = runs(site)
-    (site / "styles.css").write_text(SITE_STYLES)
-    (site / "open.js").write_text(INDEX_SCRIPT)
+    reports_dir = site / REPORTS_DIR
+    reports_dir.mkdir(parents=True, exist_ok=True)
+    (reports_dir / "styles.css").write_text(SITE_STYLES + "\n" + SITE_NAV_STYLES)
+    (reports_dir / "open.js").write_text(INDEX_SCRIPT)
     for (robot, variant), records in sorted(history.items()):
-        base = site / robot / variant
+        base = reports_dir / robot / variant
         latest = base / "latest"
         if latest.exists():
             shutil.rmtree(latest)
@@ -3461,7 +3575,7 @@ def render(site: Path, now: str = "", verifications: Path = ROOT / "verification
         (base / "index.html").write_text(
             _history_page_html(robot, variant, records, now, reports, robot_tags)
         )
-    (site / "index.html").write_text(_index_page_html(history, now))
+    (reports_dir / "index.html").write_text(_index_page_html(history, now))
 
 
 def build(

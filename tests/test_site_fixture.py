@@ -25,12 +25,15 @@ def test_fixture_reports_build_a_site_with_no_broken_links(tmp_path):
         "server": "https://github.com",
     }
     assert len(site_tool.build(site, reports, run)) == len(written)
+    (site / "index.html").write_text("<!doctype html><title>Overview</title>")
     assert site_fixture.broken_links(site) == []
     assert site_fixture.main(["check", str(site)]) == 0
 
 
 def test_check_reports_a_broken_link(tmp_path):
     (tmp_path / "index.html").write_text('<a href="missing/">x</a>')
+    (tmp_path / "reports").mkdir()
+    (tmp_path / "reports" / "index.html").write_text("ok")
     assert site_fixture.broken_links(tmp_path) == ["index.html: missing/"]
 
 
@@ -50,12 +53,12 @@ def test_fixture_history_has_no_human_reviewer_finding(tmp_path):
             "server": "https://github.com",
         },
     )
-    for page in site.glob("*/*/index.html"):
+    for page in site.glob("reports/*/*/index.html"):
         html = page.read_text()
         assert 'class="poster">CI</span>' in html
         assert "Aaron Roller" not in html
         assert 'class="chip"' not in html
-    for record_path in site.glob("*/*/runs/*/run.json"):
+    for record_path in site.glob("reports/*/*/runs/*/run.json"):
         record = json.loads(record_path.read_text())
         assert "failing_evaluators" not in record
         assert record.get("poster", {}).get("type") == "ci"

@@ -78,7 +78,7 @@ This description does not claim that every historical run passed today's checks.
 
 ## Historical T1 example
 
-[Run 43954868926](https://docs.livingprooflabs.com/livingproof-verification/booster-t1/stock-mujoco-hallway/runs/43954868926/)
+[Run 43954868926](https://docs.livingprooflabs.com/livingproof-verification/reports/booster-t1/stock-mujoco-hallway/runs/43954868926/)
 records generation specs **v2.0.2** at
 `16524cbfeef18ff0454ebf125668b010d38a3993` and assessment specs **v2.3.0** at
 `57317e617014a6df97bb7fba9d92a890af8d42e5`, scenario `walk-hallway@0.1.0`.
