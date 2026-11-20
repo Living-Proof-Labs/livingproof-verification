@@ -2687,14 +2687,25 @@ def _chips_html(record: dict, prefix: str, *, linked: bool = True, extra: str = 
             status = marker.get("status")
             if title is None or status not in MARKED_INTEGRITY_STATUSES:
                 continue
-            label = f"{title}: integrity status {status}"
+            tip = f"{title}: integrity status {status}"
             if status == "INCONCLUSIVE":
-                label += " (not graded)"
-            items.append(
-                f'<span class="chip chip-integrity chip-integrity-{status.lower()}" '
-                f'role="img" aria-label="{html.escape(label, quote=True)}">'
-                f"{html.escape(title)}: {status}</span>"
-            )
+                tip += " (not graded)"
+            words = "error" if status == "ERROR" else "not graded"
+            icon = "\u2715" if status == "ERROR" else "?"
+            sentence = title[:1].upper() + title[1:].lower()
+            klass = f"chip chip-integrity chip-integrity-{status.lower()}"
+            body = f'<span aria-hidden="true">{icon}</span> {html.escape(sentence)} {words}'
+            href = _stored_text(marker.get("id"))
+            if linked and href is not None:
+                target = html.escape(f"{prefix}#evaluator-{href}", quote=True)
+                items.append(
+                    f'<a class="{klass}" href="{target}" '
+                    f'title="{html.escape(tip, quote=True)}">{body}</a>'
+                )
+            else:
+                items.append(
+                    f'<span class="{klass}" title="{html.escape(tip, quote=True)}">{body}</span>'
+                )
     if extra:
         items.append(extra)
     if not items:
