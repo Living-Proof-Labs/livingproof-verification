@@ -30,8 +30,8 @@ WORKFLOW = ROOT / ".github/workflows/verify.yml"
 VERIFIER = "Living-Proof-Labs/capability-verifier"
 
 # Released tags, resolved once by hand (git ls-remote) and recorded here.
-VERIFIER_RELEASE = ("v2.10.1", "e25fa996939d9417f11b6d3d3b16f58e0c2ba148")
-EVALUATOR_RELEASE = ("v1.5.0", "3fab127372208b92c532bbd880aa10ae275f7565")
+VERIFIER_RELEASE = ("v2.10.3", "7968158f6820fb3e7430989f248664ce7ad65127")
+EVALUATOR_RELEASE = ("v1.5.3", "ca9d337a771269d07feec94c99f199bef7fca808")
 # The first reporter release whose HTML step card writes out corner-turned's list of
 # places (livingproof-capability-report#79, 3453a14). v3.10.1 fails with
 # "float() argument must be a string or a real number, not 'list'".

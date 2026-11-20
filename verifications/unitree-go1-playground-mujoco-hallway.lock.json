@@ -32,10 +32,10 @@
     },
     "verifier": {
       "repository": "Living-Proof-Labs/capability-verifier",
-      "tag": "v2.10.1",
-      "commit": "e25fa996939d9417f11b6d3d3b16f58e0c2ba148",
+      "tag": "v2.10.3",
+      "commit": "7968158f6820fb3e7430989f248664ce7ad65127",
       "image": "ghcr.io/living-proof-labs/capability-verifier-hallway",
-      "digest": "sha256:6eb0701bc9949d6b7e10bcc87aed8d66440bc29cb9088d74f20e2f2d59ca68a7"
+      "digest": "sha256:57f30d91b1420676c127817b9f81d6d013f10d922eb4cde997179d6907b2b91d"
     },
     "reporter": {
       "repository": "Living-Proof-Labs/livingproof-capability-report",
@@ -73,8 +73,8 @@
   "evaluators": {
     "livingproof-evaluator-scenario": {
       "repository": "Living-Proof-Labs/livingproof-evaluator-scenario",
-      "tag": "v1.5.0",
-      "commit": "3fab127372208b92c532bbd880aa10ae275f7565"
+      "tag": "v1.5.3",
+      "commit": "ca9d337a771269d07feec94c99f199bef7fca808"
     },
     "livingproof-evaluator-run": {
       "repository": "Living-Proof-Labs/livingproof-evaluator-run",
