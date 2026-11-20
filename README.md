@@ -2,6 +2,9 @@
 
 Living Proof Labs' own thin verification project. It is a practical example of how a customer uses the shared Living Proof tools to verify selected robot configurations and publish evidence-backed results.
 
+- **Documentation:** [Living Proof Labs verification](https://docs.livingprooflabs.com/livingproof-verification/) ([published reports](https://docs.livingprooflabs.com/livingproof-verification/reports/), [how the reports work](https://docs.livingprooflabs.com/livingproof-verification/how-reports-work.html), [contribute](https://docs.livingprooflabs.com/livingproof-verification/contribute.html))
+- **Related manuals:** [capability-verifier](https://docs.livingprooflabs.com/capability-verifier/) · [livingproof-capability-report](https://docs.livingprooflabs.com/livingproof-capability-report/) · [livingproof-evaluator-scenario](https://docs.livingprooflabs.com/livingproof-evaluator-scenario/)
+
 The planned contents are declarative verification definitions, reviewed dependency locks, thin local and CI entry points through `livingproof`, an explicit selection of runs and series for reporting, and publishing configuration. Grading stays in `capability-verifier`, and rendering stays in `livingproof-capability-report`. This repository supplies only the inputs and the records.
 
 Scope and acceptance criteria: [Living-Proof-Labs/.github#11](https://github.com/Living-Proof-Labs/.github/issues/11).
@@ -132,10 +135,11 @@ capability-report artifacts out as a static site and the `pages` job deploys it 
 `pages: write` and `id-token: write`). Pull requests never publish. Layout, for each definition
 and configuration (`<robot>` from the robot repository, `<variant>` from the definition id):
 
-- `/` lists every robot and variant with the verifier's latest grade and trial counts
-- `/<robot>/<variant>/latest/` redirects to the newest run and stores no second copy of it
-- `/<robot>/<variant>/` is the run history: run id, time, grade, commit, checksum file and the locked release tags, as text
-- `/<robot>/<variant>/runs/<run-id>/` is that run's styled report (the reporter's HTML), plus `report.json`, `report.md`, `report.txt`, `SHA256SUMS` and `run.json`
+- `/`: documentation overview (built with Zensical)
+- `/reports/`: lists every robot and variant with the verifier's latest grade and trial counts
+- `/reports/<robot>/<variant>/latest/`: redirects to the newest run and stores no second copy of it
+- `/reports/<robot>/<variant>/`: is the run history: run id, time, grade, commit, checksum file and the locked release tags, as text
+- `/reports/<robot>/<variant>/runs/<run-id>/`: is that run's styled report (the reporter's HTML), plus `report.json`, `report.md`, `report.txt`, `SHA256SUMS` and `run.json`
 
 `tools/site.py` lays the reports out and asks the pinned reporter to render each run page with
 a relative link to that history, the site's evidence paths and the retention setting. The

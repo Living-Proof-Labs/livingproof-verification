@@ -47,6 +47,9 @@ jobs:
           echo "$ACTIONLINT_SHA256  $RUNNER_TEMP/$archive" | sha256sum -c -
           tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP" actionlint
           "$RUNNER_TEMP/actionlint"
+      - uses: go-task/setup-task@a00fbb05ce67b35648be3c78cbc9fd85354c757e # v2.2.0
+        with:
+          version: '3.54.0'
       - name: Build the site from fixture reports (not deployed)
         env:
           GITHUB_REPOSITORY: ${{ github.repository }}
@@ -57,6 +60,10 @@ jobs:
           python3 tools/site.py build "$RUNNER_TEMP/site" --reports "$RUNNER_TEMP/reports" \
             --run-id "$RUN_ID" --commit "$COMMIT" \
             --created "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          task docs:setup
+          task docs:build
+          cp -a artifacts/site/. "$RUNNER_TEMP/site/"
+          python3 tools/docs/verify.py --site "$RUNNER_TEMP/site" --require-reports
           python3 tools/site_fixture.py check "$RUNNER_TEMP/site"
       - name: Install pinned browser tools and Chromium
         run: |

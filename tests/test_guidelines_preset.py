@@ -40,7 +40,7 @@ def _config() -> dict:
 
 
 def test_this_repository_does_not_opt_in_to_docs_brand_updates():
-    assert not (ROOT / "docs-brand.lock.json").is_file()
+    assert (ROOT / "docs-brand.lock.json").is_file()
     for rule in _config().get("packageRules", []):
         dumped = json.dumps(rule)
         if "docs-brand" in dumped or rule.get("matchDepTypes") == ["docs-brand"]:

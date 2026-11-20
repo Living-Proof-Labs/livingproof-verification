@@ -52,7 +52,8 @@ def seed_history(site, path):
 
 def prepare(site):
     # Exercise FAIL and PASS badges, newest-first Needs attention, evaluator chips, and findings.
-    records = sorted(site.glob("*/*/runs/*/run.json"))
+    reports_dir = site / site_tool.REPORTS_DIR
+    records = sorted(reports_dir.glob("*/*/runs/*/run.json"))
     assert records, "Build the fixture site first"
     fail_specs = {
         "booster-t1/stock-mujoco-hallway": (
@@ -77,7 +78,7 @@ def prepare(site):
         ),
     }
     for path in records:
-        key = str(path.parents[2].relative_to(site))
+        key = str(path.parents[2].relative_to(reports_dir))
         record = json.loads(path.read_text())
         if key in fail_specs:
             created, evaluators, summary = fail_specs[key]
@@ -112,7 +113,7 @@ def prepare(site):
         cloned = json.loads(json.dumps(sample_recs))
         cloned[0]["outcome"][0]["capability"] = f"extra-scenario-{extra:02d}"
         all_pass_history[("unitree-g1", extra_variant)] = cloned
-    (site / "all-pass.html").write_text(
+    (reports_dir / "all-pass.html").write_text(
         site_tool._index_page_html(all_pass_history, "2026-11-19T08:00:00Z")
     )
     for name, grade in [("insufficient", "INSUFFICIENT_EVIDENCE"), ("unknown", "UNKNOWN")]:
@@ -121,13 +122,15 @@ def prepare(site):
             recs[0]["outcome"][0]["grade"] = "PASS"
             recs[0].pop("failing_evaluators", None)
         mixed[("booster-t1", "stock-mujoco-hallway")][0]["outcome"][0]["grade"] = grade
-        (site / f"{name}.html").write_text(
+        (reports_dir / f"{name}.html").write_text(
             site_tool._index_page_html(mixed, "2026-11-19T08:00:00Z")
         )
-    (site / "empty.html").write_text(site_tool._index_page_html({}, "2026-11-19T08:00:00Z"))
+    (reports_dir / "empty.html").write_text(site_tool._index_page_html({}, "2026-11-19T08:00:00Z"))
 
     return {
-        str(path.parents[2].relative_to(site)) + "/latest/": str(path.parent.relative_to(site))
+        str(path.parents[2].relative_to(reports_dir)) + "/latest/": str(
+            path.parent.relative_to(reports_dir)
+        )
         + "/"
         for path in records
     }
@@ -436,7 +439,7 @@ def main():
                         results["viewports"].append(result)
                         check_viewport(
                             browser,
-                            f"http://127.0.0.1:{server.server_port}/",
+                            f"http://127.0.0.1:{server.server_port}/{site_tool.REPORTS_DIR}/",
                             args.output,
                             width,
                             height,

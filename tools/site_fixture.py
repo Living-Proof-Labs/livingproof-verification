@@ -75,11 +75,18 @@ def broken_links(site: Path) -> list[str]:
     pages = list(site.rglob("*.html"))
     if not (site / "index.html").is_file():
         broken.append("index.html missing")
+    if not (site / "reports" / "index.html").is_file():
+        broken.append("reports/index.html missing")
     for page in pages:
         for href in re.findall(r"""(?:href|src)=["']([^"'#]+)""", page.read_text()):
             if re.match(r"[a-z]+:", href):
                 continue
-            path = page.parent / href
+            if href.startswith("/livingproof-verification/"):
+                path = site / href.removeprefix("/livingproof-verification/")
+            elif href.startswith("/"):
+                continue
+            else:
+                path = page.parent / href
             if href.endswith("/"):
                 path = path / "index.html"
             if not path.exists():
