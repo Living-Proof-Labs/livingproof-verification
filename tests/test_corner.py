@@ -36,7 +36,7 @@ EVALUATOR_RELEASE = ("v1.3.0", "965629ab1e9508cb3090931abbae6a957bf5d294")
 # places (livingproof-capability-report#79, 3453a14). v3.10.1 fails with
 # "float() argument must be a string or a real number, not 'list'".
 # The constant is the settings pin; every lock must name that same release.
-REPORTER_RELEASE = ("v3.13.0", "ca8e4eb4162133ebd74d4b6e30b913c873d45d72")
+REPORTER_RELEASE = ("v3.13.2", "376c02d664b63813b88a57a2c9cd28828a037a0e")
 WORLD = {
     "id": "hallway-corner",
     "version": "0.2.0",
