@@ -51,7 +51,7 @@ def test_an_inconclusive_run_is_surfaced_with_not_graded_copy():
         {
             "id": "livingproof-run-integrity",
             "title": "Run Integrity",
-            "href": "#evaluator-livingproof-run-integrity",
+            "href": "#summary",
             "summary": COPY,
             "not_graded": True,
         }
@@ -87,11 +87,12 @@ def test_the_inconclusive_entry_is_marked_not_graded_and_error_is_not():
 def test_the_not_graded_chip_is_neutral_and_a_failing_chip_is_not():
     entry = site_tool.failing_evaluators(_report(copy.deepcopy(INCONCLUSIVE)))
     neutral = site_tool._chips_html(_record(entry), "../")
-    assert 'class="chip chip-spec"' in neutral
+    assert 'class="chip chip-integrity chip-integrity-inconclusive"' in neutral
+    assert "chip-spec" not in neutral
     error = _with_status("ERROR", success=False, percentage=0)
     failing = site_tool.failing_evaluators(_report(error))
     plain = site_tool._chips_html(_record(failing), "../")
-    assert 'class="chip chip-spec"' not in plain
+    assert "chip-integrity" not in plain
     assert 'class="chip"' in plain
 
 

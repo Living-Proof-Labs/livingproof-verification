@@ -736,6 +736,17 @@ def _finding_summary(findings: list, descriptor: dict) -> str | None:
 INCONCLUSIVE_COPY = "Not graded: no check applied to this run."
 
 
+# Reporter v3.13.x has no element per evaluator: its ids are run-evaluators-tab-N,
+# run-evaluators-panel-N, summary and theme-*. The tabs are ordered by the reporter (tier, then
+# title, over every evaluator result of the run, merged by evaluator id), so Run Integrity is tab 2
+# whenever a Scenario result is also present. The site cannot derive that order reliably (it is
+# the reporter's private rule, it differs between the reporter versions the locks pin, and it
+# depends on results the site does not read), and a wrong tab number focuses another evaluator.
+# So chips link to the summary section that holds the evaluators row: a stable id that never
+# names the wrong evaluator.
+EVALUATOR_ANCHOR = "#summary"
+
+
 def failing_evaluators(report: object) -> list[dict]:
     """Evaluators that spoke on a non-passing run, deduplicated by evaluator id."""
     if not isinstance(report, dict):
@@ -776,7 +787,7 @@ def failing_evaluators(report: object) -> list[dict]:
             # does not know is not graded and does not speak (a 1.x minor may add statuses).
             summary = INCONCLUSIVE_COPY
         if ev_id not in seen:
-            entry = {"id": ev_id, "title": title, "href": f"#evaluator-{ev_id}"}
+            entry = {"id": ev_id, "title": title, "href": EVALUATOR_ANCHOR}
             if summary is not None:
                 entry["summary"] = summary
             if status == "INCONCLUSIVE":
@@ -785,6 +796,34 @@ def failing_evaluators(report: object) -> list[dict]:
         elif "summary" not in seen[ev_id] and summary is not None:
             seen[ev_id]["summary"] = summary
     return list(seen.values())
+
+
+MARKED_INTEGRITY_STATUSES = ("ERROR", "INCONCLUSIVE")
+
+
+def integrity_markers(report: object) -> list[dict]:
+    """Run Integrity results whose status is ERROR or INCONCLUSIVE, by evaluator id.
+
+    Shown on a PASS or UNSUPPORTED run, which has no chips of its own (#168). Any other
+    status, including one this site does not know, is not marked.
+    """
+    if not isinstance(report, dict):
+        return []
+    found: dict[str, dict] = {}
+    for doc in _evaluator_documents(report):
+        integrity = doc.get("integrity") if isinstance(doc.get("integrity"), dict) else {}
+        run_info = integrity.get("run") if isinstance(integrity.get("run"), dict) else {}
+        status = run_info.get("test_system_status")
+        if status not in MARKED_INTEGRITY_STATUSES:
+            continue
+        ev = doc.get("evaluator") if isinstance(doc.get("evaluator"), dict) else {}
+        ev_id = _stored_text(ev.get("id"))
+        if ev_id is None or ev_id in found:
+            continue
+        desc = doc.get("descriptor") if isinstance(doc.get("descriptor"), dict) else {}
+        title = _stored_text(ev.get("display_name")) or _stored_text(desc.get("title")) or ev_id
+        found[ev_id] = {"id": ev_id, "title": title, "status": status}
+    return list(found.values())
 
 
 def provenance(target: dict, run: dict, report: object = None) -> dict:
@@ -954,6 +993,9 @@ def add_run(
     failing = failing_evaluators(report_data)
     if failing:
         record["failing_evaluators"] = failing
+    markers = integrity_markers(report_data)
+    if markers:
+        record["integrity_status"] = markers
     if inputs:
         record["grading_inputs"] = [
             {key: item[key] for key in ("role", "path", "sha256")} for item in inputs
@@ -2163,6 +2205,17 @@ a.chip:hover {
   color: var(--speak-text);
   border-color: color-mix(in srgb, var(--speak) 65%, var(--border));
 }
+.chip-integrity-error {
+  border-color: color-mix(in srgb, var(--chip-fail-fg) 45%, var(--border));
+  background: var(--chip-fail-bg);
+  color: var(--chip-fail-fg);
+}
+.chip-integrity-inconclusive {
+  border-style: dashed;
+  border-color: var(--border-strong);
+  background: var(--chip-muted-bg);
+  color: var(--chip-muted-fg);
+}
 a.chip-spec:hover {
   background: var(--bg-muted);
   color: var(--text);
@@ -2613,6 +2666,23 @@ def _release_html(record: dict, *, linked: bool = True) -> str:
     return f'<span class="release is-fallback" title="{title}">commit</span>'
 
 
+def _integrity_chip(title: str, status: str, prefix: str, linked: bool) -> str:
+    """The marker chip for an ERROR or INCONCLUSIVE integrity result (neutral if not graded)."""
+    tip = f"{title}: integrity status {status}"
+    if status == "INCONCLUSIVE":
+        tip += " (not graded)"
+    words = "error" if status == "ERROR" else "not graded"
+    icon = "\u2715" if status == "ERROR" else "?"
+    klass = f"chip chip-integrity chip-integrity-{status.lower()}"
+    body = f'<span aria-hidden="true">{icon}</span> {html.escape(title)} {words}'
+    if linked:
+        target = html.escape(prefix + EVALUATOR_ANCHOR, quote=True)
+        return (
+            f'<a class="{klass}" href="{target}" title="{html.escape(tip, quote=True)}">{body}</a>'
+        )
+    return f'<span class="{klass}" title="{html.escape(tip, quote=True)}">{body}</span>'
+
+
 def _chips_html(record: dict, prefix: str, *, linked: bool = True, extra: str = "") -> str:
     grade = _record_grade(record)
     evaluators = record.get("failing_evaluators") or []
@@ -2625,17 +2695,32 @@ def _chips_html(record: dict, prefix: str, *, linked: bool = True, extra: str = 
             href = _stored_text(ev.get("href"))
             if title is None or href is None:
                 continue
-            # INCONCLUSIVE is not graded, not failing: the neutral chip-spec style.
-            klass = "chip chip-spec" if ev.get("not_graded") is True else "chip"
-            if linked:
+            if ev.get("not_graded") is True:
+                # INCONCLUSIVE is not graded, not failing: the same neutral chip as on a PASS run.
+                items.append(_integrity_chip(title, "INCONCLUSIVE", prefix, linked))
+            elif linked:
+                # The stored href is ignored: records written before #168 carry a dead
+                # #evaluator-<id> fragment that no reporter page has.
                 tip = f"Open the {title} finding in the report"
                 items.append(
-                    f'<a class="{klass}" href="{html.escape(prefix + href, quote=True)}" '
+                    f'<a class="chip" href="{html.escape(prefix + EVALUATOR_ANCHOR, quote=True)}" '
                     f'title="{html.escape(tip, quote=True)}" '
                     f'aria-label="{html.escape(tip, quote=True)}">{html.escape(title)}</a>'
                 )
             else:
-                items.append(f'<span class="{klass}">{html.escape(title)}</span>')
+                items.append(f'<span class="chip">{html.escape(title)}</span>')
+    markers = record.get("integrity_status") or []
+    if grade in ("PASS", "UNSUPPORTED") and isinstance(markers, list):
+        for marker in markers:
+            if not isinstance(marker, dict):
+                continue
+            title = _stored_text(marker.get("title"))
+            status = marker.get("status")
+            if title is None or status not in MARKED_INTEGRITY_STATUSES:
+                continue
+            if _stored_text(marker.get("id")) is None:
+                continue
+            items.append(_integrity_chip(title, status, prefix, linked))
     if extra:
         items.append(extra)
     if not items:
