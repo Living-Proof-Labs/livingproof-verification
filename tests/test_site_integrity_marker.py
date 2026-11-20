@@ -56,11 +56,11 @@ def test_a_passing_run_shows_a_distinct_labelled_marker(status: str, grade: str)
     tip = f"Run Integrity: integrity status {status}"
     if status == "INCONCLUSIVE":
         tip += " (not graded)"
-    # Linked, like the failing chips: the run page's evaluator anchor.
+    # Linked, like the failing chips: the reporter page's evaluator tab.
     html = site_tool._chips_html(record, "../")
     assert (
         f'<a class="chip chip-integrity chip-integrity-{kind}" '
-        f'href="../#evaluator-livingproof-run-integrity" title="{tip}">'
+        f'href="../#run-evaluators-tab-1" title="{tip}">'
         f'<span aria-hidden="true">{icon}</span> {words}</a>'
     ) in html
     # Visible text is what a screen reader reads: no role="img", no aria-label override.

@@ -2187,7 +2187,7 @@ def test_failing_evaluators_chips_and_clean_history_view(tmp_path):
         {
             "id": "livingproof-scenario",
             "title": "Scenario",
-            "href": "#evaluator-livingproof-scenario",
+            "href": "#run-evaluators-tab-1",
             "summary": "Drifted 0.66 m from the centreline, then touched the wall.",
         }
     ]
@@ -2205,7 +2205,7 @@ def test_failing_evaluators_chips_and_clean_history_view(tmp_path):
     assert "livingproof-booster-t1 v2.3.5" in history
     assert "livingproof-booster-t1 @" not in history
     assert "software stock 1.0.0" in history
-    assert 'href="runs/100/#evaluator-livingproof-scenario"' in history
+    assert 'href="runs/100/#run-evaluators-tab-1"' in history
     assert ">Scenario</a>" in history
     assert 'aria-label="Open the Scenario finding in the report"' in history
     assert "Drifted 0.66 m from the centreline, then touched the wall." in history
@@ -2302,7 +2302,7 @@ def test_human_reviewer_chip_renders_when_a_finding_was_stored(tmp_path):
     site_tool.render(site, now="2026-11-18T05:20:00Z")
     history = (base / "index.html").read_text()
     assert 'aria-label="Open the Aaron Roller finding in the report"' in history
-    assert 'href="runs/150/#evaluator-aaron-roller"' in history
+    assert 'href="runs/150/#run-evaluators-tab-1"' in history
     assert ">Aaron Roller</a>" in history
     assert 'class="poster">Aaron Roller</span>' in history
     local_links_resolve(site)

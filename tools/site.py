@@ -736,6 +736,12 @@ def _finding_summary(findings: list, descriptor: dict) -> str | None:
 INCONCLUSIVE_COPY = "Not graded: no check applied to this run."
 
 
+# Reporter v3.13.0 has no element per evaluator: its ids are run-evaluators-tab-N,
+# run-evaluators-panel-N, summary and theme-*. The panel is display:none until its tab is open,
+# so a link to it goes nowhere visible; the tab (a <summary>) is always shown. Chips link to it.
+EVALUATOR_ANCHOR = "#run-evaluators-tab-1"
+
+
 def failing_evaluators(report: object) -> list[dict]:
     """Evaluators that spoke on a non-passing run, deduplicated by evaluator id."""
     if not isinstance(report, dict):
@@ -776,7 +782,7 @@ def failing_evaluators(report: object) -> list[dict]:
             # does not know is not graded and does not speak (a 1.x minor may add statuses).
             summary = INCONCLUSIVE_COPY
         if ev_id not in seen:
-            entry = {"id": ev_id, "title": title, "href": f"#evaluator-{ev_id}"}
+            entry = {"id": ev_id, "title": title, "href": EVALUATOR_ANCHOR}
             if summary is not None:
                 entry["summary"] = summary
             if status == "INCONCLUSIVE":
@@ -2655,6 +2661,23 @@ def _release_html(record: dict, *, linked: bool = True) -> str:
     return f'<span class="release is-fallback" title="{title}">commit</span>'
 
 
+def _integrity_chip(title: str, status: str, prefix: str, linked: bool) -> str:
+    """The marker chip for an ERROR or INCONCLUSIVE integrity result (neutral if not graded)."""
+    tip = f"{title}: integrity status {status}"
+    if status == "INCONCLUSIVE":
+        tip += " (not graded)"
+    words = "error" if status == "ERROR" else "not graded"
+    icon = "\u2715" if status == "ERROR" else "?"
+    klass = f"chip chip-integrity chip-integrity-{status.lower()}"
+    body = f'<span aria-hidden="true">{icon}</span> {html.escape(title)} {words}'
+    if linked:
+        target = html.escape(prefix + EVALUATOR_ANCHOR, quote=True)
+        return (
+            f'<a class="{klass}" href="{target}" title="{html.escape(tip, quote=True)}">{body}</a>'
+        )
+    return f'<span class="{klass}" title="{html.escape(tip, quote=True)}">{body}</span>'
+
+
 def _chips_html(record: dict, prefix: str, *, linked: bool = True, extra: str = "") -> str:
     grade = _record_grade(record)
     evaluators = record.get("failing_evaluators") or []
@@ -2667,17 +2690,20 @@ def _chips_html(record: dict, prefix: str, *, linked: bool = True, extra: str = 
             href = _stored_text(ev.get("href"))
             if title is None or href is None:
                 continue
-            # INCONCLUSIVE is not graded, not failing: the neutral chip-spec style.
-            klass = "chip chip-spec" if ev.get("not_graded") is True else "chip"
-            if linked:
+            if ev.get("not_graded") is True:
+                # INCONCLUSIVE is not graded, not failing: the same neutral chip as on a PASS run.
+                items.append(_integrity_chip(title, "INCONCLUSIVE", prefix, linked))
+            elif linked:
+                # The stored href is ignored: records written before #168 carry a dead
+                # #evaluator-<id> fragment that no reporter page has.
                 tip = f"Open the {title} finding in the report"
                 items.append(
-                    f'<a class="{klass}" href="{html.escape(prefix + href, quote=True)}" '
+                    f'<a class="chip" href="{html.escape(prefix + EVALUATOR_ANCHOR, quote=True)}" '
                     f'title="{html.escape(tip, quote=True)}" '
                     f'aria-label="{html.escape(tip, quote=True)}">{html.escape(title)}</a>'
                 )
             else:
-                items.append(f'<span class="{klass}">{html.escape(title)}</span>')
+                items.append(f'<span class="chip">{html.escape(title)}</span>')
     markers = record.get("integrity_status") or []
     if grade in ("PASS", "UNSUPPORTED") and isinstance(markers, list):
         for marker in markers:
@@ -2687,24 +2713,9 @@ def _chips_html(record: dict, prefix: str, *, linked: bool = True, extra: str = 
             status = marker.get("status")
             if title is None or status not in MARKED_INTEGRITY_STATUSES:
                 continue
-            tip = f"{title}: integrity status {status}"
-            if status == "INCONCLUSIVE":
-                tip += " (not graded)"
-            words = "error" if status == "ERROR" else "not graded"
-            icon = "\u2715" if status == "ERROR" else "?"
-            klass = f"chip chip-integrity chip-integrity-{status.lower()}"
-            body = f'<span aria-hidden="true">{icon}</span> {html.escape(title)} {words}'
-            href = _stored_text(marker.get("id"))
-            if linked and href is not None:
-                target = html.escape(f"{prefix}#evaluator-{href}", quote=True)
-                items.append(
-                    f'<a class="{klass}" href="{target}" '
-                    f'title="{html.escape(tip, quote=True)}">{body}</a>'
-                )
-            else:
-                items.append(
-                    f'<span class="{klass}" title="{html.escape(tip, quote=True)}">{body}</span>'
-                )
+            if _stored_text(marker.get("id")) is None:
+                continue
+            items.append(_integrity_chip(title, status, prefix, linked))
     if extra:
         items.append(extra)
     if not items:
