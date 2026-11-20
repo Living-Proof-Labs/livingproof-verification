@@ -79,7 +79,7 @@ jobs:
       - run: '"$RUNNER_TEMP/tests/bin/pytest" tests/test_locks.py'
   unitree-g1-stock-mujoco-hallway:
     needs: locks
-    uses: Living-Proof-Labs/capability-verifier/.github/workflows/walk-hallway.yml@9e32d4759f5118b868d451757812c36ed8b883a5  # v2.7.5
+    uses: Living-Proof-Labs/capability-verifier/.github/workflows/walk-hallway.yml@7ebde8b4ca03d51cfac22a87bf2f49e4b25a6677  # v2.8.0
     permissions:
       contents: read
       pull-requests: write
@@ -93,7 +93,7 @@ jobs:
       comment: false
   unitree-g1-playground-mujoco-hallway:
     needs: locks
-    uses: Living-Proof-Labs/capability-verifier/.github/workflows/walk-hallway.yml@9e32d4759f5118b868d451757812c36ed8b883a5  # v2.7.5
+    uses: Living-Proof-Labs/capability-verifier/.github/workflows/walk-hallway.yml@7ebde8b4ca03d51cfac22a87bf2f49e4b25a6677  # v2.8.0
     permissions:
       contents: read
       pull-requests: write
@@ -107,7 +107,7 @@ jobs:
       comment: false
   booster-t1-stock-mujoco-hallway:
     needs: locks
-    uses: Living-Proof-Labs/capability-verifier/.github/workflows/walk-hallway.yml@9e32d4759f5118b868d451757812c36ed8b883a5  # v2.7.5
+    uses: Living-Proof-Labs/capability-verifier/.github/workflows/walk-hallway.yml@7ebde8b4ca03d51cfac22a87bf2f49e4b25a6677  # v2.8.0
     permissions:
       contents: read
       pull-requests: write
@@ -121,7 +121,7 @@ jobs:
       comment: false
   unitree-go1-playground-mujoco-hallway:
     needs: locks
-    uses: Living-Proof-Labs/capability-verifier/.github/workflows/walk-hallway.yml@9e32d4759f5118b868d451757812c36ed8b883a5  # v2.7.5
+    uses: Living-Proof-Labs/capability-verifier/.github/workflows/walk-hallway.yml@7ebde8b4ca03d51cfac22a87bf2f49e4b25a6677  # v2.8.0
     permissions:
       contents: read
       pull-requests: write
@@ -137,7 +137,7 @@ jobs:
   # lock names. The walk-hallway jobs above keep walk-hallway.yml, the wrapper around it.
   unitree-g1-stock-mujoco-corner-left:
     needs: locks
-    uses: Living-Proof-Labs/capability-verifier/.github/workflows/scenario.yml@9e32d4759f5118b868d451757812c36ed8b883a5  # v2.7.5
+    uses: Living-Proof-Labs/capability-verifier/.github/workflows/scenario.yml@7ebde8b4ca03d51cfac22a87bf2f49e4b25a6677  # v2.8.0
     permissions:
       contents: read
       pull-requests: write
@@ -151,7 +151,7 @@ jobs:
       comment: false
   unitree-g1-stock-mujoco-corner-right:
     needs: locks
-    uses: Living-Proof-Labs/capability-verifier/.github/workflows/scenario.yml@9e32d4759f5118b868d451757812c36ed8b883a5  # v2.7.5
+    uses: Living-Proof-Labs/capability-verifier/.github/workflows/scenario.yml@7ebde8b4ca03d51cfac22a87bf2f49e4b25a6677  # v2.8.0
     permissions:
       contents: read
       pull-requests: write
@@ -165,7 +165,7 @@ jobs:
       comment: false
   booster-t1-stock-mujoco-corner-left:
     needs: locks
-    uses: Living-Proof-Labs/capability-verifier/.github/workflows/scenario.yml@9e32d4759f5118b868d451757812c36ed8b883a5  # v2.7.5
+    uses: Living-Proof-Labs/capability-verifier/.github/workflows/scenario.yml@7ebde8b4ca03d51cfac22a87bf2f49e4b25a6677  # v2.8.0
     permissions:
       contents: read
       pull-requests: write
@@ -179,7 +179,7 @@ jobs:
       comment: false
   booster-t1-stock-mujoco-corner-right:
     needs: locks
-    uses: Living-Proof-Labs/capability-verifier/.github/workflows/scenario.yml@9e32d4759f5118b868d451757812c36ed8b883a5  # v2.7.5
+    uses: Living-Proof-Labs/capability-verifier/.github/workflows/scenario.yml@7ebde8b4ca03d51cfac22a87bf2f49e4b25a6677  # v2.8.0
     permissions:
       contents: read
       pull-requests: write
@@ -193,7 +193,7 @@ jobs:
       comment: false
   unitree-go1-playground-mujoco-corner-left:
     needs: locks
-    uses: Living-Proof-Labs/capability-verifier/.github/workflows/scenario.yml@9e32d4759f5118b868d451757812c36ed8b883a5  # v2.7.5
+    uses: Living-Proof-Labs/capability-verifier/.github/workflows/scenario.yml@7ebde8b4ca03d51cfac22a87bf2f49e4b25a6677  # v2.8.0
     permissions:
       contents: read
       pull-requests: write
@@ -207,7 +207,7 @@ jobs:
       comment: false
   unitree-go1-playground-mujoco-corner-right:
     needs: locks
-    uses: Living-Proof-Labs/capability-verifier/.github/workflows/scenario.yml@9e32d4759f5118b868d451757812c36ed8b883a5  # v2.7.5
+    uses: Living-Proof-Labs/capability-verifier/.github/workflows/scenario.yml@7ebde8b4ca03d51cfac22a87bf2f49e4b25a6677  # v2.8.0
     permissions:
       contents: read
       pull-requests: write
