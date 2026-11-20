@@ -2,14 +2,14 @@
   "format": "livingproof-verification-lock/0.2.0",
   "definition": {
     "path": "unitree-go1-playground-mujoco-corner-left.toml",
-    "sha256": "102ec94e6373dfe1384fc967809d56fb25dde9f42153698219fa8d4f74800b88"
+    "sha256": "743860d11f9e4682dad8b8de5717c2354528ec74edc12c5314c9a7750d385845"
   },
   "procedure": "scenario",
   "scenario": "walk-corner-left@0.2.0",
   "robot": {
     "repository": "Living-Proof-Labs/livingproof-unitree-go1",
-    "ref": "v2.3.5",
-    "commit": "fe48f8bda30aa0a65bd01b06107fc76874195f35",
+    "ref": "v2.3.13",
+    "commit": "5f4cdd048cedb6e51e830f2f703056da2fb86fdf",
     "configurations": [
       "playground"
     ],
@@ -27,15 +27,15 @@
     },
     "runner": {
       "repository": "Living-Proof-Labs/livingproof-sim-mujoco",
-      "tag": "v3.6.2",
-      "commit": "988a57bdb54654aac57aa4de0574d62914074fd0"
+      "tag": "v3.7.4",
+      "commit": "91890b7ecc3a5203670177d344dbb84cbc2a0ebc"
     },
     "verifier": {
       "repository": "Living-Proof-Labs/capability-verifier",
-      "tag": "v2.8.0",
-      "commit": "7ebde8b4ca03d51cfac22a87bf2f49e4b25a6677",
+      "tag": "v2.10.1",
+      "commit": "e25fa996939d9417f11b6d3d3b16f58e0c2ba148",
       "image": "ghcr.io/living-proof-labs/capability-verifier-hallway",
-      "digest": "sha256:762875820a5c17f639107c33fbc1fe458e6075368065b57e54d2a34a7bab9599"
+      "digest": "sha256:6eb0701bc9949d6b7e10bcc87aed8d66440bc29cb9088d74f20e2f2d59ca68a7"
     },
     "reporter": {
       "repository": "Living-Proof-Labs/livingproof-capability-report",
@@ -72,8 +72,8 @@
   "evaluators": {
     "livingproof-evaluator-scenario": {
       "repository": "Living-Proof-Labs/livingproof-evaluator-scenario",
-      "tag": "v1.3.0",
-      "commit": "965629ab1e9508cb3090931abbae6a957bf5d294"
+      "tag": "v1.5.0",
+      "commit": "3fab127372208b92c532bbd880aa10ae275f7565"
     },
     "livingproof-evaluator-run": {
       "repository": "Living-Proof-Labs/livingproof-evaluator-run",

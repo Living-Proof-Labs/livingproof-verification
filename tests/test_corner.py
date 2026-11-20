@@ -30,8 +30,8 @@ WORKFLOW = ROOT / ".github/workflows/verify.yml"
 VERIFIER = "Living-Proof-Labs/capability-verifier"
 
 # Released tags, resolved once by hand (git ls-remote) and recorded here.
-VERIFIER_RELEASE = ("v2.8.0", "7ebde8b4ca03d51cfac22a87bf2f49e4b25a6677")
-EVALUATOR_RELEASE = ("v1.3.0", "965629ab1e9508cb3090931abbae6a957bf5d294")
+VERIFIER_RELEASE = ("v2.10.1", "e25fa996939d9417f11b6d3d3b16f58e0c2ba148")
+EVALUATOR_RELEASE = ("v1.5.0", "3fab127372208b92c532bbd880aa10ae275f7565")
 # The first reporter release whose HTML step card writes out corner-turned's list of
 # places (livingproof-capability-report#79, 3453a14). v3.10.1 fails with
 # "float() argument must be a string or a real number, not 'list'".
@@ -73,6 +73,7 @@ SPECS = {
 # first release that records the scenario parameters digest (livingproof-sim-mujoco#104).
 SIM_3_6_2 = ("v3.6.2", "988a57bdb54654aac57aa4de0574d62914074fd0")
 SIM_3_6_4 = ("v3.6.4", "36e93e30f74315a753658e6d0a55af128301338b")
+SIM_3_7_4 = ("v3.7.4", "91890b7ecc3a5203670177d344dbb84cbc2a0ebc")
 FIRST_SIM_WITH_PARAMETERS_DIGEST = (3, 5, 0)
 # Frozen hallway robot refs; eligible corners have their own release expectations below.
 # Commits independently read from the released tags.
@@ -93,24 +94,24 @@ HALLWAY_ROBOT_REFS = {
 CORNER = {
     "unitree-g1-stock-mujoco-corner": {
         "repository": "Living-Proof-Labs/livingproof-unitree-g1",
-        "ref": "v2.3.13",
-        "commit": "aa10b46f7e0480065d86edc909828d93da4b4a3a",
+        "ref": "v2.3.18",
+        "commit": "379a20e29caf136414ca3413e7244a73a0298290",
         "configurations": ["stock"],
-        "runner": SIM_3_6_4,
+        "runner": SIM_3_7_4,
     },
     "booster-t1-stock-mujoco-corner": {
         "repository": "Living-Proof-Labs/livingproof-booster-t1",
-        "ref": "v2.3.5",
-        "commit": "56f6051fd9ee9fdb17f609bf559b7efc8220088a",
+        "ref": "v2.3.13",
+        "commit": "eefadce5bb8692bee7052912f4a807a33e022c0e",
         "configurations": ["stock"],
-        "runner": SIM_3_6_2,
+        "runner": SIM_3_7_4,
     },
     "unitree-go1-playground-mujoco-corner": {
         "repository": "Living-Proof-Labs/livingproof-unitree-go1",
-        "ref": "v2.3.5",
-        "commit": "fe48f8bda30aa0a65bd01b06107fc76874195f35",
+        "ref": "v2.3.13",
+        "commit": "5f4cdd048cedb6e51e830f2f703056da2fb86fdf",
         "configurations": ["playground"],
-        "runner": SIM_3_6_2,
+        "runner": SIM_3_7_4,
     },
 }
 CORNER = {
