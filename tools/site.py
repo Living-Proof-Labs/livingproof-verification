@@ -2186,6 +2186,7 @@ a:focus-visible, button:focus-visible, summary:focus-visible, input:focus-visibl
   justify-content: center;
   min-height: 1.7rem;
   padding: 0 0.7rem;
+  border: 2px solid transparent;
   border-radius: 999px;
   font-size: 0.75rem;
   font-weight: 600;
@@ -2200,6 +2201,7 @@ a:focus-visible, button:focus-visible, summary:focus-visible, input:focus-visibl
 .theme label:has(input:checked) {
   background: rgba(14, 135, 133, 0.35);
   color: #fff;
+  border-color: var(--header-text);
 }
 .theme label:hover { color: #fff; }
 .theme label:focus-within {

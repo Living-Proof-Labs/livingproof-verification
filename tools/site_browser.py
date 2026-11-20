@@ -406,6 +406,53 @@ def check_viewport(browser, url, output, width, height, result, destinations):
         context.close()
 
 
+def checked_indicator_contrast(label):
+    """Conservative contrast against both sides of the checked border.
+
+    Composite each radial-gradient endpoint over the masthead, then the theme
+    fieldset and selected fill. The brightest endpoint bounds every interpolated
+    background under this light indicator, without assuming its screen position.
+    """
+    expect(label).to_have_css("border-top-style", "solid")
+    expect(label).to_have_css("border-top-width", "2px")
+    colors = label.evaluate("""e => {
+        const selected = getComputedStyle(e);
+        const fieldset = getComputedStyle(e.closest('.theme'));
+        const header = getComputedStyle(e.closest('.masthead'));
+        return [selected.borderTopColor, selected.backgroundColor,
+                fieldset.backgroundColor, header.backgroundColor, header.backgroundImage];
+    }""")
+
+    def rgba(value):
+        parts = [float(x) for x in re.findall(r"[\d.]+", value)]
+        return parts if len(parts) == 4 else [*parts, 1.0]
+
+    def over(foreground, background):
+        return [
+            foreground[i] * foreground[3] + background[i] * (1 - foreground[3]) for i in range(3)
+        ] + [1.0]
+
+    def luminance(color):
+        linear = [
+            x / 255 / 12.92 if x / 255 <= 0.04045 else ((x / 255 + 0.055) / 1.055) ** 2.4
+            for x in color[:3]
+        ]
+        return sum(x * weight for x, weight in zip(linear, (0.2126, 0.7152, 0.0722)))
+
+    border, fill, fieldset, base = map(rgba, colors[:4])
+    assert border[3] == 1, "checked border must remain opaque after blur"
+    stops = re.findall(r"rgba?\([^)]+\)", colors[4])
+    assert stops, "masthead gradient endpoints must be included in contrast measurement"
+    ratios = []
+    for stop in stops:
+        outside = over(fieldset, over(rgba(stop), base))
+        inside = over(fill, outside)
+        for background in (outside, inside):
+            light, dark = sorted((luminance(border), luminance(background)), reverse=True)
+            ratios.append((light + 0.05) / (dark + 0.05))
+    return min(ratios)
+
+
 def check_themes(browser, url, output, results):
     """#179: verify OS dark/light mode, Light/Dark switch, 320px layout, and light print."""
     history_url = url + "unitree-g1/stock-mujoco-hallway/"
@@ -447,37 +494,74 @@ def check_themes(browser, url, output, results):
             finally:
                 context.close()
 
-    # Manual Light/Dark override without JavaScript, plus print stays light
-    context = browser.new_context(viewport={"width": 1280, "height": 800}, color_scheme="dark")
-    page = context.new_page()
-    page.set_default_timeout(10000)
-    try:
-        page.goto(url)
-        expect(page.locator("body")).to_have_css("background-color", dark_bg)
-        page.locator("label:has(#theme-light)").click()
-        expect(page.locator("body")).to_have_css("background-color", light_bg)
-        page.locator("label:has(#theme-dark)").click()
-        expect(page.locator("body")).to_have_css("background-color", dark_bg)
+    # Exercise real CSS-only overrides on both pages, against the opposite OS theme.
+    theme_results["no_javascript"] = []
+    for scheme in ("light", "dark"):
+        for width, height in ((1280, 800), (320, 720)):
+            context = browser.new_context(
+                viewport={"width": width, "height": height},
+                color_scheme=scheme,
+                java_script_enabled=False,
+            )
+            page = context.new_page()
+            page.set_default_timeout(10000)
+            try:
+                for name, address, surface in (
+                    ("index", url, ".card"),
+                    ("history", history_url, ".row"),
+                ):
+                    page.goto(address)
+                    measurements = []
+                    for choice in ("light", "dark", "system"):
+                        selected = page.locator(f"label:has(#theme-{choice})")
+                        selected.click()
+                        effective = scheme if choice == "system" else choice
+                        expect(page.locator("body")).to_have_css(
+                            "background-color", light_bg if effective == "light" else dark_bg
+                        )
+                        expect(page.locator(surface).first).to_have_css(
+                            "background-color",
+                            light_surface if effective == "light" else dark_surface,
+                        )
+                        # Tab out of the radio group: selection must remain apparent
+                        # without relying on either hover or the keyboard-focus outline.
+                        page.keyboard.press("Tab")
+                        page.mouse.move(0, height - 1)
+                        expect(page.locator(".theme:focus-within")).to_have_count(0)
+                        expect(selected).to_have_css("outline-style", "none")
+                        ratio = checked_indicator_contrast(selected)
+                        assert ratio >= 3, f"{name}/{scheme}/{choice}: checked contrast {ratio}"
+                        measurements.append({"choice": choice, "contrast": round(ratio, 2)})
+                        assert not page.evaluate(
+                            "document.documentElement.scrollWidth > innerWidth"
+                        ), f"{name} overflowed at {width} in {choice}"
+                        page.screenshot(
+                            path=output / f"theme-nojs-{width}-{name}-{scheme}-{choice}.png"
+                        )
+                        # Shift-Tab back into the group verifies a separate focus ring.
+                        page.keyboard.press("Shift+Tab")
+                        expect(selected).to_have_css("outline-style", "solid")
+                        expect(selected).to_have_css("outline-width", "3px")
+                        assert selected.evaluate(
+                            "e => getComputedStyle(e).outlineColor !== "
+                            "getComputedStyle(e).borderTopColor"
+                        )
+                    page.locator("label:has(#theme-dark)").click()
+                    page.emulate_media(media="print")
+                    expect(page.locator("body")).to_have_css("background-color", light_surface)
+                    expect(page.locator(surface).first).to_have_css(
+                        "background-color", light_surface
+                    )
+                    expect(page.locator(".theme")).to_be_hidden()
+                    page.screenshot(path=output / f"theme-{width}-{name}-{scheme}-print.png")
+                    page.emulate_media(media="screen")
+                    theme_results["no_javascript"].append(
+                        {"page": name, "os": scheme, "width": width, "checked": measurements}
+                    )
+            finally:
+                context.close()
+    theme_results["status"] = "passed"
 
-        # Print stays light even when OS is dark and Dark radio is checked
-        page.emulate_media(media="print")
-        expect(page.locator("body")).to_have_css("background-color", light_surface)
-        expect(page.locator(".card").first).to_have_css("background-color", light_surface)
-        expect(page.locator(".theme")).to_be_hidden()
-        page.screenshot(path=output / "theme-1280-index-print.png")
-
-        page.emulate_media(media="screen")
-        page.goto(history_url)
-        page.locator("label:has(#theme-dark)").click()
-        expect(page.locator("body")).to_have_css("background-color", dark_bg)
-        page.emulate_media(media="print")
-        expect(page.locator("body")).to_have_css("background-color", light_surface)
-        expect(page.locator(".row").first).to_have_css("background-color", light_surface)
-        expect(page.locator(".theme")).to_be_hidden()
-        page.screenshot(path=output / "theme-1280-history-print.png")
-        theme_results["status"] = "passed"
-    finally:
-        context.close()
     results["themes"] = theme_results
 
 
