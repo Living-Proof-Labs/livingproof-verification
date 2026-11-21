@@ -312,7 +312,8 @@ jobs:
     # and the evidence still publishes, so success() is replaced by !cancelled() plus the
     # explicit success of every verification job (what success() required before).
     if: >-
-      !cancelled() && github.ref == 'refs/heads/main' && (github.event_name == 'push' ||
+      !cancelled() && github.ref == 'refs/heads/main' &&
+      ((github.event_name == 'push' && needs.release.outputs.published == 'true') ||
       (github.event_name == 'workflow_dispatch' && inputs.reset-history)) &&
       needs.unitree-g1-stock-mujoco-hallway.result == 'success' &&
       needs.unitree-g1-playground-mujoco-hallway.result == 'success' &&
@@ -333,11 +334,20 @@ jobs:
     permissions:
       contents: read
       actions: read  # list and download the previous Pages artifact
+    env:
+      RELEASE_TAG: ${{ needs.release.outputs.git-tag }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
+          ref: ${{ needs.release.outputs.git-tag || github.sha }}
+          fetch-depth: 0
           persist-credentials: false
           fetch-tags: true  # the bundle tag tools/site.py resolves for this commit
+      - name: Require release tag to match the exact verified commit
+        if: needs.release.outputs.git-tag != ''
+        run: |
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse "${RELEASE_TAG}^{commit}")" = "$GITHUB_SHA"
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           pattern: '*-capability-report-*'
