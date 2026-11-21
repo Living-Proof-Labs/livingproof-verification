@@ -3720,6 +3720,39 @@ def test_print_styles_and_no_relative_time_markup():
     assert "setInterval" not in site_tool.INDEX_SCRIPT
 
 
+@pytest.mark.parametrize("owner", ["Living-Proof-Labs", "Another-Owner"])
+@pytest.mark.parametrize("url_form", [False, True])
+@pytest.mark.parametrize("suffix", ["", "/", ".git", ".git/"])
+def test_provenance_identity_preserves_owner_across_repository_forms(owner, url_form, suffix):
+    """#151: equal tag/commit and basename do not make different owners identical."""
+    generation = {
+        **spec_identity("v2.3.0", "0.1.0"),
+        "repository": "Living-Proof-Labs/robot-capability-specs",
+    }
+    repository = f"{owner}/robot-capability-specs"
+    assessment = {
+        **generation,
+        "repository": ("https://github.com/" if url_form else "") + repository + suffix,
+    }
+    record = {"releases": {"specs": generation}}
+    report = {"summaries": [{"spec": assessment}]}
+    stored = json.dumps([record, report], sort_keys=True)
+    markup = "<main><p>Reporter-owned content</p></main>"
+    public = site_tool.with_spec_provenance(markup, record, report)
+    block = provenance_block(public)
+    labels = re.findall(r"<dt[^>]*>(.*?)</dt>", block)
+    if owner == "Living-Proof-Labs":
+        assert labels == ["Generation and assessment"]
+    else:
+        assert labels == ["Generation", "Assessment"]
+        assert "Living-Proof-Labs/robot-capability-specs" in visible_text(block)
+        assert f'href="{SPECS_REPOSITORY}/releases/tag/v2.3.0"' in block
+    assert repository in visible_text(block)
+    assert f'href="https://github.com/{repository}/releases/tag/v2.3.0"' in block
+    assert public.replace(block, "") == markup
+    assert json.dumps([record, report], sort_keys=True) == stored
+
+
 def test_migrate_legacy_reports_moves_old_layout_into_reports_once(tmp_path):
     """#180: restore maps legacy <robot>/<variant>/runs/... into reports/ once."""
     site = tmp_path / "site"
