@@ -40,7 +40,6 @@ drops those runs.
 
 import argparse
 from datetime import datetime, timedelta, timezone
-from zoneinfo import ZoneInfo
 import hashlib
 import html
 import http.client
@@ -110,7 +109,6 @@ COMMIT_SHA = re.compile(r"[0-9a-f]{40}")
 MARKER = "site.json"  # written by every build; its presence on the live site means history
 REPORTS_DIR = "reports"  # reports index, history and runs live under reports/ (#180)
 DOCS_HOME_URL = "https://docs.livingprooflabs.com/"
-LOCAL_TZ = ZoneInfo("Australia/Sydney")  # tooltip dates on the public site (#129)
 
 
 class SiteError(Exception):
@@ -2570,6 +2568,7 @@ a.release:hover { color: var(--link); text-decoration: underline; }
   gap: 0.65rem 0.85rem;
   align-items: start;
 }
+.row-top > div { min-width: 0; }
 .row-meta {
   display: flex;
   flex-wrap: wrap;
@@ -2624,7 +2623,7 @@ a.release:hover { color: var(--link); text-decoration: underline; }
 .robot[open] .robot-body { padding: 0 0.7rem 0.15rem; }
 .summary-row {
   display: grid;
-  grid-template-columns: auto minmax(16rem, 1.15fr) minmax(8rem, 1fr) auto;
+  grid-template-columns: auto minmax(16rem, 22rem) minmax(8rem, 1fr) auto;
   align-items: center;
   column-gap: 0.85rem;
   row-gap: 0.3rem;
@@ -2695,14 +2694,40 @@ a.release:hover { color: var(--link); text-decoration: underline; }
   flex: none;
 }
 .robot-body { padding: 0 0 0.2rem; }
+time { white-space: nowrap; }
+@media (max-width: 900px) {
+  .summary-row {
+    grid-template-columns: auto 1fr auto;
+    grid-template-areas:
+      "chevron ident ident"
+      "dots    dots    meta";
+    align-items: center;
+    column-gap: 0.55rem;
+    row-gap: 0.35rem;
+  }
+  .chevron { grid-area: chevron; align-self: start; margin-top: 0.28rem; }
+  .summary-id { grid-area: ident; flex: none; min-width: 0; display: flex; }
+  .dots { grid-area: dots; max-width: 100%; }
+  .meta-latest { grid-area: meta; justify-self: end; text-align: right; }
+}
 @media (max-width: 720px) {
   .entry-main, .row-top {
-    grid-template-columns: auto 1fr;
+    grid-template-columns: auto minmax(0, 1fr);
   }
   .entry-side {
     grid-column: 2;
+    min-width: 0;
+    max-width: 100%;
     text-align: left;
     align-items: flex-start;
+  }
+  .side-meta { max-width: 100%; }
+  .side-meta > .dot, .meta-latest > .dot { display: none; }
+  .side-meta time, .meta-latest time { display: block; }
+  .meta-latest {
+    white-space: normal;
+    min-width: 0;
+    max-width: 100%;
   }
   .chips, .entry-body .chips { justify-content: flex-start; }
   .links a { margin-left: 0; }
@@ -2720,19 +2745,23 @@ a.release:hover { color: var(--link); text-decoration: underline; }
   }
   .masthead h1 { font-size: 1.4rem; }
   .wrap { width: min(72rem, 100% - 1.5rem); }
-  .summary-row {
-    grid-template-columns: auto 1fr auto;
-    grid-template-areas:
-      "chevron ident ident"
-      "dots    dots    meta";
-    align-items: center;
-    column-gap: 0.55rem;
-    row-gap: 0.35rem;
+  .row-meta { font-size: 0.82rem; }
+  .row-meta .dot { margin: 0 0.22rem; }
+}
+@media print {
+  body { background: #ffffff; }
+  .masthead {
+    background: none;
+    color: var(--text);
+    border-bottom: 2px solid var(--border-strong);
   }
-  .chevron { grid-area: chevron; align-self: start; margin-top: 0.28rem; }
-  .summary-id { grid-area: ident; flex: none; min-width: 0; display: flex; }
-  .dots { grid-area: dots; max-width: 100%; }
-  .meta-latest { grid-area: meta; justify-self: end; }
+  .eyebrow, .lede a, .crumb a, .meta-line a { color: var(--link); }
+  .lede, .meta-line, .meta-line .quiet { color: var(--text-muted); }
+  .card, .row, .robot > summary, .robot[open] { box-shadow: none; }
+  .badge, .pip, .chip, .finding {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
 }
 @media screen and (max-width: 720px) {
   .masthead:has(.crumb) .masthead-inner { padding: 0.75rem 0 0.85rem; }
@@ -2790,6 +2819,7 @@ THEME_SWITCH = (
 
 INDEX_SCRIPT = """// Open a robot section when the URL hash is its id (e.g. #unitree-g1).
 // Truncate the scenario-dot strip to one line and show +n when dots don't fit.
+// Format <time datetime> elements in the viewer's timezone while keeping the UTC fallback.
 (function () {
   function hashId() {
     try {
@@ -2813,6 +2843,100 @@ INDEX_SCRIPT = """// Open a robot section when the URL hash is its id (e.g. #uni
     if (!details.id) return;
     const next = details.open ? "#" + details.id : location.pathname + location.search;
     history.replaceState(null, "", next);
+  }
+
+  function formatLocalTime(iso) {
+    const ms = Date.parse(iso);
+    if (!Number.isFinite(ms) || typeof Intl === "undefined" || !Intl.DateTimeFormat) {
+      return "";
+    }
+    try {
+      const date = new Date(ms);
+      const dateFmt = new Intl.DateTimeFormat("en-GB", {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        hourCycle: "h23",
+      });
+      const parts = {};
+      for (const part of dateFmt.formatToParts(date)) {
+        parts[part.type] = part.value;
+      }
+      if (!parts.day || !parts.month || !parts.year || !parts.hour || !parts.minute) {
+        return "";
+      }
+      let zone = "";
+      try {
+        const tzFmt = new Intl.DateTimeFormat(undefined, { timeZoneName: "short" });
+        const tzPart = tzFmt.formatToParts(date).find((p) => p.type === "timeZoneName");
+        if (tzPart && tzPart.value) zone = tzPart.value;
+      } catch {
+        zone = "";
+      }
+      if (!zone) {
+        const offsetMin = -date.getTimezoneOffset();
+        if (offsetMin === 0) {
+          zone = "UTC";
+        } else {
+          const sign = offsetMin >= 0 ? "+" : "-";
+          const abs = Math.abs(offsetMin);
+          const hh = String(Math.floor(abs / 60)).padStart(2, "0");
+          const mm = String(abs % 60).padStart(2, "0");
+          zone = mm === "00" ? "UTC" + sign + hh : "UTC" + sign + hh + ":" + mm;
+        }
+      }
+      return (
+        parts.day +
+        " " +
+        parts.month +
+        " " +
+        parts.year +
+        ", " +
+        parts.hour +
+        ":" +
+        parts.minute +
+        " " +
+        zone
+      );
+    } catch {
+      return "";
+    }
+  }
+
+  function updateTimeElement(el) {
+    if (el.getAttribute("data-utc") === null) {
+      el.setAttribute("data-utc", (el.textContent || "").trim());
+    }
+    const iso = el.getAttribute("datetime") || "";
+    const formatted = formatLocalTime(iso);
+    if (!formatted) return false;
+    if ((el.textContent || "").trim() === formatted && el.getAttribute("title") === formatted) {
+      return false;
+    }
+    el.textContent = formatted;
+    el.setAttribute("title", formatted);
+    return true;
+  }
+
+  function updateSummaryLabel(summary) {
+    const sr = summary.querySelector(".visually-hidden");
+    const timeEl = summary.querySelector(".meta-latest time[datetime]");
+    if (!sr || !timeEl) return;
+    const formatted = (timeEl.textContent || "").trim();
+    if (!formatted) return;
+    let prefix = sr.getAttribute("data-sr-prefix");
+    if (prefix === null) {
+      const initial = timeEl.getAttribute("data-utc") || formatted;
+      const current = (sr.textContent || "").trim();
+      const suffix = ", " + initial;
+      prefix = current.endsWith(suffix)
+        ? current.slice(0, current.length - suffix.length)
+        : current;
+      sr.setAttribute("data-sr-prefix", prefix);
+    }
+    sr.textContent = prefix + ", " + formatted;
   }
 
   function fitDots(strip) {
@@ -2841,6 +2965,17 @@ INDEX_SCRIPT = """// Open a robot section when the URL hash is its id (e.g. #uni
     document.querySelectorAll(".dots").forEach(fitDots);
   }
 
+  function updateTimes() {
+    let changed = false;
+    document.querySelectorAll("time[datetime]").forEach((el) => {
+      if (updateTimeElement(el)) changed = true;
+    });
+    document.querySelectorAll("details.robot > summary").forEach((summary) => {
+      updateSummaryLabel(summary);
+    });
+    if (changed) fitAll();
+  }
+
   document.querySelectorAll("details.robot").forEach((d) => {
     d.addEventListener("toggle", () => {
       if (d.open || hashId() === d.id) setHashFor(d);
@@ -2849,6 +2984,7 @@ INDEX_SCRIPT = """// Open a robot section when the URL hash is its id (e.g. #uni
 
   function start() {
     openFromHash();
+    updateTimes();
     fitAll();
     if (document.fonts && document.fonts.ready) {
       document.fonts.ready.then(fitAll);
@@ -2939,37 +3075,16 @@ def _badge_html(grade: str) -> str:
     return f'<span class="badge {cls}">{html.escape(_badge_label(grade))}</span>'
 
 
-def _relative_time_text(created: str, now: str) -> tuple[str, str]:
+def _utc_time_text(created: str) -> str:
     created_dt = _stamp(created)
-    now_dt = _stamp(now) if now else created_dt
-    seconds = max(0, int((now_dt - created_dt).total_seconds()))
-    if seconds < 60:
-        relative = "just now"
-    elif seconds < 3600:
-        minutes = seconds // 60
-        suffix = "s" if minutes != 1 else ""
-        relative = f"{minutes} minute{suffix} ago"
-    elif seconds < 86400:
-        hours = seconds // 3600
-        suffix = "s" if hours != 1 else ""
-        relative = f"{hours} hour{suffix} ago"
-    elif seconds < 172800:
-        relative = "yesterday"
-    elif seconds < 30 * 86400:
-        days = seconds // 86400
-        relative = f"{days} days ago"
-    else:
-        relative = f"{created_dt.day} {created_dt.strftime('%b %Y')}"
-    local = created_dt.astimezone(LOCAL_TZ)
-    tooltip = f"{local.day} {local.strftime('%b %Y, %H:%M %Z')}"
-    return relative, tooltip
+    return f"{created_dt.day} {created_dt.strftime('%b %Y, %H:%M')} UTC"
 
 
-def _relative_time_html(created: str, now: str) -> str:
-    relative, tooltip = _relative_time_text(created, now)
+def _time_html(created: str) -> str:
+    utc_text = _utc_time_text(created)
     return (
         f'<time datetime="{html.escape(created, quote=True)}" '
-        f'title="{html.escape(tooltip, quote=True)}">{html.escape(relative)}</time>'
+        f'title="{html.escape(utc_text, quote=True)}">{html.escape(utc_text)}</time>'
     )
 
 
@@ -3206,17 +3321,17 @@ def _history_page_html(
     robot: str,
     variant: str,
     records: list[dict],
-    now: str,
+    now: str = "",
     reports: dict | None = None,
     robot_tags: dict | None = None,
 ) -> str:
+    del now  # timestamps render canonical UTC dates; browser formats viewer timezone (#163)
     newest = records[0]
     robot_title = _robot_title(robot)
     scenario_title = _scenario_title(newest, variant)
     subtitle = _variant_subtitle(newest, variant)
     count = len(records)
     plural = "s" if count != 1 else ""
-    ref_now = now or newest["run"]["created"]
     releases = " · ".join(
         f"{html.escape(name)} {a(release['url'], release['tag'])}"
         for name, release in newest["releases"].items()
@@ -3290,7 +3405,7 @@ def _history_page_html(
             '<div class="row-meta">'
             f"{_release_html(record)}"
             '<span class="dot">·</span>'
-            f"{_relative_time_html(record['run']['created'], ref_now)}"
+            f"{_time_html(record['run']['created'])}"
             '<span class="dot">·</span>'
             f'<span class="poster">{html.escape(poster_name)}</span>'
             '<span class="dot">·</span>'
@@ -3308,6 +3423,7 @@ def _history_page_html(
         "Skip to history",
         masthead,
         main_body,
+        script_href="../../open.js",
     )
 
 
@@ -3315,7 +3431,6 @@ def _index_card_html(
     robot: str,
     variant: str,
     records: list[dict],
-    ref_now: str,
     *,
     include_robot: bool,
 ) -> str:
@@ -3347,7 +3462,7 @@ def _index_card_html(
         "</div>"
         '<div class="entry-side">'
         f'<div class="side-meta">{_release_html(newest, linked=False)}'
-        f'<span class="dot">·</span>{_relative_time_html(newest["run"]["created"], ref_now)}</div>'
+        f'<span class="dot">·</span>{_time_html(newest["run"]["created"])}</div>'
         f'<div class="links"><a class="history-link" href="{html.escape(history_href, quote=True)}">'
         f"History ({len(records)})</a></div>"
         "</div>"
@@ -3356,13 +3471,13 @@ def _index_card_html(
     )
 
 
-def _index_page_html(history: dict, now: str) -> str:
+def _index_page_html(history: dict, now: str = "") -> str:
+    del now  # timestamps render canonical UTC dates; browser formats viewer timezone (#163)
     grouped: dict[str, list[tuple[str, list[dict]]]] = {}
     all_latest: list[dict] = []
     for (robot, variant), records in sorted(history.items()):
         grouped.setdefault(robot, []).append((variant, records))
         all_latest.append(records[0])
-    ref_now = now or max((r["run"]["created"] for r in all_latest), default="")
     total_count = len(all_latest)
 
     failed_entries = [
@@ -3386,7 +3501,7 @@ def _index_page_html(history: dict, now: str) -> str:
         failed_count = len(failed_entries)
         noun = "result" if failed_count == 1 else "results"
         needs_cards = [
-            _index_card_html(robot, variant, records, ref_now, include_robot=True)
+            _index_card_html(robot, variant, records, include_robot=True)
             for robot, variant, records in failed_entries
         ]
         needs_html = (
@@ -3477,19 +3592,19 @@ def _index_page_html(history: dict, now: str) -> str:
                 f'<span class="pip {pip_cls}" '
                 f'title="{html.escape(f"{scenario_title}: {pip_status}", quote=True)}"></span>'
             )
-            cards.append(_index_card_html(robot, variant, records, ref_now, include_robot=False))
+            cards.append(_index_card_html(robot, variant, records, include_robot=False))
 
         latest_record = max(
             (recs[0] for _, recs in ordered),
             key=lambda r: (r["run"]["created"], r.get("folder", "")),
         )
         latest_rel = _release_label(latest_record)
-        latest_time_text, _ = _relative_time_text(latest_record["run"]["created"], ref_now)
+        latest_time_text = _utc_time_text(latest_record["run"]["created"])
         sr_label = f"{robot_title}, {', '.join(sr_parts)}, latest {latest_rel}, {latest_time_text}"
         meta_latest = (
             f"{_release_html(latest_record, linked=False)}"
             '<span class="dot">·</span>'
-            f"{_relative_time_html(latest_record['run']['created'], ref_now)}"
+            f"{_time_html(latest_record['run']['created'])}"
         )
         robot_sections.append(
             f'<details class="robot" id="{html.escape(robot, quote=True)}">'
