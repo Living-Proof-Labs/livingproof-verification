@@ -8,7 +8,7 @@ scenario = "walk-corner-left@0.2.0"
 
 [robot]
 repository = "Living-Proof-Labs/livingproof-unitree-go1"
-ref = "v2.3.5"
+ref = "v2.3.13"
 configurations = ["playground"]
 
 [world]

@@ -99,7 +99,9 @@ def local_links_resolve(site: Path):
             target = (page.parent / href).resolve()
             if href.endswith("/"):
                 target = target / "index.html"
-            assert target.is_file(), (page.relative_to(site), href)
+            if target == (site / "index.html").resolve() and not target.exists():
+                continue
+            assert target.is_file(), (page.relative_to(site / "reports"), href)
 
 
 def test_targets_follow_the_locks_and_the_workflow_artifact_names():
@@ -121,13 +123,13 @@ def test_second_run_updates_latest_and_keeps_the_first(tmp_path):
     site_tool.build(
         site, reports_for(tmp_path, "two", 19, "PASS"), run("200", "2026-11-03T06:00:00Z")
     )
-    base = site / "unitree-g1/stock-mujoco-hallway"
+    base = site / "reports/unitree-g1/stock-mujoco-hallway"
     assert (base / "runs/100/report.md").read_text() == "report.md 12"
     assert (base / "runs/200/report.md").read_text() == "report.md 19"
     assert not (base / "latest/report.md").exists()
     names = sorted(path.name for path in (base / "latest").rglob("*") if path.is_file())
     assert names == ["index.html"]
-    index = (site / "index.html").read_text()
+    index = (site / "reports/index.html").read_text()
     assert "PASS" in index and "History (2)" in index
     assert "19/20 passed" not in index
     history = (base / "index.html").read_text()
@@ -154,7 +156,7 @@ def test_published_history_names_the_verifier_and_reporter_releases(tmp_path):
     """The public history and run.json name both pinned releases (issue 62)."""
     settings = tomllib.loads((ROOT / "verifications/settings.toml").read_text())
     reporter_tag = settings["reporter"]["tag"]
-    assert reporter_tag == "v3.12.5"
+    assert reporter_tag == "v3.14.0"
     site = tmp_path / "site"
     site_tool.build(
         site, reports_for(tmp_path, "one", 12, "PASS"), run("100", "2026-11-02T06:00:00Z")
@@ -163,13 +165,17 @@ def test_published_history_names_the_verifier_and_reporter_releases(tmp_path):
         lock = json.loads((ROOT / "verifications" / f"{target['id']}.lock.json").read_text())
         verifier = lock["releases"]["verifier"]
         reporter = lock["releases"]["reporter"]
-        assert verifier["tag"] == "v2.7.5"
-        assert verifier["commit"] == "9e32d4759f5118b868d451757812c36ed8b883a5"
+        assert verifier["tag"] == "v2.10.3"
+        assert verifier["commit"] == "7968158f6820fb3e7430989f248664ce7ad65127"
         assert reporter["tag"] == reporter_tag
         assert reporter["repository"] == settings["reporter"]["repository"]
-        history = (site / target["robot"] / target["variant"] / "index.html").read_text()
+        history = (
+            site / "reports" / target["robot"] / target["variant"] / "index.html"
+        ).read_text()
         record = json.loads(
-            (site / target["robot"] / target["variant"] / "runs/100/run.json").read_text()
+            (
+                site / "reports" / target["robot"] / target["variant"] / "runs/100/run.json"
+            ).read_text()
         )
         for release in (verifier, reporter):
             link = f"{release['repository']}/releases/tag/{release['tag']}"
@@ -191,10 +197,10 @@ def test_index_and_history_show_ci_runs_as_text(tmp_path):
         site, reports_for(tmp_path, "two", 19, "PASS"), run("200-2", "2026-11-03T00:00:00Z")
     )
     actions = f"https://github.com/{REPO}/actions/runs/"
-    index = (site / "index.html").read_text()
+    index = (site / "reports/index.html").read_text()
     assert actions not in index
     assert "CI run" not in index
-    history = (site / "unitree-g1/stock-mujoco-hallway/index.html").read_text()
+    history = (site / "reports/unitree-g1/stock-mujoco-hallway/index.html").read_text()
     assert actions not in history
     assert "CI run" not in history
     for run_id in ("100", "200-2"):
@@ -249,12 +255,14 @@ def test_history_uses_the_reproducibility_statement_when_counts_are_null(tmp_pat
         reports_for_compared(tmp_path, "compared", "PASS", statement),
         run("100", "2026-11-15T01:15:48Z"),
     )
-    home = (site / "index.html").read_text()
-    history = (site / "unitree-g1/stock-mujoco-hallway/index.html").read_text()
+    home = (site / "reports/index.html").read_text()
+    history = (site / "reports/unitree-g1/stock-mujoco-hallway/index.html").read_text()
     for page in (home, history):
         assert "None/None passed (None needed)" not in page
         assert '<span class="badge badge-pass">PASS</span>' in page
-    record = json.loads((site / "unitree-g1/stock-mujoco-hallway/runs/100/run.json").read_text())
+    record = json.loads(
+        (site / "reports/unitree-g1/stock-mujoco-hallway/runs/100/run.json").read_text()
+    )
     assert statement in site_tool.outcome_cells(record)
 
 
@@ -285,8 +293,8 @@ def reports_for_summary(tmp_path: Path, name: str, summary: dict) -> Path:
 
 
 def history_and_index(site: Path) -> tuple[str, str]:
-    history = (site / "unitree-g1/stock-mujoco-hallway/index.html").read_text()
-    return history, (site / "index.html").read_text()
+    history = (site / "reports/unitree-g1/stock-mujoco-hallway/index.html").read_text()
+    return history, (site / "reports/index.html").read_text()
 
 
 def test_agreeing_repeats_preserve_the_statement_and_leave_counts_null(tmp_path):
@@ -304,7 +312,7 @@ def test_agreeing_repeats_preserve_the_statement_and_leave_counts_null(tmp_path)
         assert " passed (" not in page
         assert '<span class="badge badge-fail">FAIL</span>' in page
     for target in site_tool.targets():
-        folder = site / target["robot"] / target["variant"] / "runs" / "100"
+        folder = site / "reports" / target["robot"] / target["variant"] / "runs" / "100"
         record = json.loads((folder / "run.json").read_text())
         item = record["outcome"][0]
         assert item["statement"] == statement
@@ -328,7 +336,7 @@ def test_restored_history_reads_the_statement_from_report_json(tmp_path):
         reports_for_compared(tmp_path, "restored", "FAIL", statement),
         run("100", "2026-11-15T01:15:48Z"),
     )
-    for path in site.glob("*/*/runs/*/run.json"):
+    for path in site.glob("reports/*/*/runs/*/run.json"):
         record = json.loads(path.read_text())
         for item in record["outcome"]:
             item.pop("statement", None)
@@ -341,9 +349,9 @@ def test_restored_history_reads_the_statement_from_report_json(tmp_path):
         assert "None/None" not in page
         assert "counts not stored" not in page
         assert '<span class="badge badge-fail">FAIL</span>' in page
-    item = json.loads((site / "unitree-g1/stock-mujoco-hallway/runs/100/run.json").read_text())[
-        "outcome"
-    ][0]
+    item = json.loads(
+        (site / "reports/unitree-g1/stock-mujoco-hallway/runs/100/run.json").read_text()
+    )["outcome"][0]
     assert item["statement"] == statement
     assert item["passed"] is None and item["trials"] is None and item["required"] is None
 
@@ -382,7 +390,7 @@ def test_disagreeing_repeats_show_the_finding_and_keep_null_counts(tmp_path):
         assert "repeats agree" not in page
         assert " passed (" not in page
         assert '<span class="badge badge-warn">Insufficient evidence</span>' in page
-    folder = site / "unitree-g1/stock-mujoco-hallway/runs/100"
+    folder = site / "reports/unitree-g1/stock-mujoco-hallway/runs/100"
     item = json.loads((folder / "run.json").read_text())["outcome"][0]
     assert item["grade"] == "INSUFFICIENT_EVIDENCE"
     assert item["passed"] is None and item["trials"] is None and item["required"] is None
@@ -421,7 +429,7 @@ def test_legacy_null_counts_without_a_statement_say_counts_not_stored(tmp_path):
         reports_for_summary(tmp_path, "legacy", summary),
         run("100", "2026-11-15T01:15:48Z"),
     )
-    for path in site.glob("*/*/runs/*/run.json"):
+    for path in site.glob("reports/*/*/runs/*/run.json"):
         record = json.loads(path.read_text())
         for item in record["outcome"]:
             item["passed"] = None
@@ -437,7 +445,9 @@ def test_legacy_null_counts_without_a_statement_say_counts_not_stored(tmp_path):
         assert "None/None" not in page
         assert '<span class="badge badge-pass">PASS</span>' in page
         assert " passed (" not in page
-    record = json.loads((site / "unitree-g1/stock-mujoco-hallway/runs/100/run.json").read_text())
+    record = json.loads(
+        (site / "reports/unitree-g1/stock-mujoco-hallway/runs/100/run.json").read_text()
+    )
     assert LEGACY_COUNTS in site_tool.outcome_cells(record)
     item = record["outcome"][0]
     assert "statement" not in item and "finding" not in item
@@ -479,10 +489,10 @@ def test_seeded_and_single_trial_counts_still_render(tmp_path):
     assert '<span class="badge badge-fail">FAIL</span>' in index
     assert "counts not stored" not in history and "None/None" not in history
     single_run = json.loads(
-        (site / "unitree-g1/stock-mujoco-hallway/runs/100/run.json").read_text()
+        (site / "reports/unitree-g1/stock-mujoco-hallway/runs/100/run.json").read_text()
     )
     seeded_run = json.loads(
-        (site / "unitree-g1/stock-mujoco-hallway/runs/200/run.json").read_text()
+        (site / "reports/unitree-g1/stock-mujoco-hallway/runs/200/run.json").read_text()
     )
     assert (single_run["outcome"][0]["passed"], single_run["outcome"][0]["trials"]) == (1, 1)
     assert single_run["outcome"][0]["required"] == 1
@@ -647,7 +657,7 @@ def test_restore_then_build_keeps_history(tmp_path, monkeypatch):
     site_tool.build(
         restored, reports_for(tmp_path, "two", 19, "PASS"), run("200", "2026-11-03T06:00:00Z")
     )
-    base = restored / "unitree-g1/stock-mujoco-hallway"
+    base = restored / "reports/unitree-g1/stock-mujoco-hallway"
     assert sorted(p.name for p in (base / "runs").iterdir()) == ["100", "200"]
     latest = (base / "latest/index.html").read_text()
     assert "url=../runs/200/" in latest
@@ -817,7 +827,7 @@ def test_restore_succeeds_after_transient_503s(tmp_path, monkeypatch, capsys):
     assert f"attempt {len(failures) + 1}/{site_tool.DOWNLOAD_ATTEMPTS} succeeded" in log
     assert "Egress is over the account limit" in log and BLOB_URL in log
     assert "connection error" in log and "429" in log
-    report = restored / "unitree-g1/stock-mujoco-hallway/runs/100/report.md"
+    report = restored / "reports/unitree-g1/stock-mujoco-hallway/runs/100/report.md"
     assert report.read_text() == "report.md 12"
 
 
@@ -1070,7 +1080,7 @@ def test_linked_evidence_is_copied_with_its_identity(tmp_path):
         evidence=evidence,
         artifacts=artifacts,
     )
-    folder = site / "unitree-g1/stock-mujoco-hallway/runs/7"
+    folder = site / "reports/unitree-g1/stock-mujoco-hallway/runs/7"
     record = json.loads((folder / "run.json").read_text())
     mcap, video = record["evidence"]
     assert mcap["preserved"] and mcap["artifact"]["id"] == "101"
@@ -1088,7 +1098,7 @@ def test_linked_evidence_is_copied_with_its_identity(tmp_path):
     page = (folder / "index.html").read_text()
     assert f'href="{ART}/101"' not in page
     assert "artifact" not in page.lower()
-    assert not (site / "unitree-g1/stock-mujoco-hallway/latest" / "evidence").exists()
+    assert not (site / "reports/unitree-g1/stock-mujoco-hallway/latest" / "evidence").exists()
     local_links_resolve(site)
 
 
@@ -1137,7 +1147,7 @@ def test_a_2_0_0_trial_model_report_is_labelled_trial(tmp_path):
         evidence=evidence,
         artifacts=artifacts,
     )
-    folder = site / "unitree-g1/stock-mujoco-hallway/runs/7"
+    folder = site / "reports/unitree-g1/stock-mujoco-hallway/runs/7"
     record = json.loads((folder / "run.json").read_text())
     video = next(e for e in record["evidence"] if e.get("kind") == "video")
     assert (video["seed"], video["status"]) == (1, "PASS")
@@ -1155,7 +1165,7 @@ def test_a_2_0_0_trial_model_report_is_labelled_trial(tmp_path):
     assert "seed 4 (FAIL)" not in page
     assert "artifact" not in page.lower()
     assert not (folder / "report.html.orig").exists()
-    latest = (site / "unitree-g1/stock-mujoco-hallway/latest/index.html").read_text()
+    latest = (site / "reports/unitree-g1/stock-mujoco-hallway/latest/index.html").read_text()
     assert "url=../runs/7/" in latest and "trial 1" not in latest
     local_links_resolve(site)
 
@@ -1189,7 +1199,7 @@ def test_a_v3_3_report_that_already_says_trial_is_not_labelled_twice(tmp_path):
         evidence=evidence,
         artifacts=artifacts,
     )
-    folder = site / "unitree-g1/stock-mujoco-hallway/runs/7"
+    folder = site / "reports/unitree-g1/stock-mujoco-hallway/runs/7"
     page = (folder / "index.html").read_text()
     assert "trial trial" not in page
     assert "seed 1 (PASS)" not in page and "seed 4 (FAIL)" not in page
@@ -1216,13 +1226,13 @@ def test_expired_actions_artifacts_are_labelled_not_linked(tmp_path):
     )
     # Thirty-one days later the copies are past the retention setting.
     site_tool.build(site, reports_for(tmp_path, "r2", 15, "FAIL"), run("8", "2026-12-03T00:00:00Z"))
-    folder = site / "unitree-g1/stock-mujoco-hallway/runs/7"
+    folder = site / "reports/unitree-g1/stock-mujoco-hallway/runs/7"
     page = (folder / "index.html").read_text()
     assert ART not in page and "artifact" not in page.lower()
     assert f'href="evidence/{PREFIX}-mcap-stock/trials.mcap"' not in page
     assert not (folder / f"evidence/{PREFIX}-mcap-stock/trials.mcap").exists()
     assert (folder / "run.json").is_file() and (folder / "report.json").is_file()
-    newer = site / "unitree-g1/stock-mujoco-hallway/runs/8"
+    newer = site / "reports/unitree-g1/stock-mujoco-hallway/runs/8"
     assert not (newer / "evidence").exists()
     local_links_resolve(site)
 
@@ -1239,7 +1249,7 @@ def test_evidence_not_downloaded_or_over_budget_is_listed_unpreserved(tmp_path, 
         evidence=evidence,
         artifacts=artifacts,
     )
-    folder = site / "unitree-g1/stock-mujoco-hallway/runs/7"
+    folder = site / "reports/unitree-g1/stock-mujoco-hallway/runs/7"
     mcap, video = json.loads((folder / "run.json").read_text())["evidence"]
     assert not mcap["preserved"] and mcap["reason"].startswith("not downloaded")
     assert not video["preserved"] and "budget" in video["reason"]
@@ -1327,7 +1337,7 @@ def publish_with_links(tmp_path: Path) -> Path:
 def test_published_report_links_evidence_to_the_site_copies(tmp_path):
     site = publish_with_links(tmp_path)
     source = tmp_path / "r1" / f"{PREFIX}-capability-report-stock"
-    folder = site / "unitree-g1/stock-mujoco-hallway/runs/7"
+    folder = site / "reports/unitree-g1/stock-mujoco-hallway/runs/7"
     html = (folder / "index.html").read_text()
     assert f"<a href='evidence/{PREFIX}-mcap-stock/trials.mcap'>MCAP, all 20 trials</a>" in html
     assert (
@@ -1345,7 +1355,7 @@ def test_published_report_links_evidence_to_the_site_copies(tmp_path):
     )
     assert "report.html.orig" not in sums
     assert sums["report.html"] == hashlib.sha256((folder / "report.html").read_bytes()).hexdigest()
-    latest = site / "unitree-g1/stock-mujoco-hallway/latest"
+    latest = site / "reports/unitree-g1/stock-mujoco-hallway/latest"
     assert not (latest / "report.html").exists()
     assert not (latest / "report.html.orig").exists()
     local_links_resolve(site)
@@ -1361,7 +1371,7 @@ def test_no_published_page_links_to_github_actions(tmp_path):
         text = page.read_text()
         assert not artifact_anchors(text), page
         assert "artifact" not in text.lower()
-    assert (site / "unitree-g1/stock-mujoco-hallway/runs/7/report.json").is_file()
+    assert (site / "reports/unitree-g1/stock-mujoco-hallway/runs/7/report.json").is_file()
 
 
 def test_the_build_refuses_a_site_that_links_to_github_actions(tmp_path, monkeypatch):
@@ -1377,19 +1387,19 @@ def test_the_build_refuses_a_site_that_links_to_github_actions(tmp_path, monkeyp
             site, reports_for(tmp_path, "r1", 12, "FAIL"), run("7", "2026-11-02T00:00:00Z")
         )
     pages = tmp_path / "pages"
-    pages.mkdir()
-    (pages / "page.html").write_text("<p>CI run 101, commit abc, sha256 deadbeef</p>")
+    (pages / "reports").mkdir(parents=True)
+    (pages / "reports/page.html").write_text("<p>CI run 101, commit abc, sha256 deadbeef</p>")
     assert site_tool.public_page_problems(pages) == []
-    (pages / "page.html").write_text("<p>Actions artifact 101</p>")
-    assert site_tool.public_page_problems(pages) == ["page.html mentions an artifact"]
-    (pages / "page.html").write_text(f"<a href='{ART}/101'>x</a>")
-    assert site_tool.actions_links(pages) == ["page.html"]
+    (pages / "reports/page.html").write_text("<p>Actions artifact 101</p>")
+    assert site_tool.public_page_problems(pages) == ["reports/page.html mentions an artifact"]
+    (pages / "reports/page.html").write_text(f"<a href='{ART}/101'>x</a>")
+    assert site_tool.actions_links(pages) == ["reports/page.html"]
 
 
 def test_published_report_drops_the_actions_link_once_expired(tmp_path):
     site = publish_with_links(tmp_path)
     site_tool.build(site, reports_for(tmp_path, "r2", 15, "FAIL"), run("8", "2026-12-03T00:00:00Z"))
-    folder = site / "unitree-g1/stock-mujoco-hallway/runs/7"
+    folder = site / "reports/unitree-g1/stock-mujoco-hallway/runs/7"
     html = (folder / "index.html").read_text()
     assert not artifact_anchors(html)
     assert f"<a href='evidence/{PREFIX}-mcap-stock/trials.mcap'>" not in html
@@ -1405,7 +1415,7 @@ def test_published_report_drops_the_actions_link_once_expired(tmp_path):
 def test_a_report_without_artifact_links_is_published_unchanged(tmp_path):
     site = tmp_path / "site"
     site_tool.build(site, reports_for(tmp_path, "r1", 12, "FAIL"), run("7", "2026-11-02T00:00:00Z"))
-    folder = site / "unitree-g1/stock-mujoco-hallway/runs/7"
+    folder = site / "reports/unitree-g1/stock-mujoco-hallway/runs/7"
     assert (folder / "report.html").read_text() == "report.html 12"
     assert not (folder / "report.html.orig").exists()
     assert "report.html.orig" not in (folder / "index.html").read_text()
@@ -1428,7 +1438,7 @@ def test_the_all_trials_mcap_link_opens_a_listing_of_every_trial(tmp_path):
         evidence=evidence,
         artifacts=artifacts,
     )
-    folder = site / "unitree-g1/stock-mujoco-hallway/runs/7"
+    folder = site / "reports/unitree-g1/stock-mujoco-hallway/runs/7"
     report = (folder / "index.html").read_text()
     listing = f"evidence/{PREFIX}-mcap-stock.html"
     assert f"<a href='{listing}'>MCAP, all 20 trials</a>" in report
@@ -1438,10 +1448,10 @@ def test_the_all_trials_mcap_link_opens_a_listing_of_every_trial(tmp_path):
         assert f'href="{PREFIX}-mcap-stock/mcap/seed-{seed:02d}.mcap"' in page, seed
     assert f'href="{PREFIX}-mcap-stock/media.json"' in page
     assert "artifact" not in page.lower()
-    up = "../" * len(folder.relative_to(site).parts)
+    up = "../" * len(folder.relative_to(site / "reports").parts)
     assert f'<a href="../{up}index.html">← All verification reports</a>' in page
     assert f"<a href='evidence/{PREFIX}-video-stock-seed-1-pass/seed-01-pass.mp4'>" in report
-    latest = site / "unitree-g1/stock-mujoco-hallway/latest"
+    latest = site / "reports/unitree-g1/stock-mujoco-hallway/latest"
     assert sorted(path.name for path in latest.rglob("*") if path.is_file()) == ["index.html"]
     local_links_resolve(site)
 
@@ -1673,7 +1683,7 @@ def _renderable_reports(tmp_path: Path) -> Path:
 
 
 def _page(site: Path) -> str:
-    return (site / "unitree-g1/stock-mujoco-hallway/runs/7/index.html").read_text()
+    return (site / "reports/unitree-g1/stock-mujoco-hallway/runs/7/index.html").read_text()
 
 
 def test_retention_changes_what_is_pruned_and_the_kept_for_text(tmp_path, monkeypatch):
@@ -1688,7 +1698,7 @@ def test_retention_changes_what_is_pruned_and_the_kept_for_text(tmp_path, monkey
         evidence=evidence,
         artifacts=artifacts,
     )
-    folder = site / "unitree-g1/stock-mujoco-hallway/runs/7"
+    folder = site / "reports/unitree-g1/stock-mujoco-hallway/runs/7"
     video = f"evidence/{PREFIX}-video-stock-seed-1-pass/seed-01-pass.mp4"
     mcap = f"evidence/{PREFIX}-mcap-stock/trials.mcap"
     assert (folder / video).is_file() and (folder / mcap).is_file()
@@ -1699,11 +1709,11 @@ def test_retention_changes_what_is_pruned_and_the_kept_for_text(tmp_path, monkey
     )
     for name in site_tool.REPORT_FILES:
         assert hashlib.sha256((folder / name).read_bytes()).hexdigest() == sums[name]
-    latest = site / "unitree-g1/stock-mujoco-hallway/latest"
+    latest = site / "reports/unitree-g1/stock-mujoco-hallway/latest"
     assert sorted(path.name for path in latest.rglob("*") if path.is_file()) == ["index.html"]
     assert "url=../runs/7/" in (latest / "index.html").read_text()
     # A run that never received copies is not backfilled.
-    others = [path for path in (site).glob("*/*/runs/7") if path != folder]
+    others = [path for path in (site).glob("reports/*/*/runs/7") if path != folder]
     assert others and all(not (path / "evidence").exists() for path in others)
     assert site_tool.public_page_problems(site) == []
 
@@ -1752,7 +1762,7 @@ def test_a_pruned_run_page_says_its_evidence_expired(tmp_path):
         evidence=evidence,
         artifacts=artifacts,
     )
-    folder = site / "unitree-g1/stock-mujoco-hallway/runs/7"
+    folder = site / "reports/unitree-g1/stock-mujoco-hallway/runs/7"
     assert "Evidence kept for 7 days" in _page(site)
     assert "Evidence expired" not in _page(site)
 
@@ -1840,7 +1850,7 @@ def test_published_report_json_drops_actions_urls_and_run_json_keeps_them(tmp_pa
         evidence=evidence,
         artifacts=artifacts,
     )
-    folder = site / "unitree-g1/stock-mujoco-hallway/runs/7"
+    folder = site / "reports/unitree-g1/stock-mujoco-hallway/runs/7"
     published = json.loads((folder / "report.json").read_text())
     blob = json.dumps(published)
     assert "/actions/" not in blob.lower()
@@ -1868,7 +1878,7 @@ def test_report_html_orig_is_not_published(tmp_path):
         artifacts=artifacts,
     )
     assert list(site.rglob("report.html.orig")) == []
-    folder = site / "unitree-g1/stock-mujoco-hallway/runs/7"
+    folder = site / "reports/unitree-g1/stock-mujoco-hallway/runs/7"
     # A restored copy is removed on the next render and is not checksummed.
     (folder / "report.html.orig").write_text(REPORTER_HTML)
     site_tool.render(site, now="2026-11-02T00:00:00Z")
@@ -1887,7 +1897,7 @@ def test_sha256sums_verifies_exactly_the_published_files(tmp_path):
         evidence=evidence,
         artifacts=artifacts,
     )
-    folders = list(site.glob("*/*/runs/*"))
+    folders = list(site.glob("reports/*/*/runs/*"))
     assert folders
     for folder in folders:
         sums = published_checksums(folder)
@@ -1925,7 +1935,7 @@ def test_sha256sum_c_accepts_the_published_run_folder(tmp_path):
         evidence=evidence,
         artifacts=artifacts,
     )
-    folders = list(site.glob("*/*/runs/*"))
+    folders = list(site.glob("reports/*/*/runs/*"))
     assert folders
     for folder in folders:
         completed = subprocess.run(
@@ -1960,7 +1970,7 @@ def test_checksums_cover_the_scrubbed_report_json_and_the_bundle_digest_stays(tm
     site = tmp_path / "site"
     site_tool.build(site, reports, run("7", "2026-11-02T00:00:00Z"))
     for target in site_tool.targets():
-        folder = site / target["robot"] / target["variant"] / "runs" / "7"
+        folder = site / "reports" / target["robot"] / target["variant"] / "runs" / "7"
         published = folder / "report.json"
         report = json.loads(published.read_text())
         sums = published_checksums(folder)
@@ -2010,7 +2020,7 @@ def test_published_report_json_links_point_at_site_copies_or_are_expired(tmp_pat
         evidence=evidence,
         artifacts=artifacts,
     )
-    folder = site / "unitree-g1/stock-mujoco-hallway/runs/7"
+    folder = site / "reports/unitree-g1/stock-mujoco-hallway/runs/7"
     record = json.loads((folder / "run.json").read_text())
     page_links = site_tool.evidence_links_document(record["evidence"], expired=False)["links"]
     links = _published_links(folder)
@@ -2052,7 +2062,7 @@ def test_an_already_stripped_report_json_is_repaired_on_the_next_publish(tmp_pat
         evidence=evidence,
         artifacts=artifacts,
     )
-    folder = site / "unitree-g1/stock-mujoco-hallway/runs/7"
+    folder = site / "reports/unitree-g1/stock-mujoco-hallway/runs/7"
     report = json.loads((folder / "report.json").read_text())
     report["evidence_links"] = {"links": [{"label": "MCAP", "kind": "mcap"}]}
     (folder / "report.json").write_text(json.dumps(report, indent=2) + "\n")
@@ -2109,7 +2119,9 @@ def test_left_right_adoption_keeps_retired_corner_evidence(tmp_path):
         ("booster-t1", "stock"),
         ("unitree-go1", "playground"),
     ):
-        assert (site / robot / f"{variant}-mujoco-corner/runs/1000/report.json").exists()
+        assert (
+            site / "reports" / robot / f"{variant}-mujoco-corner/runs/1000/report.json"
+        ).exists()
     local_links_resolve(site)
 
 
@@ -2182,13 +2194,13 @@ def test_failing_evaluators_chips_and_clean_history_view(tmp_path):
     pass_run = {**run("200", "2026-11-18T05:20:00Z"), "tag": "v1.0.0"}
     site_tool.build(site, reports_for(tmp_path, "pass-reports", 3, "PASS"), pass_run)
 
-    base = site / "booster-t1/stock-mujoco-hallway"
+    base = site / "reports/booster-t1/stock-mujoco-hallway"
     fail_record = json.loads((base / "runs/100/run.json").read_text())
     assert fail_record["failing_evaluators"] == [
         {
             "id": "livingproof-scenario",
             "title": "Scenario",
-            "href": "#evaluator-livingproof-scenario",
+            "href": "#summary",
             "summary": "Drifted 0.66 m from the centreline, then touched the wall.",
         }
     ]
@@ -2225,12 +2237,12 @@ def test_failing_evaluators_chips_and_clean_history_view(tmp_path):
     assert "CI run" not in history
     assert "/actions/" not in history
 
-    index = (site / "index.html").read_text()
+    index = (site / "reports/index.html").read_text()
     assert "All 10 latest results pass." in index
     assert "History (2)" in index
     assert "SHA256SUMS" not in index
     assert "/actions/" not in index
-    assert (site / "styles.css").is_file()
+    assert (site / "reports/styles.css").is_file()
     local_links_resolve(site)
 
 
@@ -2240,7 +2252,7 @@ def test_old_run_json_records_fall_back_without_new_fields(tmp_path):
     site_tool.build(
         site, reports_for(tmp_path, "old", 0, "FAIL"), run("100", "2026-11-18T05:00:00Z")
     )
-    base = site / "booster-t1/stock-mujoco-hallway"
+    base = site / "reports/booster-t1/stock-mujoco-hallway"
     path = base / "runs/100/run.json"
     record = json.loads(path.read_text())
     record["commit"].pop("tag", None)
@@ -2264,19 +2276,19 @@ def test_time_static_fallback_uses_utc(tmp_path):
     site_tool.build(
         site, reports_for(tmp_path, "one", 19, "PASS"), run("100", "2026-11-18T05:00:00Z")
     )
-    history = (site / "booster-t1/stock-mujoco-hallway/index.html").read_text()
-    index = (site / "index.html").read_text()
+    history = (site / "reports/booster-t1/stock-mujoco-hallway/index.html").read_text()
+    index = (site / "reports/index.html").read_text()
     for page in (history, index):
         assert '<time datetime="2026-11-18T05:00:00Z"' in page
         assert 'title="18 Nov 2026, 05:00 UTC">18 Nov 2026, 05:00 UTC</time>' in page
         assert "just now" not in page
-    path = site / "booster-t1/stock-mujoco-hallway/runs/100/run.json"
+    path = site / "reports/booster-t1/stock-mujoco-hallway/runs/100/run.json"
     record = json.loads(path.read_text())
     record["run"]["created"] = "2026-06-18T05:00:00Z"
     path.write_text(json.dumps(record, indent=2) + "\n")
     site_tool.render(site, now="2026-06-18T05:20:00Z")
-    winter = (site / "booster-t1/stock-mujoco-hallway/index.html").read_text()
-    winter_index = (site / "index.html").read_text()
+    winter = (site / "reports/booster-t1/stock-mujoco-hallway/index.html").read_text()
+    winter_index = (site / "reports/index.html").read_text()
     for page in (winter, winter_index):
         assert '<time datetime="2026-06-18T05:00:00Z"' in page
         assert 'title="18 Jun 2026, 05:00 UTC">18 Jun 2026, 05:00 UTC</time>' in page
@@ -2292,7 +2304,7 @@ def test_human_reviewer_chip_renders_when_a_finding_was_stored(tmp_path):
         reports_for(tmp_path, "fail", 0, "FAIL"),
         {**run("150", "2026-11-18T05:10:00Z"), "poster": poster},
     )
-    base = site / "booster-t1/stock-mujoco-hallway"
+    base = site / "reports/booster-t1/stock-mujoco-hallway"
     path = base / "runs/150/run.json"
     record = json.loads(path.read_text())
     assert record["poster"] == poster
@@ -2310,7 +2322,7 @@ def test_human_reviewer_chip_renders_when_a_finding_was_stored(tmp_path):
     site_tool.render(site, now="2026-11-18T05:20:00Z")
     history = (base / "index.html").read_text()
     assert 'aria-label="Open the Aaron Roller finding in the report"' in history
-    assert 'href="runs/150/#evaluator-aaron-roller"' in history
+    assert 'href="runs/150/#summary"' in history
     assert ">Aaron Roller</a>" in history
     assert 'class="poster">Aaron Roller</span>' in history
     local_links_resolve(site)
@@ -2401,7 +2413,7 @@ def test_index_cards_use_stretched_latest_link_and_keep_history_only_explicit_li
         site, reports_for(tmp_path, "r1", 0, "FAIL"), run("100", "2026-11-18T05:00:00Z")
     )
     # Give one FAIL record a failing evaluator chip and keep another target PASS.
-    fail_run = site / "unitree-g1/stock-mujoco-hallway/runs/100/run.json"
+    fail_run = site / "reports/unitree-g1/stock-mujoco-hallway/runs/100/run.json"
     record = json.loads(fail_run.read_text())
     record["failing_evaluators"] = [
         {
@@ -2419,17 +2431,17 @@ def test_index_cards_use_stretched_latest_link_and_keep_history_only_explicit_li
         {**run("200", "2026-11-18T05:20:00Z"), "tag": "v1.0.0"},
     )
     # Force one card back to FAIL with a chip and one card to UNSUPPORTED / INSUFFICIENT_EVIDENCE.
-    pass_hallway = site / "booster-t1/stock-mujoco-hallway/runs/200/run.json"
+    pass_hallway = site / "reports/booster-t1/stock-mujoco-hallway/runs/200/run.json"
     r_fail = json.loads(fail_run.read_text())
     r_fail["run"]["created"] = "2026-11-18T05:30:00Z"
     fail_run.write_text(json.dumps(r_fail, indent=2) + "\n")
 
-    unsupported_run = site / "unitree-g1/stock-mujoco-corner-left/runs/200/run.json"
+    unsupported_run = site / "reports/unitree-g1/stock-mujoco-corner-left/runs/200/run.json"
     r_unsup = json.loads(unsupported_run.read_text())
     r_unsup["outcome"][0]["grade"] = "UNSUPPORTED"
     unsupported_run.write_text(json.dumps(r_unsup, indent=2) + "\n")
 
-    insuff_run = site / "unitree-g1/stock-mujoco-corner-right/runs/200/run.json"
+    insuff_run = site / "reports/unitree-g1/stock-mujoco-corner-right/runs/200/run.json"
     r_insuff = json.loads(insuff_run.read_text())
     r_insuff["outcome"][0]["grade"] = "INSUFFICIENT_EVIDENCE"
     insuff_run.write_text(json.dumps(r_insuff, indent=2) + "\n")
@@ -2437,10 +2449,10 @@ def test_index_cards_use_stretched_latest_link_and_keep_history_only_explicit_li
     assert pass_hallway.is_file()
     site_tool.render(site, now="2026-11-18T05:35:00Z")
 
-    index = (site / "index.html").read_text()
+    index = (site / "reports/index.html").read_text()
     assert "Latest report" not in index
     assert '<script src="open.js"></script>' in index
-    assert (site / "open.js").is_file()
+    assert (site / "reports/open.js").is_file()
     assert "onclick=" not in index.lower()
 
     needs_part, robots_part = index.split('<h2 class="robots-label"', 1)
@@ -2469,7 +2481,7 @@ def test_index_cards_use_stretched_latest_link_and_keep_history_only_explicit_li
     assert "Walk around the corner (right), latest report (Insufficient evidence)" in labels
 
     # History pages still keep linked chips and release links.
-    history = (site / "unitree-g1/stock-mujoco-hallway/index.html").read_text()
+    history = (site / "reports/unitree-g1/stock-mujoco-hallway/index.html").read_text()
     assert '<a class="chip"' in history
     assert '<a class="release' in history
     local_links_resolve(site)
@@ -2612,7 +2624,7 @@ def build_spec_history(tmp_path: Path, specs: list[tuple[str, dict | None]]) -> 
             run(str(100 + index), f"2026-11-18T0{index}:00:00Z"),
             verifications,
         )
-    return site / "booster-t1/stock-mujoco-hallway"
+    return site / "reports/booster-t1/stock-mujoco-hallway"
 
 
 def history_rows(base: Path) -> dict[str, str]:
@@ -2954,7 +2966,7 @@ def test_no_commit_id_is_visible_on_the_index_or_history_page(tmp_path):
     assert history.count(">commit</a>") == 2  # a link whose text is "commit", one per row
     assert re.search(r'<a [^>]*href="[^"]*/commit/a{40}"[^>]*>commit</a>', history)
     assert visible_hex(visible_page_text(history)) == []
-    index = (tmp_path / "site/index.html").read_text()
+    index = (tmp_path / "site/reports/index.html").read_text()
     assert visible_hex(visible_page_text(index)) == []
     for page in (history, index):
         assert not re.search(r"\b[0-9a-f]{40}\b", visible_page_text(page))
@@ -3048,7 +3060,11 @@ def test_history_header_robot_tag_follows_the_reviewed_locks_not_a_constant(tmp_
         write_reports(reports / target["artifact"], 19, "PASS")
     site = tmp_path / "site"
     site_tool.build(site, reports, run("100", "2026-11-18T00:00:00Z"), verifications)
-    header = (site / "booster-t1/stock-mujoco-hallway/index.html").read_text().split("<main", 1)[0]
+    header = (
+        (site / "reports/booster-t1/stock-mujoco-hallway/index.html")
+        .read_text()
+        .split("<main", 1)[0]
+    )
     assert "livingproof-booster-t1 v9.9.9" in header
     assert "v2.2.10" not in header and "@" not in visible_text(header)
 
@@ -3125,7 +3141,7 @@ def test_index_needs_attention_newest_first_chips_and_finding(tmp_path):
         reports_for(tmp_path, "pass", 19, "PASS"),
         {**run("200", "2026-11-18T05:20:00Z"), "tag": "v1.1.0"},
     )
-    booster_fail = site / "booster-t1/stock-mujoco-hallway/runs/200/run.json"
+    booster_fail = site / "reports/booster-t1/stock-mujoco-hallway/runs/200/run.json"
     b_rec = json.loads(booster_fail.read_text())
     b_rec["outcome"][0]["grade"] = "FAIL"
     b_rec["run"]["created"] = "2026-11-18T05:10:00Z"
@@ -3145,10 +3161,10 @@ def test_index_needs_attention_newest_first_chips_and_finding(tmp_path):
     booster_fail.write_text(json.dumps(b_rec, indent=2) + "\n")
 
     site_tool.render(site, now="2026-11-18T05:40:00Z")
-    one_fail = (site / "index.html").read_text()
+    one_fail = (site / "reports/index.html").read_text()
     assert "1 latest result failed, newest first. Each card opens the latest report." in one_fail
 
-    g1_fail = site / "unitree-g1/stock-mujoco-hallway/runs/200/run.json"
+    g1_fail = site / "reports/unitree-g1/stock-mujoco-hallway/runs/200/run.json"
     g_rec = json.loads(g1_fail.read_text())
     g_rec["outcome"][0]["grade"] = "FAIL"
     g_rec["run"]["created"] = "2026-11-18T05:30:00Z"
@@ -3163,7 +3179,7 @@ def test_index_needs_attention_newest_first_chips_and_finding(tmp_path):
     g1_fail.write_text(json.dumps(g_rec, indent=2) + "\n")
 
     site_tool.render(site, now="2026-11-18T05:40:00Z")
-    index = (site / "index.html").read_text()
+    index = (site / "reports/index.html").read_text()
     needs_part, robots_part = index.split('<h2 class="robots-label"', 1)
 
     assert '<h2 id="needs-attention">Needs attention</h2>' in needs_part
@@ -3192,7 +3208,7 @@ def test_index_robot_sections_collapsed_with_counts_dots_and_failing_first_order
         reports_for(tmp_path, "pass", 19, "PASS"),
         {**run("200", "2026-11-18T05:20:00Z"), "tag": "v1.1.0"},
     )
-    booster_fail = site / "booster-t1/stock-mujoco-hallway/runs/200/run.json"
+    booster_fail = site / "reports/booster-t1/stock-mujoco-hallway/runs/200/run.json"
     b_rec = json.loads(booster_fail.read_text())
     b_rec["outcome"][0]["grade"] = "FAIL"
     b_rec["run"]["created"] = "2026-11-18T05:30:00Z"
@@ -3207,7 +3223,7 @@ def test_index_robot_sections_collapsed_with_counts_dots_and_failing_first_order
     booster_fail.write_text(json.dumps(b_rec, indent=2) + "\n")
 
     site_tool.render(site, now="2026-11-18T05:40:00Z")
-    index = (site / "index.html").read_text()
+    index = (site / "reports/index.html").read_text()
 
     assert not re.search(r'<details class="robot"[^>]*\bopen\b', index)
     for robot_id in ("booster-t1", "unitree-g1", "unitree-go1"):
@@ -3239,7 +3255,7 @@ def test_index_robot_sections_collapsed_with_counts_dots_and_failing_first_order
         "Walk around the corner (left), latest report (PASS)",
         "Walk around the corner (right), latest report (PASS)",
     ]
-    assert (site / "open.js").is_file()
+    assert (site / "reports/open.js").is_file()
     local_links_resolve(site)
 
 
@@ -3252,7 +3268,7 @@ def test_index_all_pass_shows_single_quiet_line(tmp_path):
         {**run("200", "2026-11-18T05:20:00Z"), "tag": "v1.1.0"},
     )
     site_tool.render(site, now="2026-11-18T05:40:00Z")
-    index = (site / "index.html").read_text()
+    index = (site / "reports/index.html").read_text()
     assert 'id="needs-attention"' not in index
     assert '<p class="all-pass">All 10 latest results pass.</p>' in index
     assert "failed" not in index.split('<h2 class="robots-label"', 1)[0]
@@ -3548,16 +3564,16 @@ def test_index_and_history_never_emit_build_time_relative_age(tmp_path):
         {**run("200", "2026-11-18T05:20:00Z"), "tag": "v1.4.0"},
     )
     # Put one robot in Needs attention so both Needs attention cards and robot cards are checked.
-    g1_run = site / "unitree-g1/stock-mujoco-hallway/runs/200/run.json"
+    g1_run = site / "reports/unitree-g1/stock-mujoco-hallway/runs/200/run.json"
     g1_rec = json.loads(g1_run.read_text())
     g1_rec["outcome"][0]["grade"] = "FAIL"
     g1_run.write_text(json.dumps(g1_rec, indent=2) + "\n")
     site_tool.render(site, now="2026-11-18T05:20:00Z")
 
-    index_first = (site / "index.html").read_text()
-    history_first = (site / "unitree-g1/stock-mujoco-hallway/index.html").read_text()
+    index_first = (site / "reports/index.html").read_text()
+    history_first = (site / "reports/unitree-g1/stock-mujoco-hallway/index.html").read_text()
     run_records_before = {
-        path: path.read_bytes() for path in sorted(site.glob("*/*/runs/*/run.json"))
+        path: path.read_bytes() for path in sorted(site.glob("reports/*/*/runs/*/run.json"))
     }
 
     forbidden = (
@@ -3590,8 +3606,10 @@ def test_index_and_history_never_emit_build_time_relative_age(tmp_path):
 
     # Re-rendering at a later time within retention leaves index, history, sorting, and records identical.
     site_tool.render(site, now="2026-11-20T12:00:00Z")
-    assert (site / "index.html").read_text() == index_first
-    assert (site / "unitree-g1/stock-mujoco-hallway/index.html").read_text() == history_first
+    assert (site / "reports/index.html").read_text() == index_first
+    assert (
+        site / "reports/unitree-g1/stock-mujoco-hallway/index.html"
+    ).read_text() == history_first
     for path, before_bytes in run_records_before.items():
         assert path.read_bytes() == before_bytes
 
@@ -3610,15 +3628,15 @@ def test_client_side_viewer_timezone_and_old_page_reopen(tmp_path):
         {**run("200", "2026-11-18T05:20:00Z"), "tag": "v1.4.0"},
     )
     # Also add a winter run (June -> AEST / PDT) on one variant so both seasons are tested.
-    winter_run = site / "booster-t1/stock-mujoco-hallway/runs/100/run.json"
+    winter_run = site / "reports/booster-t1/stock-mujoco-hallway/runs/100/run.json"
     winter_rec = json.loads(winter_run.read_text())
     winter_rec["run"]["created"] = "2026-06-18T05:00:00Z"
     winter_run.write_text(json.dumps(winter_rec, indent=2) + "\n")
     site_tool.render(site, now="2026-11-18T05:20:00Z")
 
-    open_js = (site / "open.js").read_text()
-    index_html = (site / "index.html").read_text()
-    history_html = (site / "booster-t1/stock-mujoco-hallway/index.html").read_text()
+    open_js = (site / "reports/open.js").read_text()
+    index_html = (site / "reports/index.html").read_text()
+    history_html = (site / "reports/booster-t1/stock-mujoco-hallway/index.html").read_text()
 
     # 1. Australia/Sydney (en-AU): AEDT in Nov, AEST in Jun; unchanged when reopened later.
     sydney_snaps = _run_open_js_with_clock(
@@ -3700,3 +3718,159 @@ def test_print_styles_and_no_relative_time_markup():
     assert "time { white-space: nowrap; }" in css
     assert "rel-time" not in site_tool.INDEX_SCRIPT
     assert "setInterval" not in site_tool.INDEX_SCRIPT
+
+
+def test_migrate_legacy_reports_moves_old_layout_into_reports_once(tmp_path):
+    """#180: restore maps legacy <robot>/<variant>/runs/... into reports/ once."""
+    site = tmp_path / "site"
+    legacy_run = site / "unitree-g1" / "stock-mujoco-hallway" / "runs" / "100"
+    legacy_run.mkdir(parents=True)
+    (legacy_run / "run.json").write_text('{"run": {"created": "2026-11-18T05:00:00Z"}}\n')
+    for stale in ("index.html", "styles.css", "open.js"):
+        (site / stale).write_text("legacy\n")
+
+    assert site_tool._migrate_legacy_reports(site) == 1
+    assert (site / "reports/unitree-g1/stock-mujoco-hallway/runs/100/run.json").is_file()
+    assert not (site / "unitree-g1").exists()
+    for stale in ("index.html", "styles.css", "open.js"):
+        assert not (site / stale).exists()
+    assert site_tool._migrate_legacy_reports(site) == 0
+
+
+def test_reports_pages_include_shared_site_nav(tmp_path):
+    """#180: reports index, history, and run report link back to Documentation home and Overview."""
+    reports = _renderable_reports(tmp_path)
+    site = tmp_path / "site"
+    site_tool.build(site, reports, run("7", "2026-11-19T00:00:00Z"))
+
+    index = (site / "reports/index.html").read_text()
+    assert '<nav class="site-nav" aria-label="Site">' in index
+    assert f'href="{site_tool.DOCS_HOME_URL}"' in index
+    assert 'href="../index.html">Overview</a>' in index
+    assert 'href="index.html" aria-current="page">Reports</a>' in index
+
+    history = (site / "reports/unitree-g1/stock-mujoco-hallway/index.html").read_text()
+    assert '<nav class="site-nav" aria-label="Site">' in history
+    assert f'href="{site_tool.DOCS_HOME_URL}"' in history
+    assert 'href="../../../index.html">Overview</a>' in history
+    assert 'href="../../index.html">Reports</a>' in history
+
+    report = (site / "reports/unitree-g1/stock-mujoco-hallway/runs/7/index.html").read_text()
+    assert '<nav class="site-nav" aria-label="Site">' in report
+    assert f'href="{site_tool.DOCS_HOME_URL}"' in report
+    assert 'href="../../../../../index.html">Overview</a>' in report
+    assert 'href="../../../../index.html">Reports</a>' in report
+
+
+def _css_tokens(css: str, pattern: str) -> dict[str, str]:
+    match = re.search(pattern, css, re.S)
+    assert match is not None, f"missing CSS block: {pattern}"
+    return dict(re.findall(r"(--[a-z0-9-]+|color-scheme):\s*([^;]+);", match.group(1)))
+
+
+def test_site_theme_tokens_match_capability_report():
+    """#179: index and history theme tokens match livingproof_capability_report.html_theme."""
+    from livingproof_capability_report.html_theme import CSS as REPORT_CSS
+
+    blocks = [
+        (r":root\s*\{([^}]+)\}", "light :root"),
+        (r"@media\s*\(prefers-color-scheme:\s*dark\)\s*\{\s*:root\s*\{([^}]+)\}", "dark media"),
+        (r"html:has\(#theme-light:checked\)\s*\{([^}]+)\}", "forced light"),
+        (r"html:has\(#theme-dark:checked\)\s*\{([^}]+)\}", "forced dark"),
+        (r"@media\s+print\s*\{\s*:root[^{]*\{([^}]+)\}", "print light"),
+    ]
+    for pattern, label in blocks:
+        report_tokens = _css_tokens(REPORT_CSS, pattern)
+        site_tokens = _css_tokens(site_tool.SITE_STYLES, pattern)
+        for name, value in report_tokens.items():
+            assert site_tokens.get(name) == value, (
+                f"{label}: token {name} is {site_tokens.get(name)!r}, expected {value!r}"
+            )
+
+
+def test_index_and_history_include_theme_switch(tmp_path):
+    """#179: both index and history mastheads carry the CSS-only Colour theme switch."""
+    site = tmp_path / "site"
+    site_tool.build(
+        site,
+        reports_for(tmp_path, "one", 12, "FAIL"),
+        run("100", "2026-11-19T00:00:00Z"),
+    )
+    index = (site / "reports/index.html").read_text()
+    history = (site / "reports/unitree-g1/stock-mujoco-hallway/index.html").read_text()
+    for page in (index, history):
+        assert '<div class="masthead-top">' in page
+        assert '<fieldset class="theme"><legend>Colour theme</legend>' in page
+        assert 'id="theme-system" value="system" checked' in page
+        assert 'id="theme-light" value="light"' in page
+        assert 'id="theme-dark" value="dark"' in page
+
+
+def test_two_combined_publications_preserve_runs_and_replace_docs(tmp_path):
+    """Restored docs may mention Actions; stale docs must not survive publication."""
+    assembly_spec = importlib.util.spec_from_file_location(
+        "docs_assembly", ROOT / "tools/docs/assemble.py"
+    )
+    assembly = importlib.util.module_from_spec(assembly_spec)
+    assembly_spec.loader.exec_module(assembly)
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "index.html").write_text('<a href="reports/index.html">Reports</a>')
+    (docs / "obsolete.html").write_text("Old artifact documentation")
+    (docs / "assets").mkdir()
+    (docs / "assets/obsolete.css").write_text("/* old theme */")
+    (docs / "search.json").write_text('{"text":"artifact https://github.com/org/repo/actions/"}')
+    first = tmp_path / "first"
+    evidence, artifacts = evidence_for(tmp_path)
+    site_tool.build(
+        first,
+        reports_with_links(tmp_path, "first-reports"),
+        run("7", "2026-11-02T00:00:00Z"),
+        evidence=evidence,
+        artifacts=artifacts,
+    )
+    assembly.assemble(docs, first)
+    historical = {
+        path.relative_to(first): path.read_bytes()
+        for folder in first.glob("reports/*/*/runs/7")
+        for path in folder.rglob("*")
+        if path.is_file() and path.name not in {"index.html", "SHA256SUMS"}
+    }
+    assert historical
+    assert any("evidence" in path.parts for path in historical)
+    restored = tmp_path / "restored"
+    shutil.copytree(first, restored)
+    assert site_tool._migrate_legacy_reports(restored) == 0
+    # The report lint runs before docs assembly, with old docs still present.
+    site_tool.build(
+        restored,
+        reports_with_links(tmp_path, "second-reports"),
+        run("8", "2026-11-02T01:00:00Z"),
+        evidence=evidence,
+        artifacts=artifacts,
+    )
+    # Report HTML and its checksum are regenerated by the existing renderer.
+    # Assembly itself must preserve every report file, including generated pages.
+    before_assembly = {
+        path.relative_to(restored): path.read_bytes()
+        for path in (restored / "reports").rglob("*")
+        if path.is_file()
+    }
+    marker = (restored / "site.json").read_bytes()
+    (docs / "obsolete.html").unlink()
+    (docs / "assets/obsolete.css").unlink()
+    (docs / "assets/current.css").write_text("/* current theme */")
+    assembly.assemble(docs, restored)
+    assert not (restored / "obsolete.html").exists()
+    assert not (restored / "assets/obsolete.css").exists()
+    assert (restored / "assets/current.css").is_file()
+    assert (restored / "site.json").read_bytes() == marker
+    assert all((restored / path).read_bytes() == data for path, data in before_assembly.items())
+    assert (restored / "search.json").read_bytes() == (docs / "search.json").read_bytes()
+    assert all((restored / path).read_bytes() == data for path, data in historical.items())
+    assert len(list(restored.glob("reports/*/*/runs/8/run.json"))) == len(site_tool.targets())
+    assert site_tool._migrate_legacy_reports(restored) == 0
+    assert site_tool.public_page_problems(restored) == []
+    # Scoping must not weaken the existing report lint.
+    (restored / "reports/invalid.txt").write_text("artifact https://github.com/org/repo/actions/")
+    assert site_tool.public_page_problems(restored)

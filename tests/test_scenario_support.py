@@ -106,15 +106,20 @@ def test_a_planted_verifier_fail_still_shows_fail(tmp_path):
         tmp_path, "walk-corner@0.1.0", "unitree-g1-stock-mujoco-corner.lock.json"
     )
     site = _publish(tmp_path, verifications, MARKER + "\n", "FAIL", "fail")
-    report = (site / "unitree-g1" / "stock-mujoco-corner" / "runs" / "1" / "report.md").read_text()
-    page = (site / "unitree-g1" / "stock-mujoco-corner" / "runs" / "1" / "index.html").read_text()
-    history = (site / "unitree-g1" / "stock-mujoco-corner" / "index.html").read_text()
+    reports_root = site / "reports"
+    report = (
+        reports_root / "unitree-g1" / "stock-mujoco-corner" / "runs" / "1" / "report.md"
+    ).read_text()
+    page = (
+        reports_root / "unitree-g1" / "stock-mujoco-corner" / "runs" / "1" / "index.html"
+    ).read_text()
+    history = (reports_root / "unitree-g1" / "stock-mujoco-corner" / "index.html").read_text()
     assert report == MARKER + "\n"
     assert MARKER in page
     assert "FAIL" in history
     assert "not supported" not in history
     assert not (
-        site / "unitree-g1" / "stock-mujoco-corner" / "runs" / "1" / "verification.json"
+        reports_root / "unitree-g1" / "stock-mujoco-corner" / "runs" / "1" / "verification.json"
     ).exists()
 
 
@@ -123,14 +128,15 @@ def test_a_verifier_unsupported_report_is_labelled_not_supported_and_not_rewritt
         tmp_path / "corner", "walk-corner@0.1.0", "unitree-g1-stock-mujoco-corner.lock.json"
     )
     site = _publish(tmp_path, verifications, UNSUPPORTED_TEXT, "UNSUPPORTED", "unsupported")
-    run = site / "unitree-g1" / "stock-mujoco-corner" / "runs" / "1"
+    reports_root = site / "reports"
+    run = reports_root / "unitree-g1" / "stock-mujoco-corner" / "runs" / "1"
     assert (run / "report.md").read_text() == UNSUPPORTED_TEXT
     assert (run / "report.txt").read_text() == UNSUPPORTED_TEXT
     stored = json.loads((run / "report.json").read_text())
     assert stored["summaries"][0]["grade"] == "UNSUPPORTED"
     assert "scenario_supported" in stored["summaries"][0]["reason"]
-    history = (site / "unitree-g1" / "stock-mujoco-corner" / "index.html").read_text()
-    index = (site / "index.html").read_text()
+    history = (reports_root / "unitree-g1" / "stock-mujoco-corner" / "index.html").read_text()
+    index = (reports_root / "index.html").read_text()
     for text in (history, index):
         assert "not supported" in text.lower()
         assert ">FAIL<" not in text

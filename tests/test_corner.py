@@ -30,13 +30,13 @@ WORKFLOW = ROOT / ".github/workflows/verify.yml"
 VERIFIER = "Living-Proof-Labs/capability-verifier"
 
 # Released tags, resolved once by hand (git ls-remote) and recorded here.
-VERIFIER_RELEASE = ("v2.7.5", "9e32d4759f5118b868d451757812c36ed8b883a5")
-EVALUATOR_RELEASE = ("v1.3.0", "965629ab1e9508cb3090931abbae6a957bf5d294")
+VERIFIER_RELEASE = ("v2.10.3", "7968158f6820fb3e7430989f248664ce7ad65127")
+EVALUATOR_RELEASE = ("v1.5.3", "ca9d337a771269d07feec94c99f199bef7fca808")
 # The first reporter release whose HTML step card writes out corner-turned's list of
 # places (livingproof-capability-report#79, 3453a14). v3.10.1 fails with
 # "float() argument must be a string or a real number, not 'list'".
 # The constant is the settings pin; every lock must name that same release.
-REPORTER_RELEASE = ("v3.12.5", "df7a74e56b77e89a3608b78c98b13deae8311118")
+REPORTER_RELEASE = ("v3.14.0", "69e2150c4d3103244d06e40a85d77701a81a0a0a")
 WORLD = {
     "id": "hallway-corner",
     "version": "0.2.0",
@@ -73,6 +73,7 @@ SPECS = {
 # first release that records the scenario parameters digest (livingproof-sim-mujoco#104).
 SIM_3_6_2 = ("v3.6.2", "988a57bdb54654aac57aa4de0574d62914074fd0")
 SIM_3_6_4 = ("v3.6.4", "36e93e30f74315a753658e6d0a55af128301338b")
+SIM_3_7_4 = ("v3.7.4", "91890b7ecc3a5203670177d344dbb84cbc2a0ebc")
 FIRST_SIM_WITH_PARAMETERS_DIGEST = (3, 5, 0)
 # Frozen hallway robot refs; eligible corners have their own release expectations below.
 # Commits independently read from the released tags.
@@ -93,24 +94,24 @@ HALLWAY_ROBOT_REFS = {
 CORNER = {
     "unitree-g1-stock-mujoco-corner": {
         "repository": "Living-Proof-Labs/livingproof-unitree-g1",
-        "ref": "v2.3.13",
-        "commit": "aa10b46f7e0480065d86edc909828d93da4b4a3a",
+        "ref": "v2.3.18",
+        "commit": "379a20e29caf136414ca3413e7244a73a0298290",
         "configurations": ["stock"],
-        "runner": SIM_3_6_4,
+        "runner": SIM_3_7_4,
     },
     "booster-t1-stock-mujoco-corner": {
         "repository": "Living-Proof-Labs/livingproof-booster-t1",
-        "ref": "v2.3.5",
-        "commit": "56f6051fd9ee9fdb17f609bf559b7efc8220088a",
+        "ref": "v2.3.13",
+        "commit": "eefadce5bb8692bee7052912f4a807a33e022c0e",
         "configurations": ["stock"],
-        "runner": SIM_3_6_2,
+        "runner": SIM_3_7_4,
     },
     "unitree-go1-playground-mujoco-corner": {
         "repository": "Living-Proof-Labs/livingproof-unitree-go1",
-        "ref": "v2.3.5",
-        "commit": "fe48f8bda30aa0a65bd01b06107fc76874195f35",
+        "ref": "v2.3.13",
+        "commit": "5f4cdd048cedb6e51e830f2f703056da2fb86fdf",
         "configurations": ["playground"],
-        "runner": SIM_3_6_2,
+        "runner": SIM_3_7_4,
     },
 }
 CORNER = {
@@ -340,12 +341,12 @@ def test_every_runner_is_v3_5_0_or_later_from_a_released_robot_ref(name):
     assert re.fullmatch(r"[0-9a-f]{40}", runner["commit"])
 
 
-def test_every_lock_pins_livingproof_evaluator_run_v1_6_0():
-    """Every lock pins livingproof-evaluator-run v1.6.0, so CI runs all five Run Integrity
+def test_every_lock_pins_livingproof_evaluator_run_v1_7_0():
+    """Every lock pins livingproof-evaluator-run v1.7.0, so CI runs all five Run Integrity
     checks: pins, completeness, plan-conformance, termination and recording (#136)."""
     expected = {
         "repository": "Living-Proof-Labs/livingproof-evaluator-run",
-        "tag": "v1.6.0",
+        "tag": "v1.7.0",
     }
     for name in [*CORNER, *HALLWAY]:
         assert _lock(name)["evaluators"]["livingproof-evaluator-run"] == expected, name

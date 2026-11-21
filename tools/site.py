@@ -107,6 +107,8 @@ SEED_LABEL = re.compile(r"^seed (?=\d)")
 BUNDLE_TAG = re.compile(r"v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)")
 COMMIT_SHA = re.compile(r"[0-9a-f]{40}")
 MARKER = "site.json"  # written by every build; its presence on the live site means history
+REPORTS_DIR = "reports"  # reports index, history and runs live under reports/ (#180)
+DOCS_HOME_URL = "https://docs.livingprooflabs.com/"
 
 
 class SiteError(Exception):
@@ -412,6 +414,36 @@ def live_history(site_url: str) -> str | None:
     return None
 
 
+def _migrate_legacy_reports(destination: Path) -> int:
+    """Move legacy root-level <robot>/<variant>/runs/... into reports/ once (#180)."""
+    reports_dir = destination / REPORTS_DIR
+    migrated = 0
+    for entry in sorted(destination.iterdir()):
+        if not entry.is_dir() or entry.name == REPORTS_DIR:
+            continue
+        if not any(entry.glob("*/runs/*/run.json")):
+            continue
+        for variant_dir in sorted(entry.iterdir()):
+            if not variant_dir.is_dir() or not any(variant_dir.glob("runs/*/run.json")):
+                continue
+            target = reports_dir / entry.name / variant_dir.name
+            if not target.exists():
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(variant_dir), str(target))
+            else:
+                shutil.copytree(variant_dir, target, dirs_exist_ok=True)
+                shutil.rmtree(variant_dir)
+            migrated += 1
+        if entry.exists() and not any(p.is_file() or p.is_symlink() for p in entry.rglob("*")):
+            shutil.rmtree(entry)
+    if migrated:
+        for stale in ("index.html", "styles.css", "open.js"):
+            stale_path = destination / stale
+            if stale_path.is_file():
+                stale_path.unlink()
+    return migrated
+
+
 def restore(
     destination: Path,
     repository: str,
@@ -462,6 +494,9 @@ def restore(
     count = _unpack_pages_archive(
         _download_pages_archive(artifact["archive_download_url"], token), destination
     )
+    migrated = _migrate_legacy_reports(destination)
+    if migrated:
+        print(f"Migrated {migrated} legacy variant directories into {REPORTS_DIR}/.")
     print(f"Restored {count} files.")
     return artifact
 
@@ -731,6 +766,67 @@ def _finding_summary(findings: list, descriptor: dict) -> str | None:
     return _stored_text(descriptor.get("details_copy"))
 
 
+INCONCLUSIVE_COPY = "Not graded: no check applied to this run."
+
+
+# Reporter v3.14.0 and newer (capability-report#109) put the id `evaluator-<slug>` on every
+# evaluator's tab; the link opens and focuses that tab, with or without a Scenario result. The
+# slug is the reporter's rule exactly: every character outside A-Za-z0-9._- becomes "-", and an
+# id with nothing left is "evaluator". Two evaluators whose slugs are equal get -2, -3 in the
+# reporter's own tab order (tier, then title), which the site cannot derive, so a chip whose slug
+# is shared on its page keeps the fallback rather than guess a suffix.
+#
+# Which pages have the anchor: the record's reporter tag (releases.reporter.tag, the release the
+# run's report was made with) is v3.14.0 or newer. A run page is built from the saved report by
+# the installed reporter, or, when the report cannot be rendered, from the report.html saved with
+# the run. Either way the page was built by a reporter at least as new as the recorded tag, so a
+# recorded v3.14.0+ is safe. An older tag, a tag that is not vX.Y.Z, or no tag keeps the old
+# fallback, `section#summary`: a stable id that never names the wrong evaluator, but which sits in
+# the first (often hidden) evaluators panel, so it may not visibly move the page.
+EVALUATOR_ANCHOR = "#summary"
+ANCHOR_REPORTER = (3, 14, 0)
+_REPORTER_TAG = re.compile(r"v(\d+)\.(\d+)\.(\d+)")
+
+
+def evaluator_slug(ev_id: str) -> str:
+    """The reporter's slug for an evaluator id (its `_anchor_id`, before any -2 suffix)."""
+    return re.sub(r"[^A-Za-z0-9._-]", "-", str(ev_id)) or "evaluator"
+
+
+def reporter_has_evaluator_anchors(record: dict) -> bool:
+    releases = record.get("releases") if isinstance(record.get("releases"), dict) else {}
+    reporter = releases.get("reporter") if isinstance(releases.get("reporter"), dict) else {}
+    tag = _stored_text(reporter.get("tag"))
+    found = _REPORTER_TAG.fullmatch(tag) if tag else None
+    return found is not None and tuple(int(n) for n in found.groups()) >= ANCHOR_REPORTER
+
+
+def page_evaluator_ids(report: object) -> set[str]:
+    """Every evaluator id on the run page: the reporter gives each one a tab."""
+    ids = set()
+    for doc in _evaluator_documents(report):
+        ev = doc.get("evaluator") if isinstance(doc.get("evaluator"), dict) else {}
+        ev_id = _stored_text(ev.get("id"))
+        if ev_id is not None:
+            ids.add(ev_id)
+    return ids
+
+
+def evaluator_fragment(record: dict, ev_id: object, report: object = None) -> str:
+    """`#evaluator-<slug>` when the page has it and the slug is not shared; else `#summary`.
+
+    Without the report the evaluators on the page are unknown, so the slug cannot be checked
+    for a twin: the fallback."""
+    ev_id = _stored_text(ev_id)
+    if ev_id is None or not reporter_has_evaluator_anchors(record):
+        return EVALUATOR_ANCHOR
+    ids = page_evaluator_ids(report)
+    slug = evaluator_slug(ev_id)
+    if ev_id not in ids or any(o != ev_id and evaluator_slug(o) == slug for o in ids):
+        return EVALUATOR_ANCHOR
+    return f"#evaluator-{slug}"
+
+
 def failing_evaluators(report: object) -> list[dict]:
     """Evaluators that spoke on a non-passing run, deduplicated by evaluator id."""
     if not isinstance(report, dict):
@@ -760,19 +856,54 @@ def failing_evaluators(report: object) -> list[dict]:
             or grade == "FAIL"
             or (isinstance(grade, (int, float)) and grade < 100)
             or (isinstance(status, str) and status.upper() in {"ERROR", "WARN", "FAIL"})
+            or status == "INCONCLUSIVE"
         )
         if not spoke:
             continue
         title = _stored_text(ev.get("display_name")) or _stored_text(desc.get("title")) or ev_id
         summary = _finding_summary(findings, desc)
+        if summary is None and status == "INCONCLUSIVE":
+            # 1.2.0: no check applied. Not graded, not failed. Any other status this site
+            # does not know is not graded and does not speak (a 1.x minor may add statuses).
+            summary = INCONCLUSIVE_COPY
         if ev_id not in seen:
-            entry = {"id": ev_id, "title": title, "href": f"#evaluator-{ev_id}"}
+            entry = {"id": ev_id, "title": title, "href": EVALUATOR_ANCHOR}
             if summary is not None:
                 entry["summary"] = summary
+            if status == "INCONCLUSIVE":
+                entry["not_graded"] = True
             seen[ev_id] = entry
         elif "summary" not in seen[ev_id] and summary is not None:
             seen[ev_id]["summary"] = summary
     return list(seen.values())
+
+
+MARKED_INTEGRITY_STATUSES = ("ERROR", "INCONCLUSIVE")
+
+
+def integrity_markers(report: object) -> list[dict]:
+    """Run Integrity results whose status is ERROR or INCONCLUSIVE, by evaluator id.
+
+    Shown on a PASS or UNSUPPORTED run, which has no chips of its own (#168). Any other
+    status, including one this site does not know, is not marked.
+    """
+    if not isinstance(report, dict):
+        return []
+    found: dict[str, dict] = {}
+    for doc in _evaluator_documents(report):
+        integrity = doc.get("integrity") if isinstance(doc.get("integrity"), dict) else {}
+        run_info = integrity.get("run") if isinstance(integrity.get("run"), dict) else {}
+        status = run_info.get("test_system_status")
+        if status not in MARKED_INTEGRITY_STATUSES:
+            continue
+        ev = doc.get("evaluator") if isinstance(doc.get("evaluator"), dict) else {}
+        ev_id = _stored_text(ev.get("id"))
+        if ev_id is None or ev_id in found:
+            continue
+        desc = doc.get("descriptor") if isinstance(doc.get("descriptor"), dict) else {}
+        title = _stored_text(ev.get("display_name")) or _stored_text(desc.get("title")) or ev_id
+        found[ev_id] = {"id": ev_id, "title": title, "status": status}
+    return list(found.values())
 
 
 def provenance(target: dict, run: dict, report: object = None) -> dict:
@@ -921,7 +1052,7 @@ def add_run(
     inputs = grading_inputs(source, read_report(source / "report.json"))
     if not RUN_ID.fullmatch(run["id"]):
         raise SiteError(f"Unexpected run id {run['id']!r}")
-    folder = site / target["robot"] / target["variant"] / "runs" / run["id"]
+    folder = site / REPORTS_DIR / target["robot"] / target["variant"] / "runs" / run["id"]
     if folder.exists():
         shutil.rmtree(folder)  # a re-run attempt of the same run replaces itself
     folder.mkdir(parents=True)
@@ -942,6 +1073,9 @@ def add_run(
     failing = failing_evaluators(report_data)
     if failing:
         record["failing_evaluators"] = failing
+    markers = integrity_markers(report_data)
+    if markers:
+        record["integrity_status"] = markers
     if inputs:
         record["grading_inputs"] = [
             {key: item[key] for key in ("role", "path", "sha256")} for item in inputs
@@ -1048,7 +1182,10 @@ def preserve_evidence(
 def runs(site: Path) -> dict:
     """{(robot, variant): [run records, newest first]} from every runs/*/run.json."""
     found = {}
-    for path in site.glob("*/*/runs/*/run.json"):
+    reports_dir = site / REPORTS_DIR
+    if not reports_dir.is_dir():
+        return found
+    for path in reports_dir.glob("*/*/runs/*/run.json"):
         record = json.loads(path.read_text())
         record["folder"] = path.parent.name
         found.setdefault((path.parts[-5], path.parts[-4]), []).append(record)
@@ -1197,9 +1334,10 @@ def prune_expired_evidence(site: Path, now: str, days: int) -> list[str]:
     Report pages and run.json stay. Runs that never received copies are untouched.
     """
     removed = []
-    if not now:
+    reports_dir = site / REPORTS_DIR
+    if not now or not reports_dir.is_dir():
         return removed
-    for record_path in sorted(site.glob("*/*/runs/*/run.json")):
+    for record_path in sorted(reports_dir.glob("*/*/runs/*/run.json")):
         record = json.loads(record_path.read_text())
         created = (record.get("run") or {}).get("created")
         if not isinstance(created, str) or not evidence_expired(created, now, days):
@@ -1741,6 +1879,66 @@ def with_spec_provenance(public: str, record: dict, report: object) -> str:
     return public + section
 
 
+SITE_NAV_STYLES = """.site-nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.6rem;
+  margin: 0 0 0.85rem;
+  font-size: 0.86rem;
+}
+.site-nav a {
+  color: var(--teal-bright);
+  font-weight: 500;
+  text-decoration: none;
+}
+.site-nav a:hover {
+  text-decoration: underline;
+}
+.site-nav a[aria-current="page"] {
+  color: var(--header-text);
+  font-weight: 650;
+}
+.site-nav-sep {
+  color: var(--header-muted);
+  opacity: 0.72;
+}
+"""
+
+
+def _site_nav_html(overview_href: str, reports_href: str, *, on_reports_index: bool = False) -> str:
+    reports_attr = ' aria-current="page"' if on_reports_index else ""
+    return (
+        '<nav class="site-nav" aria-label="Site">'
+        f'<a href="{html.escape(DOCS_HOME_URL, quote=True)}">Documentation home</a>'
+        '<span class="site-nav-sep" aria-hidden="true">/</span>'
+        f'<a href="{html.escape(overview_href, quote=True)}">Overview</a>'
+        '<span class="site-nav-sep" aria-hidden="true">/</span>'
+        f'<a href="{html.escape(reports_href, quote=True)}"{reports_attr}>Reports</a>'
+        "</nav>"
+    )
+
+
+def with_site_nav(public: str, *, overview_href: str, reports_href: str) -> str:
+    """Inject the shared site navigation links into a run report masthead (#180)."""
+    nav = _site_nav_html(overview_href, reports_href)
+    if '<nav class="site-nav"' in public:
+        return public
+    style_tag = f"<style>{SITE_NAV_STYLES}</style>"
+    if "</head>" in public and ".site-nav" not in public:
+        public = public.replace("</head>", f"{style_tag}</head>", 1)
+    masthead_inner = re.search(r"<div\s+class=[\"']masthead-inner[\"'][^>]*>", public, re.I)
+    if masthead_inner:
+        pos = masthead_inner.end()
+        return public[:pos] + nav + public[pos:]
+    body_open = re.search(r"<body[^>]*>", public, re.I)
+    if body_open:
+        pos = body_open.end()
+        header = f'<header class="masthead"><div class="wrap masthead-inner">{nav}</div></header>'
+        return public[:pos] + header + public[pos:]
+    return nav + public
+
+
 def publish_run_page(folder: Path, record: dict, *, now: str, days: int, trial: bool) -> None:
     """The run directory's index is the styled report, not a frame around it."""
     html_text = reporter_html(folder)
@@ -1768,6 +1966,11 @@ def publish_run_page(folder: Path, record: dict, *, now: str, days: int, trial: 
         )
     else:
         public = scrub_reporter_html(html_text, record, trial=trial, expired=expired)
+    public = with_site_nav(
+        public,
+        overview_href="../../../../../index.html",
+        reports_href="../../../../index.html",
+    )
     public = with_spec_provenance(public, record, report)
     if html_is_dirty(public):
         raise SiteError(
@@ -1816,9 +2019,9 @@ def published_text(path: Path) -> bool:
 
 
 def public_page_problems(site: Path) -> list[str]:
-    """Published text, other than run.json, that names an artifact or an Actions URL."""
+    """Report text, other than run.json, that names an artifact or an Actions URL."""
     problems = []
-    for path in sorted(site.rglob("*")):
+    for path in sorted((site / REPORTS_DIR).rglob("*")):
         if not published_text(path):
             continue
         text = path.read_text(errors="replace")
@@ -1874,6 +2077,7 @@ SITE_STYLES = """:root {
   --navy: #01152d;
   --teal: #0e8785;
   --teal-bright: #64dfc7;
+  --track: #0b4f4d;
   --text: #0f172a;
   --text-muted: #475569;
   --bg: #f4f7fb;
@@ -1892,16 +2096,106 @@ SITE_STYLES = """:root {
   --chip-muted-bg: #e2e8f0;
   --header-text: #f8fafc;
   --header-muted: #b7c5d6;
+  --focus: #0e8785;
+  --pre-bg: #0b1120;
+  --pre-text: #e2e8f0;
   --link: #0b6e6c;
+  --link-hover: #08524f;
   --speak: #8a6a32;
   --speak-text: #6b5428;
-  --focus: #0e8785;
   --pip-pass: #0e8785;
   --pip-fail: #e11d48;
-  --pip-warn: #d97706;
-  --pip-muted: #94a3b8;
+  --pip-warn: #b45309;
+  --pip-muted: #64748b;
   --pip-size: 0.7rem;
 }
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --text: #e2e8f0;
+    --text-muted: #94a3b8;
+    --bg: #0b1120;
+    --bg-muted: #111827;
+    --surface: #151f32;
+    --border: #2a364a;
+    --border-strong: #3d4b63;
+    --shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
+    --chip-pass-fg: #5eead4;
+    --chip-pass-bg: #0f2e2b;
+    --chip-fail-fg: #fda4af;
+    --chip-fail-bg: #4c0519;
+    --chip-warn-fg: #fcd34d;
+    --chip-warn-bg: #33260a;
+    --chip-muted-fg: #cbd5e1;
+    --chip-muted-bg: #1e293b;
+    --link: #64dfc7;
+    --link-hover: #8ef3e4;
+    --speak: #c4a46a;
+    --speak-text: #e0c48a;
+    --pip-pass: #14b8a6;
+    --pip-fail: #fb7185;
+    --pip-warn: #fbbf24;
+    --pip-muted: #94a3b8;
+  }
+}
+
+html:has(#theme-light:checked) {
+  color-scheme: light;
+  --text: #0f172a;
+  --text-muted: #475569;
+  --bg: #f4f7fb;
+  --bg-muted: #e8eef5;
+  --surface: #ffffff;
+  --border: #d5dee9;
+  --border-strong: #c3cedb;
+  --shadow: 0 12px 32px rgba(1, 21, 45, 0.06);
+  --chip-pass-fg: #0f5f5c;
+  --chip-pass-bg: #d7f3ef;
+  --chip-fail-fg: #9f1239;
+  --chip-fail-bg: #ffe4e6;
+  --chip-warn-fg: #92400e;
+  --chip-warn-bg: #fef3c7;
+  --chip-muted-fg: #334155;
+  --chip-muted-bg: #e2e8f0;
+  --link: #0b6e6c;
+  --link-hover: #08524f;
+  --speak: #8a6a32;
+  --speak-text: #6b5428;
+  --pip-pass: #0e8785;
+  --pip-fail: #e11d48;
+  --pip-warn: #b45309;
+  --pip-muted: #64748b;
+}
+
+html:has(#theme-dark:checked) {
+  color-scheme: dark;
+  --text: #e2e8f0;
+  --text-muted: #94a3b8;
+  --bg: #0b1120;
+  --bg-muted: #111827;
+  --surface: #151f32;
+  --border: #2a364a;
+  --border-strong: #3d4b63;
+  --shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
+  --chip-pass-fg: #5eead4;
+  --chip-pass-bg: #0f2e2b;
+  --chip-fail-fg: #fda4af;
+  --chip-fail-bg: #4c0519;
+  --chip-warn-fg: #fcd34d;
+  --chip-warn-bg: #33260a;
+  --chip-muted-fg: #cbd5e1;
+  --chip-muted-bg: #1e293b;
+  --link: #64dfc7;
+  --link-hover: #8ef3e4;
+  --speak: #c4a46a;
+  --speak-text: #e0c48a;
+  --pip-pass: #14b8a6;
+  --pip-fail: #fb7185;
+  --pip-warn: #fbbf24;
+  --pip-muted: #94a3b8;
+}
+
 *, *::before, *::after { box-sizing: border-box; }
 html, body { margin: 0; }
 body {
@@ -1918,8 +2212,8 @@ a {
   text-decoration-thickness: 1px;
   text-underline-offset: 0.15em;
 }
-a:hover { color: #08524f; }
-a:focus-visible, button:focus-visible, summary:focus-visible, .row:focus-visible {
+a:hover { color: var(--link-hover); }
+a:focus-visible, button:focus-visible, summary:focus-visible, input:focus-visible, .row:focus-visible {
   outline: 3px solid var(--focus);
   outline-offset: 3px;
 }
@@ -1953,6 +2247,68 @@ a:focus-visible, button:focus-visible, summary:focus-visible, .row:focus-visible
     var(--navy);
   color: var(--header-text);
   border-bottom: 3px solid var(--teal);
+}
+.masthead-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  margin-bottom: 0.65rem;
+}
+.masthead-top .eyebrow,
+.masthead-top .crumb {
+  margin: 0;
+}
+.theme {
+  position: relative;
+  display: flex;
+  gap: 0.15rem;
+  margin: 0;
+  min-inline-size: 0;
+  padding: 0.15rem;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+}
+.theme legend {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+.theme label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 1.7rem;
+  padding: 0 0.7rem;
+  border: 2px solid transparent;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--header-muted);
+  cursor: pointer;
+}
+.theme input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+.theme label:has(input:checked) {
+  background: rgba(14, 135, 133, 0.35);
+  color: #fff;
+  border-color: var(--header-text);
+}
+.theme label:hover { color: #fff; }
+.theme label:focus-within {
+  outline: 3px solid var(--teal-bright);
+  outline-offset: 2px;
 }
 .wrap {
   width: min(72rem, 100% - 2.25rem);
@@ -2097,6 +2453,12 @@ a:focus-visible, button:focus-visible, summary:focus-visible, .row:focus-visible
   font-size: 0.92rem;
   font-weight: 550;
 }
+.finding-neutral {
+  border-left-color: var(--border-strong);
+  background: var(--bg-muted);
+  color: var(--text-muted);
+  font-weight: 450;
+}
 .badge {
   display: inline-flex;
   align-items: center;
@@ -2145,6 +2507,22 @@ a.chip:hover {
   color: var(--speak-text);
   border-color: color-mix(in srgb, var(--speak) 65%, var(--border));
 }
+.chip-integrity-error {
+  border-color: color-mix(in srgb, var(--chip-fail-fg) 45%, var(--border));
+  background: var(--chip-fail-bg);
+  color: var(--chip-fail-fg);
+}
+.chip-integrity-inconclusive {
+  border-style: dashed;
+  border-color: var(--border-strong);
+  background: var(--chip-muted-bg);
+  color: var(--chip-muted-fg);
+}
+a.chip-spec:hover {
+  background: var(--bg-muted);
+  color: var(--text);
+  border-color: var(--border-strong);
+}
 .when, .release, .poster, .links {
   font-size: 0.88rem;
   color: var(--text-muted);
@@ -2160,9 +2538,9 @@ a.release.is-fallback {
   color: var(--link);
   text-decoration: underline;
 }
-a.release.is-fallback:hover { color: #08524f; }
+a.release.is-fallback:hover { color: var(--link-hover); }
 a.release:hover { color: var(--link); text-decoration: underline; }
-.dot { margin: 0 0.35rem; color: #94a3b8; }
+.dot { margin: 0 0.35rem; color: var(--text-muted); }
 .links a { margin-left: 0.7rem; }
 .links a:first-child { margin-left: 0; }
 .side-meta { color: var(--text-muted); font-size: 0.88rem; }
@@ -2284,7 +2662,7 @@ a.release:hover { color: var(--link); text-decoration: underline; }
 }
 .fail-count { color: var(--chip-fail-fg); font-weight: 700; }
 .pass-count { color: var(--text-muted); }
-.count-sep { margin: 0 0.3rem; color: #94a3b8; }
+.count-sep { margin: 0 0.3rem; color: var(--text-muted); }
 .dots {
   display: flex;
   flex-wrap: nowrap;
@@ -2392,10 +2770,59 @@ time { white-space: nowrap; }
     print-color-adjust: exact;
   }
 }
+@media screen and (max-width: 720px) {
+  .masthead:has(.crumb) .masthead-inner { padding: 0.75rem 0 0.85rem; }
+  .masthead:has(.crumb) .lede { line-height: 1.4; }
+  .masthead:has(.crumb) .meta-line { margin-top: 0.35rem; line-height: 1.4; }
+  .history .row { padding: 0.75rem; }
+}
 @media (prefers-reduced-motion: reduce) {
   .card, .row, .robot > summary, .chevron { transition: none; }
 }
+@media print {
+  :root, html:has(#theme-light:checked), html:has(#theme-dark:checked) {
+    color-scheme: light;
+    --text: #0f172a;
+    --text-muted: #475569;
+    --bg: #fff;
+    --bg-muted: #f1f5f9;
+    --surface: #fff;
+    --border: #cbd5e1;
+    --border-strong: #c3cedb;
+    --shadow: none;
+    --chip-pass-fg: #0f5f5c;
+    --chip-pass-bg: #d7f3ef;
+    --chip-fail-fg: #9f1239;
+    --chip-fail-bg: #ffe4e6;
+    --chip-warn-fg: #92400e;
+    --chip-warn-bg: #fef3c7;
+    --chip-muted-fg: #334155;
+    --chip-muted-bg: #e2e8f0;
+    --link: #0b6e6c;
+    --link-hover: #08524f;
+    --speak: #8a6a32;
+    --speak-text: #6b5428;
+    --pip-pass: #0e8785;
+    --pip-fail: #e11d48;
+    --pip-warn: #b45309;
+    --pip-muted: #64748b;
+  }
+  .theme { display: none; }
+  .masthead { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .card, .row { box-shadow: none; break-inside: avoid; }
+  .card, .row, .robot > summary { transition: none; }
+  .robot[open], .robot > summary { box-shadow: none; }
+}
 """
+
+THEME_SWITCH = (
+    '<fieldset class="theme"><legend>Colour theme</legend>'
+    '<label><input type="radio" name="theme" id="theme-system" value="system" checked> '
+    "System</label>"
+    '<label><input type="radio" name="theme" id="theme-light" value="light"> Light</label>'
+    '<label><input type="radio" name="theme" id="theme-dark" value="dark"> Dark</label>'
+    "</fieldset>"
+)
 
 INDEX_SCRIPT = """// Open a robot section when the URL hash is its id (e.g. #unitree-g1).
 // Truncate the scenario-dot strip to one line and show +n when dots don't fit.
@@ -2707,7 +3134,28 @@ def _release_html(record: dict, *, linked: bool = True) -> str:
     return f'<span class="release is-fallback" title="{title}">commit</span>'
 
 
-def _chips_html(record: dict, prefix: str, *, linked: bool = True, extra: str = "") -> str:
+def _integrity_chip(
+    title: str, status: str, prefix: str, linked: bool, fragment: str = EVALUATOR_ANCHOR
+) -> str:
+    """The marker chip for an ERROR or INCONCLUSIVE integrity result (neutral if not graded)."""
+    tip = f"{title}: integrity status {status}"
+    if status == "INCONCLUSIVE":
+        tip += " (not graded)"
+    words = "error" if status == "ERROR" else "not graded"
+    icon = "\u2715" if status == "ERROR" else "?"
+    klass = f"chip chip-integrity chip-integrity-{status.lower()}"
+    body = f'<span aria-hidden="true">{icon}</span> {html.escape(title)} {words}'
+    if linked:
+        target = html.escape(prefix + fragment, quote=True)
+        return (
+            f'<a class="{klass}" href="{target}" title="{html.escape(tip, quote=True)}">{body}</a>'
+        )
+    return f'<span class="{klass}" title="{html.escape(tip, quote=True)}">{body}</span>'
+
+
+def _chips_html(
+    record: dict, prefix: str, *, linked: bool = True, extra: str = "", report: object = None
+) -> str:
     grade = _record_grade(record)
     evaluators = record.get("failing_evaluators") or []
     items = []
@@ -2719,15 +3167,49 @@ def _chips_html(record: dict, prefix: str, *, linked: bool = True, extra: str = 
             href = _stored_text(ev.get("href"))
             if title is None or href is None:
                 continue
-            if linked:
+            if ev.get("not_graded") is True:
+                # INCONCLUSIVE is not graded, not failing: the same neutral chip as on a PASS run.
+                items.append(
+                    _integrity_chip(
+                        title,
+                        "INCONCLUSIVE",
+                        prefix,
+                        linked,
+                        evaluator_fragment(record, ev.get("id"), report),
+                    )
+                )
+            elif linked:
+                # The stored href is ignored: records written before #168 carry a dead
+                # #evaluator-<id> fragment; the fragment is derived from the stored id.
+                fragment = evaluator_fragment(record, ev.get("id"), report)
                 tip = f"Open the {title} finding in the report"
                 items.append(
-                    f'<a class="chip" href="{html.escape(prefix + href, quote=True)}" '
+                    f'<a class="chip" href="{html.escape(prefix + fragment, quote=True)}" '
                     f'title="{html.escape(tip, quote=True)}" '
                     f'aria-label="{html.escape(tip, quote=True)}">{html.escape(title)}</a>'
                 )
             else:
                 items.append(f'<span class="chip">{html.escape(title)}</span>')
+    markers = record.get("integrity_status") or []
+    if grade in ("PASS", "UNSUPPORTED") and isinstance(markers, list):
+        for marker in markers:
+            if not isinstance(marker, dict):
+                continue
+            title = _stored_text(marker.get("title"))
+            status = marker.get("status")
+            if title is None or status not in MARKED_INTEGRITY_STATUSES:
+                continue
+            if _stored_text(marker.get("id")) is None:
+                continue
+            items.append(
+                _integrity_chip(
+                    title,
+                    status,
+                    prefix,
+                    linked,
+                    evaluator_fragment(record, marker.get("id"), report),
+                )
+            )
     if extra:
         items.append(extra)
     if not items:
@@ -2781,7 +3263,8 @@ def _finding_html(record: dict) -> str:
         if isinstance(ev, dict):
             summary = _stored_text(ev.get("summary"))
             if summary is not None:
-                return f'<p class="finding">{html.escape(summary)}</p>'
+                klass = "finding finding-neutral" if ev.get("not_graded") is True else "finding"
+                return f'<p class="{klass}">{html.escape(summary)}</p>'
     for item in record.get("outcome") or []:
         if isinstance(item, dict):
             finding = _stored_text(item.get("finding"))
@@ -2882,7 +3365,11 @@ def _history_page_html(
         sw_label = f"{config} {software_version}".strip()
         robot_line += f'<span class="quiet"> · software {html.escape(sw_label)}</span>'
     masthead = (
+        f"{_site_nav_html('../../../index.html', '../../index.html')}"
+        '<div class="masthead-top">'
         '<p class="crumb"><a href="../../index.html">← All verification reports</a></p>'
+        f"{THEME_SWITCH}"
+        "</div>"
         f'<p class="eyebrow">{html.escape(robot_title)} · {html.escape(subtitle)}</p>'
         f"<h1>{html.escape(scenario_title)}</h1>"
         f'<p class="lede">{count} run{plural}, newest first. '
@@ -2908,7 +3395,12 @@ def _history_page_html(
                 _spec_versions(record, (reports or {}).get(record["folder"])),
                 _spec_versions(below, (reports or {}).get(below["folder"])),
             )
-        chips = _chips_html(record, run_prefix, extra=_spec_chip_html(change))
+        chips = _chips_html(
+            record,
+            run_prefix,
+            extra=_spec_chip_html(change),
+            report=(reports or {}).get(record["folder"]),
+        )
         finding = _finding_html(record)
         row_cards.append(
             f'<article class="{row_class}">'
@@ -3144,7 +3636,11 @@ def _index_page_html(history: dict, now: str = "") -> str:
         else ""
     )
     masthead = (
+        f"{_site_nav_html('../index.html', 'index.html', on_reports_index=True)}"
+        '<div class="masthead-top">'
         '<p class="eyebrow">Living Proof Labs</p>'
+        f"{THEME_SWITCH}"
+        "</div>"
         "<h1>Verification reports</h1>"
         '<p class="lede">The latest result for each robot and scenario. '
         "Failures come first, so they get fixed. Open a robot to see everything it runs.</p>"
@@ -3165,10 +3661,12 @@ def render(site: Path, now: str = "", verifications: Path = ROOT / "verification
     robot_tags = known_robot_tags(verifications)
     prune_expired_evidence(site, now, days)
     history = runs(site)
-    (site / "styles.css").write_text(SITE_STYLES)
-    (site / "open.js").write_text(INDEX_SCRIPT)
+    reports_dir = site / REPORTS_DIR
+    reports_dir.mkdir(parents=True, exist_ok=True)
+    (reports_dir / "styles.css").write_text(SITE_STYLES + "\n" + SITE_NAV_STYLES)
+    (reports_dir / "open.js").write_text(INDEX_SCRIPT)
     for (robot, variant), records in sorted(history.items()):
-        base = site / robot / variant
+        base = reports_dir / robot / variant
         latest = base / "latest"
         if latest.exists():
             shutil.rmtree(latest)
@@ -3192,7 +3690,7 @@ def render(site: Path, now: str = "", verifications: Path = ROOT / "verification
         (base / "index.html").write_text(
             _history_page_html(robot, variant, records, now, reports, robot_tags)
         )
-    (site / "index.html").write_text(_index_page_html(history, now))
+    (reports_dir / "index.html").write_text(_index_page_html(history, now))
 
 
 def build(

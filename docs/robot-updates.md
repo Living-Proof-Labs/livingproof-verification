@@ -24,12 +24,12 @@ Inventory at the PR #152 source baseline (paths are under `verifications/`):
 | `unitree-g1-stock-mujoco-hallway.toml` | v2.3.12 | Frozen |
 | `unitree-g1-playground-mujoco-hallway.toml` | v2.3.12 | Frozen |
 | `unitree-go1-playground-mujoco-hallway.toml` | v2.3.5 | Frozen |
-| `booster-t1-stock-mujoco-corner-left.toml` | v2.3.5 | Eligible proposal |
-| `booster-t1-stock-mujoco-corner-right.toml` | v2.3.5 | Eligible proposal |
-| `unitree-g1-stock-mujoco-corner-left.toml` | v2.3.12 | Eligible proposal |
-| `unitree-g1-stock-mujoco-corner-right.toml` | v2.3.12 | Eligible proposal |
-| `unitree-go1-playground-mujoco-corner-left.toml` | v2.3.5 | Eligible proposal |
-| `unitree-go1-playground-mujoco-corner-right.toml` | v2.3.5 | Eligible proposal |
+| `booster-t1-stock-mujoco-corner-left.toml` | v2.3.13 | Eligible proposal |
+| `booster-t1-stock-mujoco-corner-right.toml` | v2.3.13 | Eligible proposal |
+| `unitree-g1-stock-mujoco-corner-left.toml` | v2.3.18 | Eligible proposal |
+| `unitree-g1-stock-mujoco-corner-right.toml` | v2.3.18 | Eligible proposal |
+| `unitree-go1-playground-mujoco-corner-left.toml` | v2.3.13 | Eligible proposal |
+| `unitree-go1-playground-mujoco-corner-right.toml` | v2.3.13 | Eligible proposal |
 
 The robot manager uses an exact file allowlist. All four hallway definitions,
 settings, generated locks, fixtures, and new/unclassified definitions are outside
