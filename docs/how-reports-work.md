@@ -2,7 +2,7 @@
 
 # How the reports work
 
-Every push to `main` that passes the verification pipeline publishes the resulting reports under [Reports](reports/index.html), keeping earlier runs restored from the previous site artifact.
+Every push to `main` that passes the verification pipeline publishes the resulting reports under [Reports](reports/index.html), keeping earlier runs restored from the last successfully deployed site snapshot. A release re-runs that report publication and the deploy together. Rolling runs do not wait for a release.
 
 ## The reports index
 

@@ -8,7 +8,9 @@
 # Release (push to main only): after the verification job passes for the same commit, the
 # shared semantic-release workflow of collaboration-guidelines tags this repository's bundle
 # (definitions, locks and publishing configuration). The site job waits for that outcome so a
-# run records the bundle tag only when the tag resolves to the run's own commit.
+# run records the bundle tag only when the tag resolves to the run's own commit. A rolling run
+# still publishes when the release fails, is skipped, or publishes nothing. A published release
+# re-runs report publication and the deploy together from the last successfully deployed snapshot.
 name: verify
 on:
   pull_request:
@@ -292,9 +294,13 @@ jobs:
     permissions:
       contents: write
     uses: Living-Proof-Labs/collaboration-guidelines/.github/workflows/semantic-release.yml@v9.9.4
-  # Publishing (push to main only): lay this run's reports out into the Pages site, keeping
-  # every earlier run from the previous Pages artifact. Layout and index only (tools/site.py):
-  # the verifier graded and the reporter rendered; nothing is committed.
+  # Publishing (push to main only): generate this run's report pages and, in the same
+  # workflow, deploy that site. `pages` runs only after this job succeeds, so the site is
+  # not deployed unless the reports are being generated. A rolling run does not read the
+  # release outcome. A published release re-runs the report build below before deploy.
+  # History is the last Pages artifact whose `pages` job succeeded, not a newer upload
+  # from a failed deploy. Layout and index only (tools/site.py): the verifier graded and
+  # the reporter rendered; nothing is committed.
   site:
     needs:
       - unitree-g1-stock-mujoco-hallway
@@ -332,7 +338,7 @@ jobs:
       cancel-in-progress: false
     permissions:
       contents: read
-      actions: read  # list and download the previous Pages artifact
+      actions: read  # list artifacts and the pages job that deployed them
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -356,7 +362,7 @@ jobs:
         with:
           pattern: '*-video-*'
           path: evidence
-      - name: Restore earlier runs from the previous Pages artifact
+      - name: Restore earlier runs from the last successfully deployed snapshot
         env:
           GITHUB_TOKEN: ${{ github.token }}
           SITE_URL: https://docs.livingprooflabs.com/livingproof-verification/
@@ -378,23 +384,49 @@ jobs:
         with:
           version: '3.54.0'
       - name: Add this run and write the index pages
+        id: publish-reports
         env:
           COMMIT: ${{ github.sha }}
           RUN_ID: ${{ github.run_id }}
           GITHUB_TOKEN: ${{ github.token }}  # read this run's artifact ids, expiry and digests
         run: |
+          created="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          echo "created=$created" >> "$GITHUB_OUTPUT"
           python3 tools/site.py build site --reports reports --evidence evidence \
-            --run-id "$RUN_ID" --commit "$COMMIT" --created "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            --run-id "$RUN_ID" --commit "$COMMIT" --created "$created"
       - name: Build and verify the docs site
         run: |
           task docs:setup
           task docs:build
           python3 tools/docs/assemble.py --site site
           python3 tools/docs/verify.py --site site --require-reports
+      # A published release re-runs report publication in this same job. `pages` then
+      # deploys that result, so the release does not ship a site without regenerating
+      # the reports. The re-run must keep every byte under reports/ and in site.json.
+      - name: Re-run reports and the site together for a release
+        if: needs.release.outputs.published == 'true'
+        env:
+          COMMIT: ${{ github.sha }}
+          RUN_ID: ${{ github.run_id }}
+          CREATED: ${{ steps.publish-reports.outputs.created }}
+          RELEASE_TAG: ${{ needs.release.outputs.git-tag }}
+          RELEASE_COMMIT: ${{ needs.release.outputs.commit }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          test -n "$RELEASE_TAG"
+          test "$RELEASE_COMMIT" = "$GITHUB_SHA"
+          test -n "$CREATED"
+          python3 tools/site.py snapshot-publication site "$RUNNER_TEMP/publication.json"
+          python3 tools/site.py build site --reports reports --evidence evidence \
+            --run-id "$RUN_ID" --commit "$COMMIT" --created "$CREATED"
+          python3 tools/site.py require-preserved site "$RUNNER_TEMP/publication.json"
+          python3 tools/docs/verify.py --site site --require-reports
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9  # v5.0.0
         with:
           path: site
           retention-days: 90  # the next run restores history from this artifact
+  # Deploy only with the report publication above. A failed or skipped release does
+  # not skip a site job that already succeeded (#189).
   pages:
     needs: site
     if: >-
