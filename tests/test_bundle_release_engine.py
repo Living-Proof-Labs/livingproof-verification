@@ -20,8 +20,9 @@ ROOT = Path(__file__).parents[1]
 CHECKS = yaml.safe_load((ROOT / ".github/workflows/checks.yml").read_text())
 VERIFY = yaml.safe_load((ROOT / ".github/workflows/verify.yml").read_text())
 JOB = CHECKS["jobs"]["bundle-release-engine"]
-# Reviewed tag v9.6.10 of Living-Proof-Labs/collaboration-guidelines.
-SHARED_RELEASE_SHA = "54dcb297c628a4853c79bb31b5155e859afb7e93"
+# Reviewed tag v9.9.4 of Living-Proof-Labs/collaboration-guidelines.
+# The tag is lightweight and points at this commit (notes-push recovery, guidelines#142).
+SHARED_RELEASE_SHA = "5de395fd1ab3b28127ee3ff3f4c0cf362fc75491"
 
 
 def test_the_engine_job_is_read_only_and_has_no_secrets():

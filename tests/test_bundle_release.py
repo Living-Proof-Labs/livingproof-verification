@@ -226,6 +226,32 @@ def test_site_waits_for_the_release_but_never_depends_on_its_outcome():
     assert not JOBS["pages"].get("if", "").count("always")
 
 
+def pages_runs(event: str, ref: str, site: str, reset: bool = False) -> bool:
+    """Whether `pages` starts: not cancelled, the site job succeeded, and its own `if` holds.
+
+    `!cancelled()` is modelled as true here. The condition must name it so a cancelled
+    run does not deploy, and must name `needs.site.result` so a failed release earlier
+    in the chain does not skip a site that already succeeded.
+    """
+    condition = " ".join(str(JOBS["pages"]["if"]).split())
+    assert condition.startswith("!cancelled() && needs.site.result == 'success' &&")
+    return evaluate(condition, event=event, ref=ref, needs={"site": site}, reset_history=reset)
+
+
+def test_pages_deploys_a_successful_site_on_main_even_when_release_failed():
+    assert pages_runs("push", MAIN, "success") is True
+    assert pages_runs("workflow_dispatch", MAIN, "success", reset=True) is True
+    assert pages_runs("workflow_dispatch", MAIN, "success", reset=False) is False
+    for event, ref, _ in (
+        EVENTS["pull request"],
+        EVENTS["merge group"],
+        EVENTS["push to another branch"],
+    ):
+        assert pages_runs(event, ref, "success") is False
+    for site in ("failure", "skipped", "cancelled"):
+        assert pages_runs("push", MAIN, site) is False, site
+
+
 @pytest.mark.parametrize("release", ["success", "failure", "skipped", "cancelled"])
 def test_evidence_publishes_after_any_release_outcome_when_verification_jobs_passed(release):
     results = {name: "success" for name in verification_jobs()}
