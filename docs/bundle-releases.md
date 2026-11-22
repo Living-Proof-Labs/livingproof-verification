@@ -51,8 +51,8 @@ The shared job serialises releases per repository and never cancels one that has
 ### Repeat-run cases (automated, shared engine, no publishing)
 
 `tests/bundle_release_rerun.test.mjs` runs `.github/actions/semantic-release` at the same
-reviewed collaboration-guidelines release this repository calls (`v9.6.10`, commit
-`54dcb297c628a4853c79bb31b5155e859afb7e93`) against a disposable repository and bare remote,
+reviewed collaboration-guidelines release this repository calls (`v9.9.4`, commit
+`5de395fd1ab3b28127ee3ff3f4c0cf362fc75491`) against a disposable repository and bare remote,
 with the shared `release.config.mjs`, the commit analyser and the notes generator (only the
 GitHub plugin is left out, as in the guidelines' own `engine.test.mjs`). The
 `bundle-release-engine` job in `.github/workflows/checks.yml` checks out that commit, installs
@@ -72,7 +72,7 @@ the `renovate` job), the public guidelines checkout, and `npm ci` from the lockf
 ```
 
 To run it locally, check out `Living-Proof-Labs/collaboration-guidelines` at
-`54dcb297c628a4853c79bb31b5155e859afb7e93`, run `npm ci --omit=dev --ignore-scripts` in
+`5de395fd1ab3b28127ee3ff3f4c0cf362fc75491`, run `npm ci --omit=dev --ignore-scripts` in
 `.github/actions/semantic-release`, and invoke:
 
 ```sh
