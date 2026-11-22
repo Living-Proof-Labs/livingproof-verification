@@ -291,7 +291,7 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
       contents: write
-    uses: Living-Proof-Labs/collaboration-guidelines/.github/workflows/semantic-release.yml@v9.6.10
+    uses: Living-Proof-Labs/collaboration-guidelines/.github/workflows/semantic-release.yml@v9.9.4
   # Publishing (push to main only): lay this run's reports out into the Pages site, keeping
   # every earlier run from the previous Pages artifact. Layout and index only (tools/site.py):
   # the verifier graded and the reporter rendered; nothing is committed.
@@ -398,6 +398,7 @@ jobs:
   pages:
     needs: site
     if: >-
+      !cancelled() && needs.site.result == 'success' &&
       github.ref == 'refs/heads/main' && (github.event_name == 'push' ||
       (github.event_name == 'workflow_dispatch' && inputs.reset-history))
     runs-on: ubuntu-26.04
