@@ -32,10 +32,12 @@ A run's commit carries the bundle release tag (`commit.tag`) only when a vX.Y.Z 
 to that same commit in the checkout (`bundle_tag`); otherwise the commit stands alone. Runs
 already published are never retagged.
 
-Earlier runs come from the previous Pages artifact (`restore`), so history survives
-without committing anything to git. If that artifact is listed but the download
-fails or the archive is corrupt, restore fails instead of publishing a site that
-drops those runs.
+Earlier runs come from the last successfully deployed Pages artifact (`restore`),
+not from a newer upload whose deploy failed, so history survives without
+committing anything to git. If that artifact is listed but the download fails or
+the archive is corrupt, restore fails instead of publishing a site that drops
+those runs. A release re-run of that publication, and docs assembly, keep every
+byte under ``reports/`` and in ``site.json``.
 """
 
 import argparse
@@ -349,15 +351,20 @@ def _unpack_pages_archive(archive: bytes, destination: Path) -> int:
         ) from error
 
 
-def latest_pages_artifact(artifacts: list[dict], branch: str, current_run: int | None):
-    """Newest Pages artifact from an earlier run on `branch`; error if it expired."""
-    candidates = [
+def _pages_candidates(artifacts: list[dict], branch: str, current_run: int | None) -> list[dict]:
+    """Pages artifacts from an earlier run on `branch`, newest upload not preferred."""
+    return [
         a
         for a in artifacts
         if a.get("name") == PAGES_ARTIFACT
         and (a.get("workflow_run") or {}).get("head_branch") == branch
         and (a.get("workflow_run") or {}).get("id") != current_run
     ]
+
+
+def latest_pages_artifact(artifacts: list[dict], branch: str, current_run: int | None):
+    """Newest Pages artifact from an earlier run on `branch`; error if it expired."""
+    candidates = _pages_candidates(artifacts, branch, current_run)
     if not candidates:
         return None
     newest = max(candidates, key=lambda a: a["created_at"])
@@ -367,6 +374,157 @@ def latest_pages_artifact(artifacts: list[dict], branch: str, current_run: int |
             "has expired; restoring would drop the published run history."
         )
     return newest
+
+
+def deployed_pages_artifact(artifacts: list[dict], branch: str, current_run, conclusion_of):
+    """Newest Pages artifact on `branch` whose pages deploy succeeded.
+
+    `conclusion_of(run_id)` is the `pages` job conclusion (`success`, `failure`,
+    `skipped`, `cancelled`) or None when that run never deployed. A newer upload
+    from a failed or unfinished deploy is not the snapshot. The newest successful
+    artifact is an error when it has expired: an older deploy is not a substitute
+    for history that was published and then aged out.
+    """
+    ranked = sorted(
+        _pages_candidates(artifacts, branch, current_run),
+        key=lambda artifact: artifact.get("created_at") or "",
+        reverse=True,
+    )
+    for artifact in ranked:
+        run_id = (artifact.get("workflow_run") or {}).get("id")
+        if run_id is None or conclusion_of(run_id) != "success":
+            continue
+        if artifact.get("expired"):
+            raise SiteError(
+                f"The last successfully deployed Pages artifact ({artifact['id']}, "
+                f"{artifact['created_at']}) has expired; restoring would drop the "
+                "published run history."
+            )
+        return artifact
+    return None
+
+
+def _pages_conclusion(repository: str, run_id: int, token: str | None, api: str) -> str | None:
+    """Conclusion of the `pages` job on `run_id`, or None if that job never deployed."""
+    page = 1
+    found = None
+    while True:
+        url = (
+            f"{api}/repos/{repository}/actions/runs/{run_id}/jobs"
+            f"?filter=latest&per_page=100&page={page}"
+        )
+        try:
+            with _request(url, token) as response:
+                payload = json.load(response)
+        except urllib.error.HTTPError as error:
+            if error.code == 404:
+                error.close()
+                return None
+            detail = _error_text(error)
+            error.close()
+            raise SiteError(
+                f"Could not read the pages deploy for run {run_id}: {detail}. "
+                "Refusing to publish a site without its earlier runs."
+            ) from error
+        except OSError as error:
+            raise SiteError(
+                f"Could not read the pages deploy for run {run_id}: {_error_text(error)}. "
+                "Refusing to publish a site without its earlier runs."
+            ) from error
+        jobs = payload.get("jobs") or []
+        for job in jobs:
+            if job.get("name") == "pages":
+                found = job.get("conclusion")
+        if len(jobs) < 100:
+            return found
+        page += 1
+
+
+def _conclusion_of(repository: str, token: str | None, api: str):
+    """Look up each run once. A lookup failure refuses the publish."""
+    cache: dict = {}
+
+    def conclusion_of(run_id):
+        if run_id not in cache:
+            cache[run_id] = _pages_conclusion(repository, run_id, token, api)
+        return cache[run_id]
+
+    return conclusion_of
+
+
+def publication_bytes(site: Path) -> dict[str, bytes]:
+    """Every byte of ``site.json`` and of each file under ``reports/``."""
+    found: dict[str, bytes] = {}
+    marker = site / MARKER
+    if marker.is_file() and not marker.is_symlink():
+        found[MARKER] = marker.read_bytes()
+    reports = site / REPORTS_DIR
+    if reports.is_dir():
+        for path in sorted(reports.rglob("*")):
+            if path.is_symlink() or not path.is_file():
+                continue
+            found[path.relative_to(site).as_posix()] = path.read_bytes()
+    return found
+
+
+def _publication_diff(before: dict[str, bytes], after: dict[str, bytes]) -> str:
+    missing = sorted(set(before) - set(after))
+    changed = sorted(path for path in before.keys() & after.keys() if before[path] != after[path])
+    added = sorted(set(after) - set(before))
+    detail = []
+    if missing:
+        detail.append("missing " + ", ".join(missing))
+    if changed:
+        detail.append("changed " + ", ".join(changed))
+    if added:
+        detail.append("added " + ", ".join(added))
+    return "; ".join(detail)
+
+
+def require_publication_bytes(site: Path, before: dict[str, bytes]) -> None:
+    """Refuse a publish that adds, drops, or rewrites reports/ or site.json."""
+    after = publication_bytes(site)
+    if after == before:
+        return
+    raise SiteError(
+        "reports/ and site.json must be preserved byte for byte ("
+        + _publication_diff(before, after)
+        + ")."
+    )
+
+
+def snapshot_publication(site: Path, dest: Path) -> None:
+    """Record sha256 of site.json and every file under reports/."""
+    payload = {
+        path: hashlib.sha256(data).hexdigest() for path, data in publication_bytes(site).items()
+    }
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+
+
+def require_preserved_snapshot(site: Path, snapshot: Path) -> None:
+    """Fail when reports/ or site.json differ from a `snapshot_publication` file."""
+    recorded = json.loads(snapshot.read_text())
+    current = {
+        path: hashlib.sha256(data).hexdigest() for path, data in publication_bytes(site).items()
+    }
+    if current == recorded:
+        return
+    missing = sorted(set(recorded) - set(current))
+    changed = sorted(
+        path for path in set(recorded) & set(current) if recorded[path] != current[path]
+    )
+    added = sorted(set(current) - set(recorded))
+    detail = []
+    if missing:
+        detail.append("missing " + ", ".join(missing))
+    if changed:
+        detail.append("changed " + ", ".join(changed))
+    if added:
+        detail.append("added " + ", ".join(added))
+    raise SiteError(
+        "reports/ and site.json must be preserved byte for byte (" + "; ".join(detail) + ")."
+    )
 
 
 def extract_pages(archive: bytes, destination: Path) -> int:
@@ -462,7 +620,11 @@ def restore(
         print(f"reset-history set: starting a new site; {PAGES_ARTIFACT} history is dropped.")
         return None
     artifacts, why_empty = _list_pages_artifacts(repository, token, api)
-    artifact = latest_pages_artifact(artifacts, branch, current_run)
+    artifact = deployed_pages_artifact(
+        artifacts, branch, current_run, _conclusion_of(repository, token, api)
+    )
+    if artifact is None and _pages_candidates(artifacts, branch, current_run):
+        why_empty = "no Pages artifact whose deploy succeeded"
     if artifact is None:
         if not site_url:
             raise SiteError(
@@ -3711,7 +3873,9 @@ def build(
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest="command", required=True)
-    r = sub.add_parser("restore", help="unpack the previous Pages artifact into SITE")
+    r = sub.add_parser(
+        "restore", help="unpack the last successfully deployed Pages artifact into SITE"
+    )
     r.add_argument("site", type=Path)
     r.add_argument("--repository", default=os.environ.get("GITHUB_REPOSITORY"))
     r.add_argument("--branch", default="main")
@@ -3744,6 +3908,17 @@ def main(argv=None):
     )
     b.add_argument("--repository", default=os.environ.get("GITHUB_REPOSITORY"))
     b.add_argument("--server", default=os.environ.get("GITHUB_SERVER_URL", "https://github.com"))
+    snap = sub.add_parser(
+        "snapshot-publication", help="record sha256 of site.json and every file under reports/"
+    )
+    snap.add_argument("site", type=Path)
+    snap.add_argument("snapshot", type=Path)
+    kept = sub.add_parser(
+        "require-preserved",
+        help="fail if site.json or any file under reports/ differs from a snapshot",
+    )
+    kept.add_argument("site", type=Path)
+    kept.add_argument("snapshot", type=Path)
     args = parser.parse_args(argv)
     if args.command == "restore":
         restore(
@@ -3756,6 +3931,10 @@ def main(argv=None):
             site_url=args.site_url,
             reset_history=args.reset_history,
         )
+    elif args.command == "snapshot-publication":
+        snapshot_publication(args.site, args.snapshot)
+    elif args.command == "require-preserved":
+        require_preserved_snapshot(args.site, args.snapshot)
     else:
         artifacts = (
             fetch_artifacts(args.repository, args.run_id, os.environ.get("GITHUB_TOKEN"))
