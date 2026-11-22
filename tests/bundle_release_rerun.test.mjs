@@ -12,7 +12,7 @@
 //
 // This is not collected by pytest. The `bundle-release-engine` job in
 // `.github/workflows/checks.yml` checks out collaboration-guidelines at the pinned
-// SHA (v9.6.10, 54dcb297c628a4853c79bb31b5155e859afb7e93), installs the action
+// SHA (v9.9.4, 5de395fd1ab3b28127ee3ff3f4c0cf362fc75491), installs the action
 // from its lockfile, and runs:
 //   SHARED_RELEASE_ACTION=... node --test tests/bundle_release_rerun.test.mjs
 // Locally, check out that same commit, run

@@ -96,8 +96,8 @@ jobs:
       # sha256 of node-v24.22.3-linux-x64.tar.xz (nodejs.org SHASUMS256.txt).
       NODE_SHA256: 4f2b175a6d53a5c617a80dba2676238a0688cef28c6da4eba35c7d844e66fcfb
       # Reviewed collaboration-guidelines tag (same as verify.yml) and its resolved commit.
-      SHARED_RELEASE_TAG: v9.6.10
-      SHARED_RELEASE_SHA: 54dcb297c628a4853c79bb31b5155e859afb7e93
+      SHARED_RELEASE_TAG: v9.9.4
+      SHARED_RELEASE_SHA: 5de395fd1ab3b28127ee3ff3f4c0cf362fc75491
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -105,7 +105,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: Living-Proof-Labs/collaboration-guidelines
-          ref: 54dcb297c628a4853c79bb31b5155e859afb7e93
+          ref: 5de395fd1ab3b28127ee3ff3f4c0cf362fc75491
           persist-credentials: false
           path: collaboration-guidelines
       - name: Install Node.js

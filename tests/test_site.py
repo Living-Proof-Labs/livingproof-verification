@@ -1001,6 +1001,7 @@ def test_publishing_runs_only_on_push_to_main_with_scoped_permissions():
     assert len(verifications) == 10
     assert set(jobs["site"]["needs"]) == verifications | {"release"}  # ordering only, #131
     assert jobs["pages"]["if"] == (
+        "!cancelled() && needs.site.result == 'success' && "
         "github.ref == 'refs/heads/main' && (github.event_name == 'push' || "
         "(github.event_name == 'workflow_dispatch' && inputs.reset-history))"
     )
