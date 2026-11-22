@@ -98,13 +98,18 @@ def _page(tmp_path: Path, document: dict, scenario: bool) -> str:
     return out.read_text(encoding="utf-8")
 
 
-def test_the_reporter_pin_is_v3_14_0_and_the_installed_reporter_is_the_pin() -> None:
+def test_the_installed_reporter_is_the_settings_pin() -> None:
+    """The anchor contract starts at v3.14.0; the installed reporter is the current pin.
+
+    ``PIN`` stays the first release with ``#evaluator-<slug>``. A later pin still has
+    those anchors, and checks install that pin before pytest.
+    """
     tag = tomllib.loads((ROOT / "verifications/settings.toml").read_text())["reporter"]["tag"]
-    assert tag == PIN
+    assert tuple(int(part) for part in tag.removeprefix("v").split(".")) >= (3, 14, 0)
     out = subprocess.run(
         ["livingproof-capability-report", "--version"], capture_output=True, text=True
     )
-    assert out.returncode == 0 and "version 3.14.0" in out.stdout, out.stdout
+    assert out.returncode == 0 and f"version {tag.removeprefix('v')}" in out.stdout, out.stdout
 
 
 @pytest.mark.parametrize(
