@@ -298,8 +298,11 @@ jobs:
   # workflow, deploy that site. `pages` runs only after this job succeeds, so the site is
   # not deployed unless the reports are being generated. A rolling run does not read the
   # release outcome. A published release re-runs the report build below before deploy.
-  # History is the last Pages artifact whose `pages` job succeeded, not a newer upload
-  # from a failed deploy. Layout and index only (tools/site.py): the verifier graded and
+  # History is the last Pages artifact whose `pages` job succeeded on a push of
+  # this file on main in this repository. The head repository and the run's
+  # repository are compared by id, not by name. A fork, pull request, dispatch,
+  # or other workflow is skipped, and a newer upload from a failed deploy is not
+  # the snapshot. Layout and index only (tools/site.py): the verifier graded and
   # the reporter rendered; nothing is committed.
   site:
     needs:
@@ -338,7 +341,7 @@ jobs:
       cancel-in-progress: false
     permissions:
       contents: read
-      actions: read  # list artifacts and the pages job that deployed them
+      actions: read  # list artifacts, the workflow run that uploaded them, and the pages job
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:

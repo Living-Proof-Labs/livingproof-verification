@@ -32,12 +32,15 @@ A run's commit carries the bundle release tag (`commit.tag`) only when a vX.Y.Z 
 to that same commit in the checkout (`bundle_tag`); otherwise the commit stands alone. Runs
 already published are never retagged.
 
-Earlier runs come from the last successfully deployed Pages artifact (`restore`),
-not from a newer upload whose deploy failed, so history survives without
-committing anything to git. If that artifact is listed but the download fails or
-the archive is corrupt, restore fails instead of publishing a site that drops
-those runs. A release re-run of that publication, and docs assembly, keep every
-byte under ``reports/`` and in ``site.json``.
+Earlier runs come from the last successfully deployed Pages artifact (`restore`)
+of a push of this workflow on this repository. The head repository and the run's
+repository are compared by id, not by name, so a fork run is skipped and a rename
+is not. A newer upload whose deploy failed is not the snapshot. History survives
+without committing anything to git. If that artifact is listed but the download
+fails or the archive is corrupt, or the last good artifact has expired, restore
+fails instead of publishing a site that drops those runs. A release re-run of
+that publication, and docs assembly, keep every byte under ``reports/`` and in
+``site.json``.
 """
 
 import argparse
@@ -64,6 +67,7 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 PAGES_ARTIFACT = "github-pages"
+VERIFY_WORKFLOW = ".github/workflows/verify.yml"
 SEGMENT = re.compile(r"[a-z0-9][a-z0-9.-]*")
 RUN_ID = re.compile(r"[0-9]+(-[0-9]+)?")
 REPORT_FILES = ("report.html", "report.json", "report.md", "report.txt")
@@ -362,6 +366,66 @@ def _pages_candidates(artifacts: list[dict], branch: str, current_run: int | Non
     ]
 
 
+def _github_id(value: object) -> int | None:
+    """A GitHub numeric id. Bool is an int subclass and is not an id."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value
+
+
+def _same_repository(head_id: object, run_repository_id: object, repository_id: int) -> bool:
+    """True when the head repository and the run's repository are both `repository_id`.
+
+    Compared by id, never by name, so a rename still matches and a fork that reused
+    this repository's name does not.
+    """
+    return _github_id(head_id) == repository_id and _github_id(run_repository_id) == repository_id
+
+
+def _listed_run_is_this_repository(artifact: dict, repository_id: int) -> bool:
+    """The artifact listing's head and run repository ids are both this repository."""
+    workflow_run = artifact.get("workflow_run") or {}
+    return _same_repository(
+        workflow_run.get("head_repository_id"),
+        workflow_run.get("repository_id"),
+        repository_id,
+    )
+
+
+def _fetched_run_is_verify_push(run: dict | None, repository_id: int, branch: str) -> bool:
+    """A push of verify.yml on `branch` whose head and run repositories are this one."""
+    if not isinstance(run, dict):
+        return False
+    if run.get("event") != "push" or run.get("path") != VERIFY_WORKFLOW:
+        return False
+    if run.get("head_branch") != branch:
+        return False
+    head = run.get("head_repository")
+    own = run.get("repository")
+    if not isinstance(head, dict) or not isinstance(own, dict):
+        return False
+    return _same_repository(head.get("id"), own.get("id"), repository_id)
+
+
+def _same_repository_pushes(
+    candidates: list[dict], branch: str, repository_id: int, run_of
+) -> list[dict]:
+    """Keep a push of verify.yml on `branch` in this repository. Any other run is skipped.
+
+    The artifact listing and the workflow run must each carry this repository's id
+    on both the head repository and the run's own repository.
+    """
+    accepted = []
+    for artifact in candidates:
+        workflow_run = artifact.get("workflow_run") or {}
+        run_id = workflow_run.get("id")
+        if run_id is None or not _listed_run_is_this_repository(artifact, repository_id):
+            continue
+        if _fetched_run_is_verify_push(run_of(run_id), repository_id, branch):
+            accepted.append(artifact)
+    return accepted
+
+
 def latest_pages_artifact(artifacts: list[dict], branch: str, current_run: int | None):
     """Newest Pages artifact from an earlier run on `branch`; error if it expired."""
     candidates = _pages_candidates(artifacts, branch, current_run)
@@ -450,6 +514,74 @@ def _conclusion_of(repository: str, token: str | None, api: str):
         return cache[run_id]
 
     return conclusion_of
+
+
+def _repository_id(repository: str, token: str | None, api: str) -> int:
+    """Numeric id of `repository`. A failed read refuses; the id is stable across renames."""
+    url = f"{api}/repos/{repository}"
+    try:
+        with _request(url, token) as response:
+            payload = json.load(response)
+    except urllib.error.HTTPError as error:
+        detail = _error_text(error)
+        error.close()
+        raise SiteError(
+            f"Could not read repository {repository}: {detail}. "
+            "Refusing to publish a site without its earlier runs."
+        ) from error
+    except OSError as error:
+        raise SiteError(
+            f"Could not read repository {repository}: {_error_text(error)}. "
+            "Refusing to publish a site without its earlier runs."
+        ) from error
+    repo_id = _github_id(payload.get("id") if isinstance(payload, dict) else None)
+    if repo_id is None:
+        raise SiteError(
+            f"Could not read repository {repository}: response has no id. "
+            "Refusing to publish a site without its earlier runs."
+        )
+    return repo_id
+
+
+def _workflow_run(repository: str, run_id: int, token: str | None, api: str) -> dict | None:
+    """The workflow run, or None when GitHub no longer has it."""
+    url = f"{api}/repos/{repository}/actions/runs/{run_id}"
+    try:
+        with _request(url, token) as response:
+            payload = json.load(response)
+    except urllib.error.HTTPError as error:
+        if error.code == 404:
+            error.close()
+            return None
+        detail = _error_text(error)
+        error.close()
+        raise SiteError(
+            f"Could not read workflow run {run_id}: {detail}. "
+            "Refusing to publish a site without its earlier runs."
+        ) from error
+    except OSError as error:
+        raise SiteError(
+            f"Could not read workflow run {run_id}: {_error_text(error)}. "
+            "Refusing to publish a site without its earlier runs."
+        ) from error
+    if not isinstance(payload, dict):
+        raise SiteError(
+            f"Could not read workflow run {run_id}: response was not an object. "
+            "Refusing to publish a site without its earlier runs."
+        )
+    return payload
+
+
+def _workflow_runs(repository: str, token: str | None, api: str):
+    """Look up each workflow run once. A lookup failure refuses the publish."""
+    cache: dict = {}
+
+    def run_of(run_id):
+        if run_id not in cache:
+            cache[run_id] = _workflow_run(repository, run_id, token, api)
+        return cache[run_id]
+
+    return run_of
 
 
 def publication_bytes(site: Path) -> dict[str, bytes]:
@@ -620,11 +752,26 @@ def restore(
         print(f"reset-history set: starting a new site; {PAGES_ARTIFACT} history is dropped.")
         return None
     artifacts, why_empty = _list_pages_artifacts(repository, token, api)
-    artifact = deployed_pages_artifact(
-        artifacts, branch, current_run, _conclusion_of(repository, token, api)
-    )
-    if artifact is None and _pages_candidates(artifacts, branch, current_run):
-        why_empty = "no Pages artifact whose deploy succeeded"
+    candidates = _pages_candidates(artifacts, branch, current_run)
+    if candidates:
+        # Same repository by id (head and the run's repository), and a push of
+        # verify.yml on this branch. Any other run is skipped before the deploy check.
+        eligible = _same_repository_pushes(
+            candidates,
+            branch,
+            _repository_id(repository, token, api),
+            _workflow_runs(repository, token, api),
+        )
+        artifact = deployed_pages_artifact(
+            eligible, branch, current_run, _conclusion_of(repository, token, api)
+        )
+        if artifact is None:
+            why_empty = (
+                "no Pages artifact from a push of verify.yml on this repository "
+                "whose deploy succeeded"
+            )
+    else:
+        artifact = None
     if artifact is None:
         if not site_url:
             raise SiteError(
