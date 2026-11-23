@@ -76,6 +76,15 @@ def test_tampered_and_interrupted_receipt_refuses(receipt):
         admission.load_receipt(path, digest)
 
 
+def test_wrong_digest_on_valid_receipt_refuses(receipt):
+    """A well-formed receipt with a different sha256 is not that publication."""
+    path, digest = receipt
+    wrong = ("0" if digest[0] != "0" else "1") * 64
+    with pytest.raises(ValueError, match="digest"):
+        admission.load_receipt(path, wrong)
+    assert admission.load_receipt(path, digest)["head"] == "a" * 40
+
+
 @pytest.mark.parametrize(
     "field,value",
     [

@@ -660,3 +660,59 @@ def test_check_page_error_refuses_the_whole_read(remote):
     with pytest.raises(OSError, match="check page failed"):
         queue.admission.successful_checks(remote["record"], read)
 
+
+def test_truncated_check_page_without_a_next_link_refuses(remote):
+    """Required contexts on the only returned page do not make a short read complete."""
+    first = f"commits/{HEAD}/check-runs?filter=latest&per_page=100"
+    filler = [{"id": 2000 + index, "name": f"filler-{index}"} for index in range(96)]
+    original = remote["read"]
+
+    def read(path):
+        if path == first:
+            return _Page(
+                {"total_count": 150, "check_runs": filler + remote["checks"]},
+                None,
+            )
+        return original(path)
+
+    with pytest.raises(ValueError, match="incomplete check evidence"):
+        queue.admission.successful_checks(remote["record"], read)
+
+
+def test_bypass_on_the_checks_ruleset_only_refuses(remote):
+    remote["rules"][0]["ruleset_id"] = 1
+    remote["rules"][1]["ruleset_id"] = 2
+    original = remote["read"]
+    details = {
+        "rulesets/1": {"enforcement": "active", "bypass_actors": []},
+        "rulesets/2": {"enforcement": "active", "bypass_actors": [{"actor_id": 7}]},
+    }
+
+    def read(path):
+        if path in details:
+            return details[path]
+        return original(path)
+
+    remote["read"] = read
+    with pytest.raises(ValueError, match="no-bypass"):
+        enqueue(remote)
+    assert not remote["writes"]
+
+
+def test_run_head_sha_must_match_the_receipt(remote):
+    remote["runs"][0]["head_sha"] = MAIN
+    with pytest.raises(ValueError, match="workflow did not successfully"):
+        queue.admission.successful_checks(remote["record"], remote["read"])
+
+
+def test_run_event_must_be_pull_request(remote):
+    remote["runs"][0]["event"] = "workflow_dispatch"
+    with pytest.raises(ValueError, match="workflow did not successfully"):
+        queue.admission.successful_checks(remote["record"], remote["read"])
+
+
+def test_run_pull_request_number_must_match_the_receipt(remote):
+    remote["runs"][0]["pull_requests"][0]["number"] = 999
+    with pytest.raises(ValueError, match="workflow did not successfully"):
+        queue.admission.successful_checks(remote["record"], remote["read"])
+
