@@ -603,3 +603,60 @@ def test_snapshot_contains_all_four_individual_check_identities(remote):
         ),
         ".github/workflows/verify.yml": (2, 1, 2, (("verification", 104),)),
     }
+
+
+class _Page(dict):
+    def __init__(self, payload, next_path=None):
+        super().__init__(payload)
+        self.next_path = next_path
+
+
+def test_required_context_on_a_later_check_page_is_accepted(remote):
+    """More than 100 check runs, several pages, and a required context only on the last."""
+    noise = [{"id": 1000 + index, "name": f"noise-{index}"} for index in range(200)]
+    required = remote["checks"]
+    first = f"commits/{HEAD}/check-runs?filter=latest&per_page=100"
+    second = first + "&page=2"
+    third = first + "&page=3"
+    pages = {
+        first: _Page({"total_count": 204, "check_runs": noise[:100]}, second),
+        second: _Page({"total_count": 204, "check_runs": noise[100:]}, third),
+        third: _Page({"total_count": 204, "check_runs": required}, None),
+    }
+    seen = []
+    original = remote["read"]
+
+    def read(path):
+        if path in pages:
+            seen.append(path)
+            return pages[path]
+        return original(path)
+
+    snapshot = queue.admission.successful_checks(remote["record"], read)
+    assert seen == [first, second, third]
+    assert snapshot[".github/workflows/verify.yml"][-1] == (("verification", 104),)
+    assert snapshot[".github/workflows/checks.yml"][-1] == (
+        ("checks", 101),
+        ("bundle-release-engine", 102),
+        ("renovate", 103),
+    )
+
+
+def test_check_page_error_refuses_the_whole_read(remote):
+    first = f"commits/{HEAD}/check-runs?filter=latest&per_page=100"
+    second = first + "&page=2"
+    original = remote["read"]
+
+    def read(path):
+        if path == first:
+            return _Page(
+                {"total_count": 204, "check_runs": [{"id": 1, "name": "noise"}] * 100},
+                second,
+            )
+        if path == second:
+            raise OSError("check page failed")
+        return original(path)
+
+    with pytest.raises(OSError, match="check page failed"):
+        queue.admission.successful_checks(remote["record"], read)
+

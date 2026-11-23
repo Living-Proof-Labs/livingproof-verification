@@ -122,3 +122,51 @@ def test_public_evidence_never_attaches_credentials(monkeypatch):
         admission.public_read("//elsewhere/../secrets")
     with pytest.raises(ValueError):
         admission.NoRedirect().redirect_request()
+
+
+def test_link_next_is_the_relative_path_on_this_repository(monkeypatch):
+    prefix = "https://api.github.com/repos/" + admission.writer.REPO + "/"
+    nxt = "commits/abc/check-runs?filter=latest&per_page=100&page=2"
+    link = f'<{prefix}{nxt}>; rel="next", <{prefix}{nxt}>; rel="last"'
+
+    class Response:
+        headers = {"Link": link}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def read(self):
+            return b'{"total_count": 1, "check_runs": []}'
+
+    class Opener:
+        def open(self, request, timeout):
+            assert not request.has_header("Authorization")
+            return Response()
+
+    monkeypatch.setattr(admission.urllib.request, "build_opener", lambda *args: Opener())
+    page = admission.public_read("commits/abc/check-runs?filter=latest&per_page=100")
+    assert page.next_path == nxt
+    assert page["total_count"] == 1
+
+    class Foreign:
+        headers = {"Link": '<https://example.invalid/repos/other>; rel="next"'}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def read(self):
+            return b"{}"
+
+    monkeypatch.setattr(
+        admission.urllib.request,
+        "build_opener",
+        lambda *args: type("Opener", (), {"open": lambda self, request, timeout: Foreign()})(),
+    )
+    with pytest.raises(ValueError, match="incomplete evidence page"):
+        admission.public_read("commits/abc/check-runs?per_page=100")

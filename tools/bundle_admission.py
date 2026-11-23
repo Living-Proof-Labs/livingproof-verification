@@ -19,6 +19,10 @@ WORKFLOWS = {
 # belong to checks.yml. Validate each individual check as well as its workflow run.
 REQUIRED_CONTEXTS = frozenset({"checks", "bundle-release-engine", "renovate", "verification"})
 WORKFLOW_REF = "Living-Proof-Labs/.github/.github/workflows/bundle-completion.yml@refs/heads/main"
+# One page is 100. Twenty pages is a hard stop so a repeated Link cannot loop.
+_PAGE_SIZE = 100
+_MAX_EVIDENCE_PAGES = 20
+_NEXT_LINK = re.compile(r"""<([^>]+)>\s*;\s*rel="?next"?(?=;|,|\s|$)""")
 
 
 class PendingEvidence(ValueError):
@@ -30,17 +34,106 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         raise ValueError("evidence redirect refused")
 
 
-def public_read(path):
-    # The App intentionally has no Checks/Actions read grants. Public evidence uses
-    # no credential; rate limits, denied reads, malformed or truncated data refuse.
+class _Page(dict):
+    """One evidence document plus the next relative path from its Link header."""
+
+    def __init__(self, payload, next_path):
+        super().__init__(payload)
+        self.next_path = next_path
+
+
+def _evidence_path(path):
     if not re.fullmatch(r"[A-Za-z0-9_./?=&-]+", path) or ".." in path:
         raise ValueError("invalid evidence path")
+    return path
+
+
+def _next_path(link):
+    """Relative path of rel=next, or None when this page is the last.
+
+    A next URL on another host, or one that is not a safe relative path, refuses.
+    """
+    if not link:
+        return None
+    found = None
+    for match in _NEXT_LINK.finditer(link):
+        url = match.group(1)
+        prefix = f"https://api.github.com/repos/{writer.REPO}/"
+        if not url.startswith(prefix):
+            raise ValueError("incomplete evidence page")
+        path = _evidence_path(url[len(prefix) :])
+        if found is not None:
+            raise ValueError("incomplete evidence page")
+        found = path
+    return found
+
+
+def _read_page(path):
+    # The App intentionally has no Checks/Actions read grants. Public evidence uses
+    # no credential; rate limits, denied reads, malformed or truncated data refuse.
+    path = _evidence_path(path)
     request = urllib.request.Request(
         f"https://api.github.com/repos/{writer.REPO}/{path}",
         headers={"Accept": "application/vnd.github+json", "User-Agent": "bundle-admission"},
     )
     with urllib.request.build_opener(NoRedirect).open(request, timeout=30) as response:
-        return json.load(response)
+        payload = json.load(response)
+        headers = getattr(response, "headers", None)
+        link = headers.get("Link") if headers is not None else None
+    return payload, _next_path(link)
+
+
+def public_read(path):
+    payload, next_path = _read_page(path)
+    if isinstance(payload, dict):
+        return _Page(payload, next_path)
+    return payload
+
+
+def _collect_pages(read, path, collection, evidence):
+    """Every item of `collection`, following Link rel=next until it is exhausted.
+
+    A page error propagates. A short page, a count mismatch, a repeated next
+    path, or a page past the hard cap refuses instead of using a partial list.
+    """
+    collected = []
+    seen = set()
+    total = None
+    current = path
+    while current is not None:
+        if current in seen or len(seen) >= _MAX_EVIDENCE_PAGES:
+            raise ValueError(f"incomplete {evidence} evidence")
+        seen.add(current)
+        page = read(current)
+        if not isinstance(page, dict):
+            raise ValueError(f"incomplete {evidence} evidence")
+        batch = page.get(collection)
+        page_total = page.get("total_count")
+        if (
+            not isinstance(batch, list)
+            or type(page_total) is not int
+            or page_total < 0
+            or len(batch) > _PAGE_SIZE
+        ):
+            raise ValueError(f"incomplete {evidence} evidence")
+        if total is None:
+            total = page_total
+        elif page_total != total:
+            raise ValueError(f"incomplete {evidence} evidence")
+        collected.extend(batch)
+        if len(collected) > total:
+            raise ValueError(f"incomplete {evidence} evidence")
+        next_path = getattr(page, "next_path", None)
+        if next_path is not None and (type(next_path) is not str or not next_path):
+            raise ValueError(f"incomplete {evidence} evidence")
+        if len(collected) == total:
+            if next_path:
+                raise ValueError(f"incomplete {evidence} evidence")
+            return collected
+        if not next_path or not batch:
+            raise ValueError(f"incomplete {evidence} evidence")
+        current = next_path
+    raise ValueError(f"incomplete {evidence} evidence")
 
 
 def context():
@@ -127,14 +220,18 @@ def protections(read):
 
 def successful_checks(record, read):
     head = record["head"]
-    result = read(f"actions/runs?head_sha={head}&event=pull_request&per_page=100")
-    runs = result["workflow_runs"]
-    if result["total_count"] != len(runs) or len(runs) >= 100:
-        raise ValueError("incomplete workflow evidence")
-    result = read(f"commits/{head}/check-runs?filter=latest&per_page=100")
-    checks = result["check_runs"]
-    if result["total_count"] != len(checks) or len(checks) >= 100:
-        raise ValueError("incomplete check evidence")
+    runs = _collect_pages(
+        read,
+        f"actions/runs?head_sha={head}&event=pull_request&per_page={_PAGE_SIZE}",
+        "workflow_runs",
+        "workflow",
+    )
+    checks = _collect_pages(
+        read,
+        f"commits/{head}/check-runs?filter=latest&per_page={_PAGE_SIZE}",
+        "check_runs",
+        "check",
+    )
     snapshot = {}
     seen_check_ids = set()
     for path, names in WORKFLOWS.items():
