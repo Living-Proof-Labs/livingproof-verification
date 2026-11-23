@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Queue refusals are local simulations, never real-release automerge evidence."""
+"""Offline admission/refusal and recovery simulations; no hosted activation evidence."""
 
+import copy
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -14,7 +16,7 @@ ROOT = Path(__file__).parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 import bundle_queue as queue  # noqa: E402
 
-HEAD = "a" * 40
+HEAD, MAIN = "a" * 40, "b" * 40
 BRANCHES = [
     "renovate/capability-verifier-evidence",
     "renovate/living-proof-labs-livingproof-capability-report-3.x",
@@ -23,6 +25,7 @@ BRANCHES = [
 
 @pytest.fixture
 def remote(monkeypatch):
+    record = {"pr": 1, "head": HEAD, "main": MAIN, "branch": BRANCHES[0], "created": 1_700_000_000}
     pr = {
         "state": "open",
         "draft": False,
@@ -31,95 +34,291 @@ def remote(monkeypatch):
         "base": {"ref": "main", "repo": {"full_name": queue.writer.REPO}},
         "head": {"sha": HEAD, "ref": BRANCHES[0], "repo": {"full_name": queue.writer.REPO}},
     }
-    state = {"pr": pr, "writes": [], "reads": [], "rules": [], "runs": []}
+    rules = [
+        {"type": "merge_queue", "ruleset_id": 1, "parameters": {"grouping_strategy": "ALLGREEN"}},
+        {
+            "type": "required_status_checks",
+            "ruleset_id": 1,
+            "parameters": {
+                "strict_required_status_checks_policy": True,
+                "do_not_enforce_on_create": False,
+                "required_status_checks": [
+                    {"context": name, "integration_id": 15368}
+                    for name in ["checks", "bundle-release-engine", "renovate", "verification"]
+                ],
+            },
+        },
+    ]
+    runs, checks = [], []
+    # Independent fixture contract: do not derive evidence from the implementation.
+    workflows = {
+        ".github/workflows/checks.yml": ("checks", "bundle-release-engine", "renovate"),
+        ".github/workflows/verify.yml": ("verification",),
+    }
+    for index, (path, names) in enumerate(workflows.items(), 1):
+        runs.append(
+            {
+                "id": index,
+                "run_attempt": 1,
+                "path": path,
+                "head_sha": HEAD,
+                "event": "pull_request",
+                "status": "completed",
+                "conclusion": "success",
+                "check_suite_id": index,
+                "repository": {"full_name": queue.writer.REPO},
+                "head_repository": {"full_name": queue.writer.REPO},
+                "pull_requests": [{"number": 1, "head": {"sha": HEAD}, "base": {"sha": MAIN}}],
+            }
+        )
+        for name in names:
+            checks.append(
+                {
+                    "id": len(checks) + 101,
+                    "name": name,
+                    "head_sha": HEAD,
+                    "status": "completed",
+                    "conclusion": "success",
+                    "app": {"id": 15368},
+                    "check_suite": {"id": index},
+                }
+            )
+    state = {
+        "pr": pr,
+        "record": record,
+        "writes": [],
+        "rules": rules,
+        "runs": runs,
+        "checks": checks,
+        "main": MAIN,
+        "queued": None,
+        "uncertain": False,
+        "detail": {"enforcement": "active", "bypass_actors": []},
+    }
 
     def api(path):
-        state["reads"].append(path)
         if path == "pulls/1":
             return pr
+        if path == "git/ref/heads/main":
+            return {"object": {"sha": state["main"]}}
+        raise AssertionError(path)
+
+    def read(path):
         if path == "rules/branches/main":
             return state["rules"]
+        if path == "rulesets/1":
+            return state["detail"]
         if path.startswith("actions/runs?"):
-            return {"total_count": len(state["runs"]), "workflow_runs": state["runs"]}
+            return {
+                "total_count": state.get("total_runs", len(state["runs"])),
+                "workflow_runs": state["runs"],
+            }
+        if path.startswith("actions/runs/"):
+            run_id = int(path.split("/")[-1])
+            return next(run for run in state["runs"] if run["id"] == run_id)
+        if path.startswith("commits/"):
+            return {"total_count": len(state["checks"]), "check_runs": state["checks"]}
         raise AssertionError(path)
 
     def command(*args, data=None):
-        assert args == ("gh", "api", "graphql", "--input", "-")
-        state["writes"].append(json.loads(data))
-        return json.dumps({"data": {"enqueuePullRequest": {"mergeQueueEntry": {"id": "entry"}}}})
+        request = json.loads(data)
+        if request["query"].startswith("query"):
+            return json.dumps(
+                {
+                    "data": {
+                        "node": {
+                            "headRefOid": pr["head"]["sha"],
+                            "mergeQueueEntry": state["queued"],
+                        }
+                    }
+                }
+            )
+        state["writes"].append(request)
+        state["queued"] = {"id": "entry"}
+        if state["uncertain"]:
+            raise TimeoutError("response lost after accepted enqueue")
+        return json.dumps({"data": {"enqueuePullRequest": {"mergeQueueEntry": state["queued"]}}})
 
     monkeypatch.setattr(queue.writer, "api", api)
     monkeypatch.setattr(queue.writer, "command", command)
+    # Link headers name /repositories/<id>/. The id is the one _repository_id reads.
+    monkeypatch.setattr(queue.admission, "_repository_id", lambda: 1442523227)
+    state["read"] = read
     return state
 
 
-@pytest.mark.parametrize("branch", BRANCHES, ids=["verifier", "reporter"])
-def test_each_release_path_requests_exact_head_normal_queue(remote, branch):
-    remote["pr"]["head"]["ref"] = branch
-    queue.enqueue(1, HEAD, branch)
+def enqueue(remote):
+    queue.enqueue(remote["record"], remote["read"])
+
+
+@pytest.mark.parametrize("branch", BRANCHES)
+def test_success_uses_atomic_head_and_normal_queue(remote, branch):
+    remote["pr"]["head"]["ref"] = remote["record"]["branch"] = branch
+    enqueue(remote)
     assert len(remote["writes"]) == 1
     request = remote["writes"][0]
     assert request["variables"] == {"id": "PR_example", "head": HEAD}
-    assert "expectedHeadOid: $head" in request["query"]
-    assert "jump: false" in request["query"]
-    assert "enablePullRequestAutoMerge" not in request["query"]
+    assert "expectedHeadOid: $head" in request["query"] and "jump: false" in request["query"]
+    assert "mergePullRequest" not in request["query"]
 
 
-@pytest.mark.parametrize("bad", ["head", "fork", "draft", "branch", "base", "closed"])
-def test_target_changes_refuse_before_write(remote, bad):
-    pr = remote["pr"]
-    if bad == "head":
-        pr["head"]["sha"] = "b" * 40
-    if bad == "fork":
-        pr["head"]["repo"]["full_name"] = "other/repo"
-    if bad == "draft":
-        pr["draft"] = True
-    if bad == "branch":
-        pr["head"]["ref"] = "custom"
-    if bad == "base":
-        pr["base"]["ref"] = "other"
-    if bad == "closed":
-        pr["state"] = "closed"
+@pytest.mark.parametrize("status", ["failure", "skipped", "cancelled", "neutral", None])
+@pytest.mark.parametrize("kind", ["runs", "checks"])
+def test_unsuccessful_evidence_never_writes(remote, status, kind):
+    remote[kind][0]["conclusion"] = status
     with pytest.raises(ValueError):
-        queue.enqueue(1, HEAD, BRANCHES[0])
+        enqueue(remote)
     assert not remote["writes"]
 
 
-@pytest.mark.parametrize("branch", BRANCHES, ids=["verifier", "reporter"])
-@pytest.mark.parametrize("status", ["absent", "queued", "in_progress", "failure", "skipped"])
-def test_no_required_checks_and_informational_runs_do_not_block(remote, branch, status):
-    remote["pr"]["head"]["ref"] = branch
-    remote["rules"] = [{"type": "merge_queue"}]
-    remote["runs"] = [] if status == "absent" else [{"status": status}]
-    queue.enqueue(1, HEAD, branch)
+@pytest.mark.parametrize(
+    "bad",
+    ["missing", "duplicate", "pending", "stale", "base", "fork", "event", "path", "truncated"],
+)
+def test_workflow_evidence_refuses(remote, bad):
+    run = remote["runs"][0]
+    if bad == "missing":
+        remote["runs"].clear()
+    if bad == "duplicate":
+        remote["runs"].append(copy.deepcopy(run))
+    if bad == "pending":
+        run["status"] = "in_progress"
+    if bad == "stale":
+        run["head_sha"] = MAIN
+    if bad == "base":
+        run["pull_requests"][0]["base"]["sha"] = HEAD
+    if bad == "fork":
+        run["head_repository"]["full_name"] = "other/repo"
+    if bad == "event":
+        run["event"] = "workflow_dispatch"
+    if bad == "path":
+        run["path"] = ".github/workflows/impostor.yml"
+    if bad == "truncated":
+        remote["total_runs"] = 101
+    with pytest.raises(ValueError):
+        enqueue(remote)
+    assert not remote["writes"]
+
+
+@pytest.mark.parametrize("bad", ["missing", "duplicate", "app", "suite", "stale", "pending"])
+def test_check_provenance_refuses(remote, bad):
+    check = remote["checks"][0]
+    if bad == "missing":
+        remote["checks"].clear()
+    if bad == "duplicate":
+        remote["checks"].append(copy.deepcopy(check))
+    if bad == "app":
+        check["app"]["id"] = 999
+    if bad == "suite":
+        check["check_suite"]["id"] = 999
+    if bad == "stale":
+        check["head_sha"] = MAIN
+    if bad == "pending":
+        check["status"] = "queued"
+    with pytest.raises(ValueError):
+        enqueue(remote)
+    assert not remote["writes"]
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        "absent",
+        "queue",
+        "strict",
+        "integration",
+        "context",
+        "bypass",
+        "unknown_bypass",
+        "inactive",
+        "not_allgreen",
+    ],
+)
+def test_missing_enforcement_never_writes(remote, bad):
+    if bad == "absent":
+        remote["rules"].pop()
+    if bad == "queue":
+        remote["rules"].pop(0)
+    if bad == "strict":
+        remote["rules"][1]["parameters"]["strict_required_status_checks_policy"] = False
+    if bad == "integration":
+        remote["rules"][1]["parameters"]["required_status_checks"][0]["integration_id"] = None
+    if bad == "context":
+        remote["rules"][1]["parameters"]["required_status_checks"].pop()
+    if bad == "bypass":
+        remote["detail"]["bypass_actors"] = [{"actor_id": 1}]
+    if bad == "unknown_bypass":
+        del remote["detail"]["bypass_actors"]
+    if bad == "inactive":
+        remote["detail"]["enforcement"] = "evaluate"
+    if bad == "not_allgreen":
+        remote["rules"][0]["parameters"]["grouping_strategy"] = "HEADGREEN"
+    with pytest.raises(ValueError):
+        enqueue(remote)
+    assert not remote["writes"]
+
+
+def test_inaccessible_evidence_never_writes(remote):
+    def denied(path):
+        raise PermissionError("denied")
+
+    remote["read"] = denied
+    with pytest.raises(PermissionError):
+        enqueue(remote)
+    assert not remote["writes"]
+
+
+@pytest.mark.parametrize("race", ["head", "base", "protections"])
+def test_race_during_evidence_collection_refuses(remote, race):
+    read = remote["read"]
+
+    def racing(path):
+        result = read(path)
+        if path.startswith("commits/"):
+            if race == "head":
+                remote["pr"]["head"]["sha"] = MAIN
+            if race == "base":
+                remote["main"] = HEAD
+            if race == "protections":
+                remote["rules"].clear()
+        return result
+
+    remote["read"] = racing
+    with pytest.raises(ValueError):
+        enqueue(remote)
+    assert not remote["writes"]
+
+
+def test_failed_ci_then_successful_retry_uses_same_completion(remote):
+    remote["runs"][0]["conclusion"] = "failure"
+    with pytest.raises(ValueError):
+        enqueue(remote)
+    remote["runs"][0]["conclusion"] = "success"
+    enqueue(remote)
     assert len(remote["writes"]) == 1
-    # No hidden status polling, rule enrollment prerequisite, or wait for optional CI.
-    assert remote["reads"] == ["pulls/1"]
 
 
-@pytest.mark.parametrize("reason", ["head moved", "required check pending", "queue unavailable"])
-def test_server_refusal_never_falls_back_to_merge_or_retries(remote, monkeypatch, reason):
-    calls = []
+def test_interrupted_enqueue_is_inspected_before_retry(remote):
+    remote["uncertain"] = True
+    with pytest.raises(TimeoutError):
+        enqueue(remote)
+    enqueue(remote)
+    assert len(remote["writes"]) == 1
 
-    def command(*args, data=None):
-        request = json.loads(data)
-        assert request["variables"]["head"] == HEAD
-        assert "expectedHeadOid: $head" in request["query"]
-        calls.append(request)
-        return json.dumps({"errors": [{"message": reason}]})
 
-    monkeypatch.setattr(queue.writer, "command", command)
+def test_merge_group_failure_server_refusal_has_no_fallback(remote, monkeypatch):
+    original = queue.writer.command
+
+    def refused(*args, data=None):
+        if json.loads(data)["query"].startswith("query"):
+            return original(*args, data=data)
+        remote["writes"].append(json.loads(data))
+        return json.dumps({"errors": [{"message": "required merge-group check failed"}]})
+
+    monkeypatch.setattr(queue.writer, "command", refused)
     with pytest.raises(ValueError, match="queue refused"):
-        queue.enqueue(1, HEAD, BRANCHES[0])
-    assert len(calls) == 1
-    assert "mergePullRequest" not in calls[0]["query"]
-
-
-@pytest.mark.parametrize("head", ["main", "", "a" * 39])
-def test_invalid_publication_head_refused(remote, head):
-    with pytest.raises(ValueError, match="invalid trusted publication output"):
-        queue.enqueue(1, head, BRANCHES[0])
-    assert not remote["reads"] and not remote["writes"]
+        enqueue(remote)
+    assert len(remote["writes"]) == 1
 
 
 @pytest.mark.parametrize("result", ["success", "failure", "skipped", "cancelled"])
@@ -154,3 +353,687 @@ def test_merge_group_and_scoped_refresh_preserve_boundaries():
         None,
     ]
     assert not (ROOT / ".github/workflows/bundle-completion.yml").exists()
+
+
+@pytest.mark.parametrize("bad", ["head", "fork", "draft", "branch", "base", "closed"])
+def test_target_changes_refuse_before_mutation(remote, bad):
+    pr = remote["pr"]
+    if bad == "head":
+        pr["head"]["sha"] = MAIN
+    if bad == "fork":
+        pr["head"]["repo"]["full_name"] = "other/repo"
+    if bad == "draft":
+        pr["draft"] = True
+    if bad == "branch":
+        pr["head"]["ref"] = "custom"
+    if bad == "base":
+        pr["base"]["ref"] = "other"
+    if bad == "closed":
+        pr["state"] = "closed"
+    with pytest.raises(ValueError):
+        enqueue(remote)
+    assert not remote["writes"]
+
+
+def test_unknown_queue_state_refuses(remote, monkeypatch):
+    monkeypatch.setattr(
+        queue.writer,
+        "command",
+        lambda *args, **kwargs: json.dumps({"data": {"node": {"headRefOid": HEAD}}}),
+    )
+    with pytest.raises(ValueError, match="uncertain"):
+        enqueue(remote)
+    assert not remote["writes"]
+
+
+def test_pending_checks_poll_without_republication(remote, monkeypatch):
+    monkeypatch.setattr(queue.admission, "load_receipt", lambda *args: remote["record"])
+    monkeypatch.setattr(queue.admission, "public_read", remote["read"])
+    remote["runs"][0].update(status="in_progress", conclusion=None)
+    waits = []
+
+    def finish(seconds):
+        assert not remote["writes"]
+        waits.append(seconds)
+        remote["runs"][0].update(status="completed", conclusion="success")
+
+    monkeypatch.setattr(queue.time, "sleep", finish)
+    queue.wait_for_checks(Path("receipt"), "digest")
+    assert waits == [queue.POLL_INTERVAL] and len(remote["writes"]) == 1
+
+
+def test_polling_is_bounded_and_never_retries_unknown_mutation(remote, monkeypatch):
+    clock = {"now": 0}
+    monkeypatch.setattr(queue.time, "time", lambda: clock["now"])
+    monkeypatch.setattr(queue.admission, "load_receipt", lambda *args: remote["record"])
+    monkeypatch.setattr(queue.admission, "public_read", remote["read"])
+    saved = remote["runs"]
+    remote["runs"] = []
+    waits = []
+
+    def sleep(seconds):
+        waits.append(seconds)
+        clock["now"] += seconds
+
+    monkeypatch.setattr(queue.time, "sleep", sleep)
+    with pytest.raises(ValueError, match="5.5h"):
+        queue.wait_for_checks(Path("receipt"), "digest")
+    assert waits == [queue.POLL_INTERVAL] * 22 and not remote["writes"]
+    assert sum(waits) == queue.admission.EVIDENCE_DEADLINE
+    remote["runs"] = saved
+    remote["uncertain"] = True
+    with pytest.raises(TimeoutError):
+        queue.wait_for_checks(Path("receipt"), "digest")
+    assert len(remote["writes"]) == 1 and len(waits) == 22
+
+
+@pytest.mark.parametrize("value", [True, None])
+def test_checks_must_explicitly_enforce_on_create(remote, value):
+    parameters = remote["rules"][1]["parameters"]
+    if value is None:
+        del parameters["do_not_enforce_on_create"]
+    else:
+        parameters["do_not_enforce_on_create"] = value
+    with pytest.raises(ValueError):
+        enqueue(remote)
+    assert not remote["writes"]
+
+
+@pytest.mark.parametrize(
+    "status,conclusion", [("in_progress", None), ("completed", "failure"), ("completed", "success")]
+)
+@pytest.mark.parametrize("replacement", ["attempt", "run"])
+def test_superseding_ci_after_snapshot_never_enqueues(remote, status, conclusion, replacement):
+    read = remote["read"]
+    changed = False
+
+    def superseding(path):
+        nonlocal changed
+        if path == "rules/branches/main" and not changed:
+            changed = True
+            run = remote["runs"][0]
+            run.update(status=status, conclusion=conclusion)
+            if replacement == "attempt":
+                run["run_attempt"] += 1
+            else:
+                run["id"] += 10
+        return read(path)
+
+    remote["read"] = superseding
+    with pytest.raises(ValueError):
+        enqueue(remote)
+    assert changed and not remote["writes"]
+
+
+@pytest.mark.parametrize(
+    "status,conclusion", [("in_progress", None), ("completed", "failure"), ("completed", "success")]
+)
+def test_current_run_read_detects_attempt_superseding_final_collection(remote, status, conclusion):
+    read = remote["read"]
+
+    def superseding(path):
+        if path == "actions/runs/1":
+            remote["runs"][0].update(run_attempt=2, status=status, conclusion=conclusion)
+        return read(path)
+
+    remote["read"] = superseding
+    with pytest.raises(ValueError):
+        enqueue(remote)
+    assert not remote["writes"]
+
+
+@pytest.mark.parametrize("field", ["id", "run_attempt", "check_suite_id"])
+def test_missing_run_identity_refuses(remote, field):
+    del remote["runs"][0][field]
+    with pytest.raises(ValueError):
+        enqueue(remote)
+    assert not remote["writes"]
+
+
+def test_replaced_check_identity_after_snapshot_refuses(remote):
+    read = remote["read"]
+
+    def replaced(path):
+        if path == "rules/branches/main":
+            remote["checks"][0]["id"] += 1
+        return read(path)
+
+    remote["read"] = replaced
+    with pytest.raises(ValueError):
+        enqueue(remote)
+    assert not remote["writes"]
+
+
+def test_inaccessible_current_attempt_refuses(remote):
+    read = remote["read"]
+
+    def denied(path):
+        if path.startswith("actions/runs/"):
+            raise PermissionError("current attempt inaccessible")
+        return read(path)
+
+    remote["read"] = denied
+    with pytest.raises(PermissionError):
+        enqueue(remote)
+    assert not remote["writes"]
+
+
+@pytest.mark.parametrize("context", ["bundle-release-engine", "renovate"])
+@pytest.mark.parametrize("fault", ["missing", "wrong-app"])
+def test_independent_context_must_be_server_enforced_from_actions(remote, context, fault):
+    checks = remote["rules"][1]["parameters"]["required_status_checks"]
+    if fault == "missing":
+        checks[:] = [check for check in checks if check["context"] != context]
+    else:
+        next(check for check in checks if check["context"] == context)["integration_id"] = 999
+    with pytest.raises(ValueError, match="trusted required check contexts missing"):
+        enqueue(remote)
+    assert not remote["writes"]
+
+
+@pytest.mark.parametrize("context", ["bundle-release-engine", "renovate"])
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "missing",
+        "skipped",
+        "neutral",
+        "failure",
+        "pending",
+        "wrong-app",
+        "wrong-suite",
+        "wrong-head",
+        "duplicate",
+        "missing-id",
+        "shared-id",
+    ],
+)
+def test_each_independent_check_requires_its_own_successful_trusted_evidence(
+    remote, context, fault
+):
+    check = next(check for check in remote["checks"] if check["name"] == context)
+    if fault == "missing":
+        remote["checks"].remove(check)
+    elif fault in {"skipped", "neutral", "failure"}:
+        check["conclusion"] = fault
+    elif fault == "pending":
+        check.update(status="in_progress", conclusion=None)
+    elif fault == "wrong-app":
+        check["app"]["id"] = 999
+    elif fault == "wrong-suite":
+        check["check_suite"]["id"] = 999
+    elif fault == "wrong-head":
+        check["head_sha"] = MAIN
+    elif fault == "duplicate":
+        remote["checks"].append(copy.deepcopy(check))
+    elif fault == "missing-id":
+        del check["id"]
+    elif fault == "shared-id":
+        check["id"] = remote["checks"][0]["id"]
+    # Both workflow summaries and all four server requirements remain successful.
+    with pytest.raises(ValueError):
+        enqueue(remote)
+    assert not remote["writes"]
+
+
+@pytest.mark.parametrize("context", ["bundle-release-engine", "renovate"])
+@pytest.mark.parametrize("replacement", ["successful-id", "pending", "skipped", "missing"])
+def test_independent_check_replacement_after_snapshot_refuses(remote, context, replacement):
+    read = remote["read"]
+    changed = False
+
+    def replace(path):
+        nonlocal changed
+        if path == "rules/branches/main" and not changed:
+            changed = True
+            check = next(check for check in remote["checks"] if check["name"] == context)
+            if replacement == "missing":
+                remote["checks"].remove(check)
+            else:
+                check["id"] += 1000
+                if replacement == "pending":
+                    check.update(status="in_progress", conclusion=None)
+                elif replacement == "skipped":
+                    check["conclusion"] = "skipped"
+        return read(path)
+
+    remote["read"] = replace
+    with pytest.raises(ValueError):
+        enqueue(remote)
+    assert changed and not remote["writes"]
+
+
+def test_snapshot_contains_all_four_individual_check_identities(remote):
+    snapshot = queue.admission.successful_checks(remote["record"], remote["read"])
+    assert snapshot == {
+        ".github/workflows/checks.yml": (
+            1,
+            1,
+            1,
+            (("checks", 101), ("bundle-release-engine", 102), ("renovate", 103)),
+        ),
+        ".github/workflows/verify.yml": (2, 1, 2, (("verification", 104),)),
+    }
+
+
+class _Page(dict):
+    def __init__(self, payload, next_path=None):
+        super().__init__(payload)
+        self.next_path = next_path
+
+
+# The id GitHub put in the recorded Link headers. Tests stub _repository_id to it.
+RECORDED_REPOSITORY_ID = 1442523227
+
+
+def _page(payload, next_relative=None):
+    """A page whose next path is parsed from GitHub's /repositories/<id>/ Link form."""
+    if next_relative is None:
+        return _Page(payload, None)
+    url = f"https://api.github.com/repositories/{RECORDED_REPOSITORY_ID}/{next_relative}"
+    link = f'<{url}>; rel="next"'
+    return _Page(payload, queue.admission._next_path(link))
+
+
+def test_required_context_on_a_later_check_page_is_accepted(remote):
+    """More than 100 check runs, several pages, and a required context only on the last."""
+    noise = [{"id": 1000 + index, "name": f"noise-{index}"} for index in range(200)]
+    required = remote["checks"]
+    first = f"commits/{HEAD}/check-runs?filter=latest&per_page=100"
+    second = first + "&page=2"
+    third = first + "&page=3"
+    pages = {
+        first: _page({"total_count": 204, "check_runs": noise[:100]}, second),
+        second: _page({"total_count": 204, "check_runs": noise[100:]}, third),
+        third: _page({"total_count": 204, "check_runs": required}),
+    }
+    seen = []
+    original = remote["read"]
+
+    def read(path):
+        if path in pages:
+            seen.append(path)
+            return pages[path]
+        return original(path)
+
+    snapshot = queue.admission.successful_checks(remote["record"], read)
+    assert seen == [first, second, third]
+    assert snapshot[".github/workflows/verify.yml"][-1] == (("verification", 104),)
+    assert snapshot[".github/workflows/checks.yml"][-1] == (
+        ("checks", 101),
+        ("bundle-release-engine", 102),
+        ("renovate", 103),
+    )
+
+
+def test_check_page_error_refuses_the_whole_read(remote):
+    first = f"commits/{HEAD}/check-runs?filter=latest&per_page=100"
+    second = first + "&page=2"
+    original = remote["read"]
+
+    def read(path):
+        if path == first:
+            return _page(
+                {"total_count": 204, "check_runs": [{"id": 1, "name": "noise"}] * 100},
+                second,
+            )
+        if path == second:
+            raise OSError("check page failed")
+        return original(path)
+
+    with pytest.raises(OSError, match="check page failed"):
+        queue.admission.successful_checks(remote["record"], read)
+
+
+def test_truncated_check_page_without_a_next_link_refuses(remote):
+    """Required contexts on the only returned page do not make a short read complete."""
+    first = f"commits/{HEAD}/check-runs?filter=latest&per_page=100"
+    filler = [{"id": 2000 + index, "name": f"filler-{index}"} for index in range(96)]
+    original = remote["read"]
+
+    def read(path):
+        if path == first:
+            return _page({"total_count": 150, "check_runs": filler + remote["checks"]})
+        return original(path)
+
+    with pytest.raises(ValueError, match="incomplete check evidence"):
+        queue.admission.successful_checks(remote["record"], read)
+
+
+def test_bypass_on_the_checks_ruleset_only_refuses(remote):
+    remote["rules"][0]["ruleset_id"] = 1
+    remote["rules"][1]["ruleset_id"] = 2
+    original = remote["read"]
+    details = {
+        "rulesets/1": {"enforcement": "active", "bypass_actors": []},
+        "rulesets/2": {"enforcement": "active", "bypass_actors": [{"actor_id": 7}]},
+    }
+
+    def read(path):
+        if path in details:
+            return details[path]
+        return original(path)
+
+    remote["read"] = read
+    with pytest.raises(ValueError, match="no-bypass"):
+        enqueue(remote)
+    assert not remote["writes"]
+
+
+def test_run_head_sha_must_match_the_receipt(remote):
+    remote["runs"][0]["head_sha"] = MAIN
+    with pytest.raises(ValueError, match="workflow did not successfully"):
+        queue.admission.successful_checks(remote["record"], remote["read"])
+
+
+def test_run_event_must_be_pull_request(remote):
+    remote["runs"][0]["event"] = "workflow_dispatch"
+    with pytest.raises(ValueError, match="workflow did not successfully"):
+        queue.admission.successful_checks(remote["record"], remote["read"])
+
+
+def test_run_pull_request_number_must_match_the_receipt(remote):
+    remote["runs"][0]["pull_requests"][0]["number"] = 999
+    with pytest.raises(ValueError, match="workflow did not successfully"):
+        queue.admission.successful_checks(remote["record"], remote["read"])
+
+
+def test_float_integration_id_is_not_the_actions_app(remote):
+    checks = remote["rules"][1]["parameters"]["required_status_checks"]
+    checks[0]["integration_id"] = 15368.0
+    with pytest.raises(ValueError, match="trusted required check contexts missing"):
+        enqueue(remote)
+    assert not remote["writes"]
+
+
+def _workflow_listing():
+    return f"actions/runs?head_sha={HEAD}&event=pull_request&per_page=100"
+
+
+def _noise_run(index):
+    return {"id": 5000 + index, "path": f".github/workflows/noise-{index}.yml"}
+
+
+def _read_workflow_pages(remote, pages):
+    """Serve `pages` for the workflow-run listing. Every other read stays on the fixture."""
+    original = remote["read"]
+    seen = []
+
+    def read(path):
+        if path.startswith("actions/runs?"):
+            seen.append(path)
+            if path not in pages:
+                raise AssertionError(path)
+            result = pages[path]
+            if isinstance(result, BaseException):
+                raise result
+            return result
+        return original(path)
+
+    return read, seen
+
+
+def test_workflow_run_on_a_later_page_is_accepted(remote):
+    """The trusted runs are absent from page 1. Acceptance requires the later page."""
+    first = _workflow_listing()
+    second = first + "&page=2"
+    pages = {
+        first: _page(
+            {"total_count": 102, "workflow_runs": [_noise_run(index) for index in range(100)]},
+            second,
+        ),
+        second: _page({"total_count": 102, "workflow_runs": remote["runs"]}),
+    }
+    read, seen = _read_workflow_pages(remote, pages)
+    snapshot = queue.admission.successful_checks(remote["record"], read)
+    assert seen == [first, second]
+    assert snapshot[".github/workflows/checks.yml"][:3] == (1, 1, 1)
+    assert snapshot[".github/workflows/verify.yml"][:3] == (2, 1, 2)
+
+
+def test_workflow_run_page_error_refuses(remote):
+    first = _workflow_listing()
+    second = first + "&page=2"
+    pages = {
+        first: _page(
+            {"total_count": 102, "workflow_runs": [_noise_run(index) for index in range(100)]},
+            second,
+        ),
+        second: OSError("workflow page failed"),
+    }
+    read, seen = _read_workflow_pages(remote, pages)
+    with pytest.raises(OSError, match="workflow page failed"):
+        queue.admission.successful_checks(remote["record"], read)
+    assert seen == [first, second]
+
+
+def test_workflow_run_chain_longer_than_the_page_cap_refuses(remote):
+    """Twenty-one pages is past the cap, so the later trusted runs are not accepted."""
+    first = _workflow_listing()
+    paths = [first] + [f"{first}&page={number}" for number in range(2, 22)]
+    pages = {}
+    for index, path in enumerate(paths):
+        nxt = paths[index + 1] if index + 1 < len(paths) else None
+        batch = [_noise_run(index)] if index < 20 else list(remote["runs"])
+        pages[path] = _page({"total_count": 22, "workflow_runs": batch}, nxt)
+    read, seen = _read_workflow_pages(remote, pages)
+    with pytest.raises(ValueError, match="incomplete workflow evidence"):
+        queue.admission.successful_checks(remote["record"], read)
+    assert paths[-1] not in seen
+    assert seen == paths[:-1]
+
+
+def test_repeated_workflow_run_next_link_refuses(remote):
+    """A next link that returns to an earlier page refuses before the page cap."""
+    first = _workflow_listing()
+    second = first + "&page=2"
+    pages = {
+        first: _page({"total_count": 50, "workflow_runs": [_noise_run(1)]}, second),
+        second: _page({"total_count": 50, "workflow_runs": [_noise_run(2)]}, first),
+    }
+    read, seen = _read_workflow_pages(remote, pages)
+    with pytest.raises(ValueError, match="incomplete workflow evidence"):
+        queue.admission.successful_checks(remote["record"], read)
+    assert seen == [first, second]
+
+
+def test_workflow_run_total_count_change_refuses(remote):
+    first = _workflow_listing()
+    second = first + "&page=2"
+    pages = {
+        first: _page({"total_count": 2, "workflow_runs": [remote["runs"][0]]}, second),
+        second: _page({"total_count": 3, "workflow_runs": [remote["runs"][1]]}),
+    }
+    read, _seen = _read_workflow_pages(remote, pages)
+    with pytest.raises(ValueError, match="incomplete workflow evidence"):
+        queue.admission.successful_checks(remote["record"], read)
+
+
+def test_poll_refuses_at_five_and_a_half_hours(remote, monkeypatch):
+    clock = {"now": 50_000}
+    monkeypatch.setattr(queue.time, "time", lambda: clock["now"])
+    sleeps = []
+
+    def sleep(seconds):
+        sleeps.append(seconds)
+        clock["now"] += seconds
+
+    monkeypatch.setattr(queue.time, "sleep", sleep)
+    monkeypatch.setattr(queue.admission, "load_receipt", lambda *args: remote["record"])
+    monkeypatch.setattr(queue.admission, "public_read", remote["read"])
+    remote["runs"][0].update(status="in_progress", conclusion=None)
+    try:
+        with pytest.raises(ValueError, match="exceeded 5.5h") as caught:
+            queue.wait_for_checks(Path("receipt"), "digest")
+        assert "next scheduled or triggered run will retry" in str(caught.value)
+        assert sleeps == [queue.POLL_INTERVAL] * 22
+        assert queue.POLL_INTERVAL == 15 * 60
+        assert not remote["writes"]
+    finally:
+        queue.admission.arm_deadline(None)
+
+
+def test_direct_enqueue_is_bounded_by_the_same_deadline(remote, monkeypatch):
+    clock = {"now": 80_000}
+    monkeypatch.setattr(queue.admission.time, "time", lambda: clock["now"])
+    sleeps = []
+    monkeypatch.setattr(queue.admission.time, "sleep", lambda seconds: sleeps.append(seconds))
+    queue.admission.arm_deadline(None)
+    queue.admission._rate_reset_at = None
+
+    def read(path):
+        queue.admission._rate_reset_at = clock["now"] + queue.admission.EVIDENCE_DEADLINE + 60
+        queue.admission._honor_saved_limit()
+        return remote["read"](path)
+
+    try:
+        with pytest.raises(ValueError, match="exceeded 5.5h"):
+            queue.enqueue(remote["record"], read)
+        assert sleeps == [] and not remote["writes"]
+    finally:
+        queue.admission.arm_deadline(None)
+        queue.admission._rate_reset_at = None
+
+
+@pytest.mark.parametrize("created", [None, "2026-11-23", 1.5, True])
+def test_missing_or_unparseable_created_refuses(remote, monkeypatch, created):
+    record = {key: value for key, value in remote["record"].items() if key != "created"}
+    if created is not None:
+        record["created"] = created
+    monkeypatch.setattr(queue.admission, "load_receipt", lambda *args: record)
+    with pytest.raises(ValueError, match="created"):
+        queue.wait_for_checks(Path("receipt"), "digest")
+    assert not remote["writes"]
+
+
+def test_queue_job_timeout_is_360_minutes():
+    text = (ROOT / "tools/automation/bundle-completion.yml").read_text()
+    template = yaml.safe_load(text)
+    assert template["permissions"] == {"contents": "read"}
+    publish = template["jobs"]["publish"]
+    assert publish["outputs"]["receipt_digest"] == "${{ steps.publish.outputs.receipt_digest }}"
+    uploaded = next(step for step in publish["steps"] if "upload-artifact" in str(step.get("uses")))
+    assert uploaded["with"]["name"] == "receipt-${{ github.run_id }}-${{ github.run_attempt }}"
+    assert "--receipt" in publish["steps"][2]["run"]
+    job = template["jobs"]["queue"]
+    assert job["timeout-minutes"] == 360
+    assert job["permissions"] == {"contents": "read"}
+    assert "pull-requests" not in job["permissions"]
+    assert "secrets." not in json.dumps(job)
+    downloaded = next(step for step in job["steps"] if "download-artifact" in str(step.get("uses")))
+    assert downloaded["with"]["name"] == "receipt-${{ github.run_id }}-${{ github.run_attempt }}"
+    step = job["steps"][-1]
+    assert step["env"]["GH_TOKEN"] == "${{ github.token }}"
+    assert step["env"]["RECEIPT_DIGEST"] == "${{ needs.publish.outputs.receipt_digest }}"
+    assert "needs.prepare.outputs.digest" not in step["env"]["RECEIPT_DIGEST"]
+    assert "--allow-enqueue-with-approved-token" not in step["run"]
+    assert "--refuse-github-token" not in step["run"]
+    assert "set -o pipefail" in publish["steps"][2]["run"]
+    assert "merge_group" in text
+    assert "enqueuePullRequest" not in step["run"]
+
+
+def _sealed_receipt(tmp_path, run_id=10, attempt=1):
+    record = {"run_id": run_id, "attempt": attempt, "created": 1_700_000_000, "head": "a" * 40}
+    raw = (json.dumps(record, sort_keys=True) + "\n").encode()
+    path = tmp_path / "receipt.json"
+    path.write_bytes(raw)
+    return path, hashlib.sha256(raw).hexdigest()
+
+
+def test_missing_receipt_artifact_refuses(tmp_path):
+    with pytest.raises(ValueError, match="receipt artifact is missing"):
+        queue.verify_receipt_handoff(tmp_path / "receipt.json", "a" * 64, 10, 1)
+
+
+def test_receipt_digest_mismatch_refuses(tmp_path):
+    path, digest = _sealed_receipt(tmp_path)
+    wrong = ("0" if digest[0] != "0" else "1") * 64
+    with pytest.raises(ValueError, match="receipt digest does not match"):
+        queue.verify_receipt_handoff(path, wrong, 10, 1)
+
+
+def test_wrong_or_stale_run_attempt_refuses(tmp_path):
+    path, digest = _sealed_receipt(tmp_path, run_id=10, attempt=1)
+    with pytest.raises(ValueError, match="wrong or stale"):
+        queue.verify_receipt_handoff(path, digest, 10, 2)
+    with pytest.raises(ValueError, match="wrong or stale"):
+        queue.verify_receipt_handoff(path, digest, 11, 1)
+
+
+def test_github_token_enqueue_refuses_before_the_mutation(tmp_path):
+    path, digest = _sealed_receipt(tmp_path)
+    record = queue.verify_receipt_handoff(path, digest, 10, 1)
+    assert record["attempt"] == 1
+    with pytest.raises(ValueError, match="merge_group") as caught:
+        queue.refuse_github_token_enqueue()
+    assert "GITHUB_TOKEN" in str(caught.value)
+    assert "triggering-a-workflow" in str(caught.value)
+
+
+def test_direct_run_without_opt_in_refuses_before_enqueue(tmp_path, monkeypatch):
+    path, digest = _sealed_receipt(tmp_path)
+    called = []
+    monkeypatch.setattr(queue, "wait_for_checks", lambda *args, **kwargs: called.append("wait"))
+    monkeypatch.setattr(queue, "enqueue", lambda *args, **kwargs: called.append("enqueue"))
+    with pytest.raises(ValueError, match="GITHUB_TOKEN") as caught:
+        queue.main(["--receipt", str(path), "--sha256", digest])
+    assert "merge_group" in str(caught.value)
+    assert called == []
+
+
+def test_overshoot_refuses_before_the_next_page(remote):
+    first = _workflow_listing()
+    second = first + "&page=2"
+    pages = {
+        first: _page({"total_count": 1, "workflow_runs": list(remote["runs"])}, second),
+        second: _page({"total_count": 1, "workflow_runs": [_noise_run(9)]}),
+    }
+    read, seen = _read_workflow_pages(remote, pages)
+    with pytest.raises(ValueError, match="incomplete workflow evidence"):
+        queue.admission.successful_checks(remote["record"], read)
+    assert seen == [first]
+
+
+def test_next_link_on_a_complete_list_refuses(remote):
+    first = _workflow_listing()
+    second = first + "&page=2"
+    pages = {
+        first: _page({"total_count": 2, "workflow_runs": list(remote["runs"])}, second),
+        second: _page({"total_count": 2, "workflow_runs": [_noise_run(9)]}),
+    }
+    read, seen = _read_workflow_pages(remote, pages)
+    with pytest.raises(ValueError, match="incomplete workflow evidence"):
+        queue.admission.successful_checks(remote["record"], read)
+    assert seen == [first]
+
+
+def test_short_page_without_a_next_link_refuses(remote):
+    first = _workflow_listing()
+    pages = {first: _page({"total_count": 3, "workflow_runs": list(remote["runs"])})}
+    read, seen = _read_workflow_pages(remote, pages)
+    with pytest.raises(ValueError, match="incomplete workflow evidence"):
+        queue.admission.successful_checks(remote["record"], read)
+    assert seen == [first]
+
+
+def test_page_larger_than_the_cap_refuses(remote):
+    first = f"commits/{HEAD}/check-runs?filter=latest&per_page=100"
+    batch = [_noise_run(index) for index in range(97)] + remote["checks"]
+    original = remote["read"]
+
+    def read(path):
+        if path == first:
+            return _page({"total_count": 101, "check_runs": batch})
+        return original(path)
+
+    with pytest.raises(ValueError, match="incomplete check evidence"):
+        queue.admission.successful_checks(remote["record"], read)
+
+
+def test_float_total_count_refuses(remote):
+    first = _workflow_listing()
+    pages = {first: _page({"total_count": 2.0, "workflow_runs": list(remote["runs"])})}
+    read, _seen = _read_workflow_pages(remote, pages)
+    with pytest.raises(ValueError, match="incomplete workflow evidence"):
+        queue.admission.successful_checks(remote["record"], read)

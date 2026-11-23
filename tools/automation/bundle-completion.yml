@@ -2,6 +2,11 @@
 # SUPERSEDED by the central .github/tools/automation proposal; never activate both.
 # DORMANT TEMPLATE: outside .github/workflows. Do not activate before the boundary
 # in docs/bundle-automation.md is resolved. No token is created by this template.
+# The queue job's GITHUB_TOKEN cannot start merge_group workflows:
+# https://docs.github.com/en/actions/using-workflows/triggering-a-workflow#triggering-a-workflow-from-a-workflow
+# "events triggered by the GITHUB_TOKEN will not create a new workflow run, with the following exceptions"
+# merge_group is not an exception, so the job refuses before enqueue.
+# Queue permissions stay contents: read until a token source is decided.
 name: Complete dependency bundle
 on:
   workflow_dispatch:
@@ -59,6 +64,8 @@ jobs:
     if: needs.prepare.outputs.candidate != '{}'
     runs-on: ubuntu-26.04
     timeout-minutes: 10
+    outputs:
+      receipt_digest: ${{ steps.publish.outputs.receipt_digest }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -68,14 +75,58 @@ jobs:
         with:
           name: trusted-bundle-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/candidate
-      - name: Publish with existing approved credential only
+      - id: publish
+        name: Publish with existing approved credential only
         env:
           # Placeholder binding: no such credential was verified during implementation.
           # Do not create it or expand App permissions to activate this template.
           GH_TOKEN: ${{ secrets.BUNDLE_WRITER_TOKEN }}
           DIGEST: ${{ needs.prepare.outputs.digest }}
         run: |
+          set -o pipefail
           test -n "$GH_TOKEN"
-          python3 tools/bundle_proposal.py publish \
-            --plan "$RUNNER_TEMP/candidate/bundle.json" --sha256 "$DIGEST"
-# No enqueue job until live required checks and merge-group execution are verified.
+          python3 tools/bundle_operations.py publish \
+            --plan "$RUNNER_TEMP/candidate/bundle.json" \
+            --sha256 "$DIGEST" \
+            --receipt "$RUNNER_TEMP/receipt.json" \
+            | tee "$RUNNER_TEMP/publish-output"
+          echo "receipt_digest=$(sed -n 's/^receipt_digest=//p' "$RUNNER_TEMP/publish-output")" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: receipt-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/receipt.json
+          retention-days: 1
+          if-no-files-found: error
+  queue:
+    needs: [prepare, publish]
+    if: needs.prepare.outputs.candidate != '{}'
+    runs-on: ubuntu-26.04
+    # GitHub stops a job at 6h. The in-job evidence wait refuses at 5.5h.
+    timeout-minutes: 360
+    # gh reads GH_TOKEN. contents stays read until a token that can start
+    # merge_group workflows is approved. No pull-requests grant, new secret, or App.
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        continue-on-error: true
+        with:
+          name: receipt-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/receipt
+      - name: Check this run's receipt, then refuse a GITHUB_TOKEN enqueue
+        env:
+          # gh (tools/bundle_proposal.py command) authenticates with GH_TOKEN.
+          GH_TOKEN: ${{ github.token }}
+          RECEIPT_DIGEST: ${{ needs.publish.outputs.receipt_digest }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          python3 tools/bundle_queue.py \
+            --receipt "$RUNNER_TEMP/receipt/receipt.json" \
+            --sha256 "$RECEIPT_DIGEST" \
+            --run-id "$RUN_ID" \
+            --run-attempt "$RUN_ATTEMPT"

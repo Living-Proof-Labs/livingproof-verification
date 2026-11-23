@@ -5,6 +5,160 @@ end-to-end release. It builds on main `2da9942111b1e01d63e06c7cc454c24e1a72c57e`
 (#104). It does not change the 0.2.0 manifest, robot/world/spec ownership, frozen
 evidence, or published history. Those boundaries remain with #98 and #100.
 
+## Current draft admission contract (2026-11-19)
+
+The writer drafts require all four server-enforced contexts: `checks`,
+`bundle-release-engine`, `renovate`, and `verification`, each from GitHub Actions
+App 15368. Strict checks, explicit `do_not_enforce_on_create: false`, ALLGREEN and
+no bypass remain mandatory. The first three contexts belong to `checks.yml`; the
+adapter validates each individual context check as well as successful trusted runs
+of both `checks.yml` and `verify.yml`. Every check must be unique, Actions-owned,
+same-suite, exact-head and literally successful. All four check identities and their
+trusted run/attempt identities are snapshotted and revalidated before enqueue; a
+successful workflow summary cannot substitute for an omitted or skipped check.
+See the [central writer draft](https://github.com/Living-Proof-Labs/.github/pull/144)
+for the current receipt-based publication and bounded recovery contract.
+
+The dated design and provisioning sections below are historical. Their earlier
+statements allowing informational-only checks, their pre-receipt queue commands,
+and their claims that missing required contexts do not block activation are
+superseded by this contract. No protection change or activation is authorized here.
+
+## Live demonstration (not yet run)
+
+[#189](https://github.com/Living-Proof-Labs/livingproof-verification/pull/189)
+(`c5c52bf`) fixed the notes-push and Pages path. [#188](https://github.com/Living-Proof-Labs/livingproof-verification/pull/188)
+pinned verifier v2.11.4, reporter v3.15.4 and evaluator-run v1.8.6, including a
+settings edit this command does not take. Neither pull request is the demonstration
+below. Nothing in this repository merges, dispatches a workflow, or edits a ruleset.
+`.github/workflows/verify.yml` is unchanged, so this stays clear of draft #187.
+
+### One command
+
+```sh
+python3 tools/update_bundle.py --reporter vX.Y.Z
+python3 tools/update_bundle.py --verifier vX.Y.Z
+```
+
+Either flag, or both. The command is already on main. It stages the workflow calls,
+hallway image, lock-check git requirements, reporter tag, the published wheel
+checksum, the current-version constants in `tests/test_corner.py` and
+`tests/test_site.py`, and every lock. Failed resolution writes nothing. A second run
+with the same tags prints `Updated:` and changes no file. Evaluator-run stays the
+pin in `verifications/settings.toml`. The v1.8.6 edit in #188 is not an argument of
+this command and is not upgraded here. Prepare calls this same command from trusted
+main. It does not run proposal code.
+
+### Trusted writer
+
+The writer is not a workflow in this repository.
+`tools/automation/bundle-completion.yml` stays outside `.github/workflows` and must
+not be installed beside the central writer. The central workflow is
+[Living-Proof-Labs/.github#144](https://github.com/Living-Proof-Labs/.github/pull/144)
+(`Complete selected repository bundles`), still a draft at
+`55f6d44c7eeede5439e3481af19976fcde192043`. After that workflow is on `.github`
+main it checks out this repository's main and runs, in one concurrency group:
+
+1. Prepare, read-only token: `python3 tools/bundle_proposal.py discover`, then
+   `prepare`. The checkout is the immutable main SHA. The pull request is data.
+2. Publish, a fresh one-repository App token and no dependency install:
+   `python3 tools/bundle_operations.py publish --plan PLAN --sha256 DIGEST --receipt RECEIPT`.
+   The commit's parent is the expected head. The push is
+   `--force-with-lease=refs/heads/BRANCH:HEAD`.
+3. Queue, another fresh App token:
+   `python3 tools/bundle_queue.py --receipt RECEIPT --sha256 RECEIPT_DIGEST`.
+   It reads public check and ruleset evidence, revalidates it, then calls
+   `enqueuePullRequest` with `expectedHeadOid` and `jump: false`. It does not call
+   `enablePullRequestAutoMerge` or `mergePullRequest`. A missing check, a failed
+   check, a moved head, or a ruleset that does not match the contract is a refusal.
+   Evidence reads stay unauthenticated, under GitHub's 60 requests an hour.
+   The poll is every 15 minutes. A head with 108 check runs is two pages, and
+   the workflow-run listing is about two pages as well, so a poll is about 4
+   requests: 16 an hour. A worst-case walk of 20 pages for each listing is 40
+   requests a poll, 160 an hour, which exceeds 60. `X-RateLimit-Remaining: 0`
+   then waits until `X-RateLimit-Reset`, and a 403 or 429 with `Retry-After`
+   waits that long. Every wait counts against the same 5.5 hour in-job
+   deadline, inside the queue job's `timeout-minutes: 360`. A wait that would
+   pass 5.5 hours refuses. The next scheduled or triggered run retries. This
+   job does not start another cron.
+   Publish writes the receipt, uploads it as `receipt-<run id>-<run attempt>`,
+   and outputs that file's sha256. The queue job downloads that same artifact
+   and checks the receipt digest, not the plan digest. It refuses a missing
+   artifact, a digest that does not match, or a run attempt that is wrong or
+   stale. Its token is the job `GITHUB_TOKEN` (`GH_TOKEN`). Job permissions
+   stay `contents: read` only until a token source is decided. No
+   workflow-level grant, new secret,
+   or App is added. That token must not enqueue: [Triggering a workflow](https://docs.github.com/en/actions/using-workflows/triggering-a-workflow#triggering-a-workflow-from-a-workflow)
+   says "When you use the repository's `GITHUB_TOKEN` to perform tasks, events
+   triggered by the `GITHUB_TOKEN` will not create a new workflow run, with the
+   following exceptions," and `merge_group` is not one of them. The queue job
+   therefore refuses before `enqueuePullRequest`. The next scheduled or
+   triggered run does not change that; a token that can create `merge_group`
+   runs is still a separate decision.
+
+### Grants required before that run
+
+Read on 2026-11-22 with no credentials:
+
+- Ruleset [26346316](https://github.com/Living-Proof-Labs/livingproof-verification/rules/26346316),
+  "Protect main: pull requests only", enforcement `active`. Its rules are deletion,
+  non-fast-forward, pull request, and merge queue. The queue grouping is ALLGREEN.
+  There is no `required_status_checks` rule.
+- `GET /repos/Living-Proof-Labs/livingproof-verification/rulesets/26346316` does not
+  include `bypass_actors`.
+
+`tools/bundle_queue.py` refuses while either fact remains. A missing `bypass_actors`
+field is not treated as an empty list. Informational checks are not enough to enqueue.
+
+These have to happen in order. This repository cannot do them.
+
+1. Aaron approves the ruleset change, and it is applied through the protected Apply
+   repository settings workflow ([.github #141](https://github.com/Living-Proof-Labs/.github/issues/141)).
+   The rule must require `checks`, `bundle-release-engine`, `renovate`, and
+   `verification`, each with integration id 15368, `strict_required_status_checks_policy`
+   true, and `do_not_enforce_on_create` false. No bypass actor. The public ruleset
+   read the queue uses must return `bypass_actors` as `[]`. If GitHub only returns
+   that field to an authenticated admin, the organization owner has to make that
+   evidence available to this unauthenticated read, or approve a read that returns
+   it, without a bypass and without a new write scope for the writer.
+2. A maintainer of Living-Proof-Labs/.github merges #144, or a successor rebased on
+   current `.github` main, only after step 1. That merge installs the hourly and
+   manual writer. The `ci-automation` environment on `.github` main must already hold
+   variable `CI_AUTOMATION_APP_ID` (`5829119`) and secret `CI_AUTOMATION_APP_PRIVATE_KEY`
+   for App `living-proof-labs-ci-automation`, installation `183589516`, limited to
+   this repository, with metadata read and contents, pull requests, and workflows
+   write. Those were recorded as configured. This change does not read or copy them.
+   If the variable or secret is absent, the environment owner on `.github` sets them.
+   If enqueue then fails for lack of permission, the organization owner adds the
+   missing grant on that App. Do not substitute `GITHUB_TOKEN` or create
+   `BUNDLE_WRITER_TOKEN`.
+
+### Evidence that proves the demonstration
+
+Use the next real Renovate pull request that changes only a reporter tag, or only
+the verifier workflow call and hallway image. Do not open a stand-in pull request
+and do not merge it by hand.
+
+1. The Renovate pull request and its head, and the prepare job's `pr` and `head`.
+2. The central workflow run. Prepare's digest. Publish's `head`, `pr`, `branch`,
+   and `receipt_digest`. The new commit's parent is the Renovate head. The diff is
+   only allowlisted generated files. The prepare log shows the second generation
+   changed nothing.
+3. On that published head, four successful `pull_request` checks named `checks`,
+   `bundle-release-engine`, `renovate`, and `verification`, each from App 15368, and
+   the `checks.yml` and `verify.yml` runs completed with success. A failed or skipped
+   check leaves no merge-queue entry.
+4. The queue job log: one `enqueuePullRequest` whose `expectedHeadOid` is the
+   published head and whose `jump` is false, plus a `mergeQueueEntry` id. The pull
+   request's queue entry is that id. There is no auto-merge mutation.
+5. The merge-group run of those checks, then the merge commit on main. The main
+   `verify` run succeeds, including `release`, `site`, and `pages`. The Pages
+   deployment sha is that merge commit, and `version.html` shows it. One published
+   run page shows the new reporter or verifier tag. A robot FAIL on that page is a
+   simulated outcome, not a failed pipeline. Earlier reports remain on the site.
+
+#188, #189, and a green local test run are not this evidence.
+
 ## Central operations proposal (2026-11-18)
 
 The next infrastructure slice uses the confirmed name **CI Automation** for the
@@ -18,11 +172,12 @@ This branch link is temporary review navigation; replace it with the merged refe
 when the infrastructure is accepted. It is not an executable dependency.
 
 This repository supplies the generation/publication/queue adapter. The new
-`tools/bundle_operations.py publish --plan PATH --sha256 DIGEST` wraps the existing
-publisher and emits validated `head`, `pr`, and `branch` workflow outputs only after
-successful publication. The plan digest remains supplied by trusted prepare output;
-queue arguments now have a concrete same-run source. Existing stale-main/head checks,
-file restrictions, lease behavior and expected-head queue mutation remain unchanged.
+`python3 tools/bundle_operations.py publish --plan PATH --sha256 DIGEST --receipt RECEIPT`
+wraps the existing publisher and emits validated `head`, `pr`, and `branch` workflow
+outputs, plus `receipt_digest`, only after successful publication. The plan digest
+remains supplied by trusted prepare output; the queue reads that same-run receipt
+and its digest. Existing stale-main/head checks, file restrictions, lease behavior
+and expected-head queue mutation remain unchanged.
 
 The central template requests a fresh one-repository App token per publication/queue
 job and verifies its effective repository boundary. Generation gets no key or write
@@ -108,12 +263,14 @@ Renovate/custom proposals are refused by this writer, rather than rebased or res
    a concurrent writer causes rejection, never loss of custom commits. Replaying a
    completed proposal is refused. If a push outcome is uncertain, inspect the remote
    ref before retrying; never regenerate against a guessed head.
-3. **Prepared exact-head coordinator:** `tools/bundle_queue.py --pr NUMBER --head
-   PUBLISHED_SHA --branch EXPECTED_BRANCH` rechecks candidate eligibility and requests
-   normal queue entry with `enqueuePullRequest`, `expectedHeadOid`, and `jump: false`.
+3. **Prepared exact-head coordinator:** `python3 tools/bundle_queue.py --receipt RECEIPT
+   --sha256 RECEIPT_DIGEST` rechecks candidate eligibility and requests normal queue
+   entry with `enqueuePullRequest`, `expectedHeadOid`, and `jump: false`.
    GitHub enforces the repository's actually configured protections. The coordinator
-   neither requires named status contexts nor polls/waits for informational workflows.
-   It never enables deferred auto-merge, merges directly, or bypasses requirements.
+   admits the receipt only when `checks`, `bundle-release-engine`, `renovate`, and
+   `verification` are successful exact-head evidence from App 15368, and it waits
+   while that evidence is still pending. It never enables deferred auto-merge,
+   merges directly, or bypasses requirements.
    The mutation fields are defined in [GitHub's published schema](https://github.com/octokit/graphql-schema/blob/master/schema.graphql).
    A changed head, invalid target, or server refusal stops the request. An uncertain
    mutation outcome must be inspected before retrying.
@@ -234,9 +391,9 @@ bound, no token minted, no settings changed, and no writer activated.
   published mainline evidence. A manually completed commit or manually merged
   adoption PR is not proof for either case. Local mocked tests are not live-release proof.
 - Prove concurrent head changes, competing runs and custom commits fail closed on GitHub.
-- Record the actually configured required checks, if any, and observe PR/merge-group
-  results without waiting for informational checks as a queue prerequisite. Demonstrate
-  automatic normal-queue merge with no bypass.
+- Independently verify all four required contexts above in the approved server
+  protections and demonstrate that missing or failing fresh merge-group checks block
+  merge. Demonstrate automatic normal-queue merge with no bypass.
 - Verify the merged SHA's mainline run, Pages deployment and all seven published
   reports; link discovery, proposal, run and publication. Preserve earlier evidence.
 - Obtain Deep independent review of the user-run command and publication boundary
