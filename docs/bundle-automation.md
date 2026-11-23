@@ -148,11 +148,12 @@ This branch link is temporary review navigation; replace it with the merged refe
 when the infrastructure is accepted. It is not an executable dependency.
 
 This repository supplies the generation/publication/queue adapter. The new
-`tools/bundle_operations.py publish --plan PATH --sha256 DIGEST` wraps the existing
-publisher and emits validated `head`, `pr`, and `branch` workflow outputs only after
-successful publication. The plan digest remains supplied by trusted prepare output;
-queue arguments now have a concrete same-run source. Existing stale-main/head checks,
-file restrictions, lease behavior and expected-head queue mutation remain unchanged.
+`python3 tools/bundle_operations.py publish --plan PATH --sha256 DIGEST --receipt RECEIPT`
+wraps the existing publisher and emits validated `head`, `pr`, and `branch` workflow
+outputs, plus `receipt_digest`, only after successful publication. The plan digest
+remains supplied by trusted prepare output; the queue reads that same-run receipt
+and its digest. Existing stale-main/head checks, file restrictions, lease behavior
+and expected-head queue mutation remain unchanged.
 
 The central template requests a fresh one-repository App token per publication/queue
 job and verifies its effective repository boundary. Generation gets no key or write
@@ -238,12 +239,14 @@ Renovate/custom proposals are refused by this writer, rather than rebased or res
    a concurrent writer causes rejection, never loss of custom commits. Replaying a
    completed proposal is refused. If a push outcome is uncertain, inspect the remote
    ref before retrying; never regenerate against a guessed head.
-3. **Prepared exact-head coordinator:** `tools/bundle_queue.py --pr NUMBER --head
-   PUBLISHED_SHA --branch EXPECTED_BRANCH` rechecks candidate eligibility and requests
-   normal queue entry with `enqueuePullRequest`, `expectedHeadOid`, and `jump: false`.
+3. **Prepared exact-head coordinator:** `python3 tools/bundle_queue.py --receipt RECEIPT
+   --sha256 RECEIPT_DIGEST` rechecks candidate eligibility and requests normal queue
+   entry with `enqueuePullRequest`, `expectedHeadOid`, and `jump: false`.
    GitHub enforces the repository's actually configured protections. The coordinator
-   neither requires named status contexts nor polls/waits for informational workflows.
-   It never enables deferred auto-merge, merges directly, or bypasses requirements.
+   admits the receipt only when `checks`, `bundle-release-engine`, `renovate`, and
+   `verification` are successful exact-head evidence from App 15368, and it waits
+   while that evidence is still pending. It never enables deferred auto-merge,
+   merges directly, or bypasses requirements.
    The mutation fields are defined in [GitHub's published schema](https://github.com/octokit/graphql-schema/blob/master/schema.graphql).
    A changed head, invalid target, or server refusal stops the request. An uncertain
    mutation outcome must be inspected before retrying.
