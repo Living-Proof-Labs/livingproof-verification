@@ -716,3 +716,10 @@ def test_run_pull_request_number_must_match_the_receipt(remote):
     with pytest.raises(ValueError, match="workflow did not successfully"):
         queue.admission.successful_checks(remote["record"], remote["read"])
 
+
+def test_float_integration_id_is_not_the_actions_app(remote):
+    checks = remote["rules"][1]["parameters"]["required_status_checks"]
+    checks[0]["integration_id"] = 15368.0
+    with pytest.raises(ValueError, match="trusted required check contexts missing"):
+        enqueue(remote)
+    assert not remote["writes"]

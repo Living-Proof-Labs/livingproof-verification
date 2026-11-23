@@ -208,6 +208,7 @@ def protections(read):
         required.update(
             (c["context"], c.get("integration_id"))
             for c in rule["parameters"]["required_status_checks"]
+            if type(c.get("integration_id")) is int
         )
     if not {(name, ACTIONS_APP) for name in REQUIRED_CONTEXTS} <= required:
         raise ValueError("trusted required check contexts missing")
