@@ -15,6 +15,7 @@ Gating is checked three ways, none of which needs a hosted run:
 
 from __future__ import annotations
 
+import email.message
 import importlib.util
 import io
 import json
@@ -24,6 +25,8 @@ import re
 import subprocess
 import sys
 import tarfile
+import time
+import urllib.parse
 import urllib.request
 import zipfile
 
@@ -36,6 +39,9 @@ WORKFLOW = yaml.safe_load(WORKFLOW_FILE.read_text())
 JOBS = WORKFLOW["jobs"]
 SHARED = "Living-Proof-Labs/collaboration-guidelines/.github/workflows/semantic-release.yml"
 REPO = "Living-Proof-Labs/livingproof-verification"
+REPO_ID = 1442523227
+FORK_ID = 880000111
+VERIFY_WORKFLOW = ".github/workflows/verify.yml"
 STATUS_FUNCTIONS = ("always()", "success()", "failure()", "cancelled()")
 
 spec = importlib.util.spec_from_file_location("site_tool", ROOT / "tools/site.py")
@@ -302,15 +308,89 @@ def _marker_site(root: Path, marker: bytes) -> None:
     (root / "site.json").write_bytes(b'{"runs": 1, "marker": "' + marker + b'"}\n')
 
 
-def _pages_artifact(identifier: int, run_id: int, created: str, url: str) -> dict:
+def _repository_body(repo_id: int, name: str, full_name: str) -> dict:
+    return {"id": repo_id, "name": name, "full_name": full_name}
+
+
+def _this_repository() -> dict:
+    return _repository_body(REPO_ID, "livingproof-verification", REPO)
+
+
+def _workflow_run_body(
+    run_id: int,
+    *,
+    event: str = "push",
+    path: str = VERIFY_WORKFLOW,
+    branch: str = "main",
+    head: dict | None = None,
+    repository: dict | None = None,
+) -> dict:
+    own = repository if repository is not None else _this_repository()
+    return {
+        "id": run_id,
+        "event": event,
+        "path": path,
+        "head_branch": branch,
+        "head_repository": head if head is not None else own,
+        "repository": own,
+    }
+
+
+def _pages_artifact(
+    identifier: int,
+    run_id: int,
+    created: str,
+    url: str,
+    *,
+    head_id: int = REPO_ID,
+    repository_id: int = REPO_ID,
+    expired: bool = False,
+) -> dict:
     return {
         "id": identifier,
         "name": "github-pages",
         "created_at": created,
-        "expired": False,
+        "expired": expired,
         "archive_download_url": url,
-        "workflow_run": {"id": run_id, "head_branch": "main"},
+        "workflow_run": {
+            "id": run_id,
+            "head_branch": "main",
+            "head_repository_id": head_id,
+            "repository_id": repository_id,
+        },
     }
+
+
+def _route_pages(
+    url: str,
+    artifacts: list[dict],
+    runs: dict[int, dict],
+    conclusions: dict[int, str],
+    repository: dict | None = None,
+):
+    """Answer the artifact list, this repository's id, one workflow run, or its pages job."""
+    path = urllib.parse.urlsplit(url).path.rstrip("/")
+    if path == f"/repos/{REPO}":
+        return _this_repository() if repository is None else repository
+    if path.endswith("/jobs"):
+        run_id = int(path.split("/runs/")[1].split("/")[0])
+        return {"jobs": [{"name": "pages", "conclusion": conclusions[run_id]}]}
+    if "/actions/runs/" in path:
+        return runs[int(path.rsplit("/", 1)[-1])]
+    if path.endswith("/actions/artifacts"):
+        return {"artifacts": artifacts}
+    raise AssertionError(url)
+
+
+def _install_pages_api(monkeypatch, artifacts, runs, conclusions):
+    def request(url, token):
+        return io.BytesIO(json.dumps(_route_pages(url, artifacts, runs, conclusions)).encode())
+
+    def refuse_download(*_args, **_kwargs):
+        raise AssertionError("restore downloaded an artifact")
+
+    monkeypatch.setattr(site_tool, "_request", request)
+    monkeypatch.setattr(site_tool, "_open_once", refuse_download)
 
 
 def test_rebuild_uses_the_last_successful_deploy_when_the_newest_failed(tmp_path, monkeypatch):
@@ -332,13 +412,10 @@ def test_rebuild_uses_the_last_successful_deploy_when_the_newest_failed(tmp_path
         _pages_artifact(2, 20, "2026-11-02T00:00:00Z", "https://api.example/failed/zip"),
     ]
     conclusions = {10: "success", 20: "failure"}
+    runs = {10: _workflow_run_body(10), 20: _workflow_run_body(20)}
 
     def request(url, token):
-        if "/jobs" in url:
-            run_id = int(url.split("/runs/")[1].split("/")[0])
-            body = {"jobs": [{"name": "pages", "conclusion": conclusions[run_id]}]}
-            return io.BytesIO(json.dumps(body).encode())
-        return io.BytesIO(json.dumps({"artifacts": artifacts}).encode())
+        return io.BytesIO(json.dumps(_route_pages(url, artifacts, runs, conclusions)).encode())
 
     def open_once(url, token):
         if url not in archives:
@@ -365,6 +442,523 @@ def test_an_expired_successful_deploy_is_not_replaced_by_an_older_upload():
     artifacts[1]["expired"] = True
     with pytest.raises(site_tool.SiteError, match="expired"):
         site_tool.deployed_pages_artifact(artifacts, "main", None, lambda _run: "success")
+
+
+def _restore_selected(tmp_path, monkeypatch, artifacts, runs, conclusions):
+    _install_pages_api(monkeypatch, artifacts, runs, conclusions)
+    return site_tool.restore(tmp_path / "site", REPO, "main", 900, "t", dry_run=True)
+
+
+def test_restore_skips_a_newer_artifact_from_a_fork_run(tmp_path, monkeypatch):
+    """A fork's newer successful deploy is not history, whether or not its name matches.
+
+    The listing and the workflow run are both checked. The head repository and the
+    run's own repository each have to be this repository's id. A listing that says
+    fork is skipped even when the fetched run would otherwise qualify, and a listing
+    that says this repository is skipped when the run's head or its own repository
+    does not.
+    """
+    ours = _this_repository()
+    fork = _repository_body(
+        FORK_ID, "livingproof-verification", "attacker/livingproof-verification"
+    )
+    artifacts = [
+        _pages_artifact(1, 10, "2026-11-01T00:00:00Z", "https://api.example/ours/zip"),
+        _pages_artifact(
+            2,
+            20,
+            "2026-11-04T00:00:00Z",
+            "https://api.example/listed-fork/zip",
+            head_id=FORK_ID,
+            repository_id=FORK_ID,
+        ),
+        _pages_artifact(3, 30, "2026-11-03T00:00:00Z", "https://api.example/head-fork/zip"),
+        _pages_artifact(4, 40, "2026-11-02T00:00:00Z", "https://api.example/run-fork/zip"),
+    ]
+    runs = {
+        10: _workflow_run_body(10),
+        # Listing ids are the fork. The fetched run looks like ours, and must still lose.
+        20: _workflow_run_body(20),
+        30: _workflow_run_body(30, head=fork, repository=ours),
+        40: _workflow_run_body(40, head=ours, repository=fork),
+    }
+    conclusions = {10: "success", 20: "success", 30: "success", 40: "success"}
+    found = _restore_selected(tmp_path, monkeypatch, artifacts, runs, conclusions)
+    assert found["id"] == 1
+
+
+def test_restore_skips_pull_request_and_workflow_dispatch_from_another_workflow(
+    tmp_path, monkeypatch
+):
+    """A pull_request or schedule, and a dispatch or push of another workflow, is skipped."""
+    artifacts = [
+        _pages_artifact(1, 10, "2026-11-01T00:00:00Z", "https://api.example/push/zip"),
+        _pages_artifact(2, 20, "2026-11-02T00:00:00Z", "https://api.example/pr-verify/zip"),
+        _pages_artifact(3, 30, "2026-11-03T00:00:00Z", "https://api.example/pr-other/zip"),
+        _pages_artifact(4, 40, "2026-11-04T00:00:00Z", "https://api.example/dispatch/zip"),
+        _pages_artifact(5, 50, "2026-11-05T00:00:00Z", "https://api.example/other-push/zip"),
+        _pages_artifact(6, 60, "2026-11-06T00:00:00Z", "https://api.example/schedule/zip"),
+    ]
+    other = ".github/workflows/checks.yml"
+    runs = {
+        10: _workflow_run_body(10),
+        20: _workflow_run_body(20, event="pull_request"),
+        30: _workflow_run_body(30, event="pull_request", path=other),
+        40: _workflow_run_body(40, event="workflow_dispatch", path=other),
+        50: _workflow_run_body(50, event="push", path=other),
+        60: _workflow_run_body(60, event="schedule"),
+    }
+    conclusions = {run_id: "success" for run_id in runs}
+    found = _restore_selected(tmp_path, monkeypatch, artifacts, runs, conclusions)
+    assert found["id"] == 1
+
+
+def test_restore_accepts_a_same_repository_push_of_verify(tmp_path, monkeypatch):
+    """A push of verify.yml on main whose head and run repositories share this id is kept."""
+    fork = _repository_body(FORK_ID, "livingproof-verification", REPO)
+    artifacts = [
+        _pages_artifact(
+            1,
+            10,
+            "2026-11-01T00:00:00Z",
+            "https://api.example/fork/zip",
+            head_id=FORK_ID,
+            repository_id=FORK_ID,
+        ),
+        _pages_artifact(2, 20, "2026-11-02T00:00:00Z", "https://api.example/ours/zip"),
+    ]
+    runs = {
+        10: _workflow_run_body(10, head=fork, repository=fork),
+        20: _workflow_run_body(20),
+    }
+    conclusions = {10: "success", 20: "success"}
+    found = _restore_selected(tmp_path, monkeypatch, artifacts, runs, conclusions)
+    assert found["id"] == 2
+    assert found["workflow_run"]["head_repository_id"] == REPO_ID
+    assert found["workflow_run"]["repository_id"] == REPO_ID
+
+
+def test_restore_matches_repository_by_id_so_a_rename_still_qualifies(tmp_path, monkeypatch):
+    """The check uses ids. A renamed repository still matches; the same name with another id does not."""
+    renamed_head = _repository_body(
+        REPO_ID, "renamed-verification", "Living-Proof-Labs/renamed-verification"
+    )
+    renamed_run = _repository_body(REPO_ID, "old-verification", "Old-Org/old-verification")
+    same_name = _repository_body(FORK_ID, "livingproof-verification", REPO)
+    artifacts = [
+        _pages_artifact(1, 10, "2026-11-01T00:00:00Z", "https://api.example/renamed/zip"),
+        _pages_artifact(
+            2,
+            20,
+            "2026-11-02T00:00:00Z",
+            "https://api.example/same-name/zip",
+            head_id=FORK_ID,
+            repository_id=FORK_ID,
+        ),
+    ]
+    runs = {
+        10: _workflow_run_body(10, head=renamed_head, repository=renamed_run),
+        20: _workflow_run_body(20, head=same_name, repository=same_name),
+    }
+    conclusions = {10: "success", 20: "success"}
+    found = _restore_selected(tmp_path, monkeypatch, artifacts, runs, conclusions)
+    assert found["id"] == 1
+    assert runs[10]["repository"]["full_name"] != REPO
+    assert runs[10]["head_repository"]["name"] != "livingproof-verification"
+
+
+def test_an_expired_same_repo_deploy_is_not_replaced_by_a_newer_fork(tmp_path, monkeypatch):
+    """A newer fork deploy does not stand in for an expired deploy from this repository."""
+    fork = _repository_body(
+        FORK_ID, "livingproof-verification", "attacker/livingproof-verification"
+    )
+    artifacts = [
+        _pages_artifact(
+            1, 10, "2026-11-01T00:00:00Z", "https://api.example/expired/zip", expired=True
+        ),
+        _pages_artifact(
+            2,
+            20,
+            "2026-11-02T00:00:00Z",
+            "https://api.example/fork/zip",
+            head_id=FORK_ID,
+            repository_id=FORK_ID,
+        ),
+    ]
+    runs = {
+        10: _workflow_run_body(10),
+        20: _workflow_run_body(20, head=fork, repository=fork),
+    }
+    conclusions = {10: "success", 20: "success"}
+    _install_pages_api(monkeypatch, artifacts, runs, conclusions)
+    with pytest.raises(site_tool.SiteError, match="expired") as caught:
+        site_tool.restore(
+            tmp_path / "site", REPO, "main", 900, "t", site_url="https://docs.example/"
+        )
+    message = str(caught.value)
+    assert "(1," in message
+    assert "(2," not in message
+
+
+def _http_error(url: str, code: int, reason: str) -> urllib.error.HTTPError:
+    return urllib.error.HTTPError(url, code, reason, email.message.Message(), None)
+
+
+class _Clock:
+    """Sleep advances the clock and does not wait."""
+
+    def __init__(self) -> None:
+        self.now = 0.0
+        self.sleeps: list[float] = []
+
+    def monotonic(self) -> float:
+        return self.now
+
+    def sleep(self, seconds: float) -> None:
+        self.sleeps.append(seconds)
+        self.now += seconds
+
+
+def _pin_clock(monkeypatch) -> _Clock:
+    clock = _Clock()
+    monkeypatch.setattr(site_tool.time, "sleep", clock.sleep)
+    monkeypatch.setattr(site_tool.time, "monotonic", clock.monotonic)
+    return clock
+
+
+def _url_path(url: str) -> str:
+    return urllib.parse.urlsplit(url).path.rstrip("/")
+
+
+def _scripted_pages(
+    monkeypatch, artifacts, runs, conclusions, *, repository=None, faults=None
+) -> list[str]:
+    """Record each GET. `faults` maps a URL path to exceptions raised before the real body."""
+    pending = {path: list(queue) for path, queue in (faults or {}).items()}
+    calls: list[str] = []
+
+    def request(url, token):
+        calls.append(url)
+        path = _url_path(url)
+        queue = pending.get(path)
+        if queue:
+            outcome = queue.pop(0)
+            if isinstance(outcome, BaseException):
+                raise outcome
+        body = _route_pages(url, artifacts, runs, conclusions, repository)
+        return io.BytesIO(json.dumps(body).encode())
+
+    def refuse_download(*_args, **_kwargs):
+        raise AssertionError("restore downloaded an artifact")
+
+    monkeypatch.setattr(site_tool, "_request", request)
+    monkeypatch.setattr(site_tool, "_open_once", refuse_download)
+    return calls
+
+
+def test_next_push_restores_the_reset_history_artifact(tmp_path, monkeypatch):
+    """After a reset-history dispatch, the next push restores that artifact.
+
+    An older push still has a successful deploy. Restoring it would publish the
+    pre-reset history and drop the reset. A newer fork dispatch is not a source.
+    """
+    fork = _repository_body(
+        FORK_ID, "livingproof-verification", "attacker/livingproof-verification"
+    )
+    artifacts = [
+        _pages_artifact(1, 10, "2026-11-01T00:00:00Z", "https://api.example/before/zip"),
+        _pages_artifact(2, 20, "2026-11-03T00:00:00Z", "https://api.example/reset/zip"),
+        _pages_artifact(
+            3,
+            30,
+            "2026-11-04T00:00:00Z",
+            "https://api.example/fork-dispatch/zip",
+            head_id=FORK_ID,
+            repository_id=FORK_ID,
+        ),
+    ]
+    runs = {
+        10: _workflow_run_body(10, event="push"),
+        20: _workflow_run_body(20, event="workflow_dispatch"),
+        30: _workflow_run_body(30, event="workflow_dispatch", head=fork, repository=fork),
+    }
+    conclusions = {10: "success", 20: "success", 30: "success"}
+    found = _restore_selected(tmp_path, monkeypatch, artifacts, runs, conclusions)
+    assert found["id"] == 2
+    assert found["workflow_run"]["id"] == 20
+    assert runs[20]["event"] == "workflow_dispatch"
+    assert runs[20]["path"] == VERIFY_WORKFLOW
+    assert runs[20]["head_branch"] == "main"
+
+
+def test_github_id_rejects_bool_float_and_str():
+    """A bool, float or str is not a repository id, even when it compares equal to an int."""
+    for value in (True, False, 1.0, float(REPO_ID), str(REPO_ID), "1"):
+        assert site_tool._github_id(value) is None
+    assert site_tool._github_id(REPO_ID) == REPO_ID
+    assert site_tool._github_id(0) == 0
+
+
+@pytest.mark.parametrize(
+    "repo_id",
+    [str(REPO_ID), True, False, 1.0, float(REPO_ID)],
+    ids=["str", "true", "false", "one-float", "repo-float"],
+)
+def test_restore_refuses_a_bool_float_or_string_repository_id(tmp_path, monkeypatch, repo_id):
+    """A non-integer id from GET /repos refuses. It is not coerced and not skipped past."""
+    artifacts = [_pages_artifact(1, 10, "2026-11-02T00:00:00Z", "https://api.example/ours/zip")]
+    runs = {10: _workflow_run_body(10)}
+    calls = _scripted_pages(
+        monkeypatch,
+        artifacts,
+        runs,
+        {10: "success"},
+        repository={"id": repo_id, "name": "livingproof-verification", "full_name": REPO},
+    )
+    with pytest.raises(site_tool.SiteError, match="no id") as caught:
+        site_tool.restore(tmp_path / "site", REPO, "main", 900, "t", dry_run=True)
+    assert "Could not read repository" in str(caught.value)
+    assert not any("/actions/runs/" in url for url in calls)
+
+
+def test_restore_refuses_a_workflow_path_that_only_ends_with_verify_yml(tmp_path, monkeypatch):
+    """The workflow path is exact. A suffix match, including a nested copy, is refused."""
+    paths = (".github/workflows/evil-verify.yml", "x/.github/workflows/verify.yml")
+    for path in paths:
+        assert path.endswith("verify.yml")
+        assert path != VERIFY_WORKFLOW
+        artifacts = [
+            _pages_artifact(1, 10, "2026-11-01T00:00:00Z", "https://api.example/exact/zip"),
+            _pages_artifact(2, 20, "2026-11-02T00:00:00Z", "https://api.example/suffix/zip"),
+        ]
+        runs = {
+            10: _workflow_run_body(10, path=VERIFY_WORKFLOW),
+            20: _workflow_run_body(20, path=path),
+        }
+        found = _restore_selected(
+            tmp_path, monkeypatch, artifacts, runs, {10: "success", 20: "success"}
+        )
+        assert found["id"] == 1
+
+
+def test_restore_refuses_a_fetched_run_on_another_branch(tmp_path, monkeypatch):
+    """The fetched run's branch is checked. The listing already says main, so only this does."""
+    artifacts = [
+        _pages_artifact(1, 10, "2026-11-01T00:00:00Z", "https://api.example/main/zip"),
+        _pages_artifact(2, 20, "2026-11-02T00:00:00Z", "https://api.example/feature/zip"),
+    ]
+    assert artifacts[1]["workflow_run"]["head_branch"] == "main"
+    runs = {
+        10: _workflow_run_body(10, branch="main"),
+        20: _workflow_run_body(20, branch="feature"),
+    }
+    found = _restore_selected(
+        tmp_path, monkeypatch, artifacts, runs, {10: "success", 20: "success"}
+    )
+    assert found["id"] == 1
+    assert runs[20]["head_branch"] != "main"
+
+
+def test_repository_lookup_errors_refuse_instead_of_skipping(tmp_path, monkeypatch):
+    """A repository lookup 403, 500 or timeout refuses. It does not skip into the live site."""
+    artifacts = [_pages_artifact(1, 10, "2026-11-02T00:00:00Z", "https://api.example/ours/zip")]
+    runs = {10: _workflow_run_body(10)}
+    conclusions = {10: "success"}
+    repo_path = f"/repos/{REPO}"
+    monkeypatch.setattr(site_tool, "_fetch_status", lambda _url: 200)
+    cases = {
+        "403": ([_http_error(repo_path, 403, "Forbidden")], "403"),
+        "500": (
+            [_http_error(repo_path, 500, "unavailable") for _ in range(site_tool.LOOKUP_ATTEMPTS)],
+            "500",
+        ),
+        "timeout": ([TimeoutError("timed out")], "timed out"),
+    }
+    for name, (queue, detail) in cases.items():
+        clock = _pin_clock(monkeypatch)
+        _scripted_pages(monkeypatch, artifacts, runs, conclusions, faults={repo_path: list(queue)})
+        with pytest.raises(site_tool.SiteError, match="Could not read repository") as caught:
+            site_tool.restore(
+                tmp_path / name, REPO, "main", 900, "t", site_url="https://docs.example/"
+            )
+        message = str(caught.value)
+        assert detail in message
+        assert "is live" not in message
+        if name == "500":
+            assert clock.sleeps == [
+                site_tool.LOOKUP_BACKOFF_BASE,
+                site_tool.LOOKUP_BACKOFF_BASE * 2,
+            ]
+            assert clock.monotonic() == sum(clock.sleeps)
+        else:
+            assert clock.sleeps == []
+
+
+def test_run_lookup_errors_refuse_instead_of_skipping(tmp_path, monkeypatch):
+    """A run lookup 500 or timeout refuses. It does not skip to an older good deploy."""
+    artifacts = [
+        _pages_artifact(1, 10, "2026-11-01T00:00:00Z", "https://api.example/old/zip"),
+        _pages_artifact(2, 20, "2026-11-02T00:00:00Z", "https://api.example/new/zip"),
+    ]
+    runs = {10: _workflow_run_body(10), 20: _workflow_run_body(20)}
+    conclusions = {10: "success", 20: "success"}
+    run_path = f"/repos/{REPO}/actions/runs/20"
+    cases = {
+        "500": (
+            [_http_error(run_path, 500, "unavailable") for _ in range(site_tool.LOOKUP_ATTEMPTS)],
+            "500",
+        ),
+        "timeout": ([TimeoutError("timed out")], "timed out"),
+    }
+    for name, (queue, detail) in cases.items():
+        clock = _pin_clock(monkeypatch)
+        calls = _scripted_pages(
+            monkeypatch, artifacts, runs, conclusions, faults={run_path: list(queue)}
+        )
+        with pytest.raises(site_tool.SiteError, match="Could not read workflow run 20") as caught:
+            site_tool.restore(tmp_path / name, REPO, "main", 900, "t", dry_run=True)
+        assert detail in str(caught.value)
+        paths = [_url_path(url) for url in calls]
+        assert not any(path.endswith("/runs/10") for path in paths)
+        if name == "500":
+            assert paths.count(run_path) == site_tool.LOOKUP_ATTEMPTS
+            assert clock.sleeps == [
+                site_tool.LOOKUP_BACKOFF_BASE,
+                site_tool.LOOKUP_BACKOFF_BASE * 2,
+            ]
+        else:
+            assert paths.count(run_path) == 1
+            assert clock.sleeps == []
+
+
+def test_restore_walks_newest_first_and_stops_at_the_first_deployed_match(tmp_path, monkeypatch):
+    """Older runs are not fetched once a newer deployed verify artifact matches.
+
+    A newer fork is skipped from the listing. A newer failed deploy is passed.
+    The successful deploy under that is the snapshot, and anything older is not read.
+    """
+    fork = _repository_body(
+        FORK_ID, "livingproof-verification", "attacker/livingproof-verification"
+    )
+    artifacts = [
+        _pages_artifact(1, 10, "2026-11-01T00:00:00Z", "https://api.example/oldest/zip"),
+        _pages_artifact(2, 20, "2026-11-02T00:00:00Z", "https://api.example/match/zip"),
+        _pages_artifact(3, 30, "2026-11-03T00:00:00Z", "https://api.example/failed/zip"),
+        _pages_artifact(
+            4,
+            40,
+            "2026-11-04T00:00:00Z",
+            "https://api.example/fork/zip",
+            head_id=FORK_ID,
+            repository_id=FORK_ID,
+        ),
+    ]
+    runs = {
+        10: _workflow_run_body(10),
+        20: _workflow_run_body(20),
+        30: _workflow_run_body(30),
+        40: _workflow_run_body(40, head=fork, repository=fork),
+    }
+    conclusions = {10: "success", 20: "success", 30: "failure", 40: "success"}
+    calls = _scripted_pages(monkeypatch, artifacts, runs, conclusions)
+    found = site_tool.restore(tmp_path / "site", REPO, "main", 900, "t", dry_run=True)
+    assert found["id"] == 2
+    assert [_url_path(url) for url in calls] == [
+        f"/repos/{REPO}/actions/artifacts",
+        f"/repos/{REPO}",
+        f"/repos/{REPO}/actions/runs/30",
+        f"/repos/{REPO}/actions/runs/30/jobs",
+        f"/repos/{REPO}/actions/runs/20",
+        f"/repos/{REPO}/actions/runs/20/jobs",
+    ]
+
+
+def test_restore_retries_a_transient_run_lookup_5xx(tmp_path, monkeypatch):
+    """Two 5xx responses are retried on a fake clock; the third try restores the artifact."""
+    clock = _pin_clock(monkeypatch)
+    artifacts = [
+        _pages_artifact(1, 10, "2026-11-01T00:00:00Z", "https://api.example/old/zip"),
+        _pages_artifact(2, 20, "2026-11-02T00:00:00Z", "https://api.example/new/zip"),
+    ]
+    runs = {10: _workflow_run_body(10), 20: _workflow_run_body(20)}
+    run_path = f"/repos/{REPO}/actions/runs/20"
+    calls = _scripted_pages(
+        monkeypatch,
+        artifacts,
+        runs,
+        {10: "success", 20: "success"},
+        faults={
+            run_path: [
+                _http_error(run_path, 503, "unavailable"),
+                _http_error(run_path, 502, "unavailable"),
+            ]
+        },
+    )
+    started = time.perf_counter()
+    found = site_tool.restore(tmp_path / "site", REPO, "main", 900, "t", dry_run=True)
+    assert time.perf_counter() - started < 0.9
+    assert found["id"] == 2
+    assert clock.sleeps == [site_tool.LOOKUP_BACKOFF_BASE, site_tool.LOOKUP_BACKOFF_BASE * 2]
+    assert clock.monotonic() == sum(clock.sleeps)
+    paths = [_url_path(url) for url in calls]
+    assert paths.count(run_path) == site_tool.LOOKUP_ATTEMPTS
+    assert not any(path.endswith("/runs/10") for path in paths)
+
+
+def test_restore_refuses_after_three_transient_run_lookup_5xx(tmp_path, monkeypatch):
+    """The third 5xx refuses. There is no fourth try and no fallback to an older deploy."""
+    clock = _pin_clock(monkeypatch)
+    artifacts = [
+        _pages_artifact(1, 10, "2026-11-01T00:00:00Z", "https://api.example/old/zip"),
+        _pages_artifact(2, 20, "2026-11-02T00:00:00Z", "https://api.example/new/zip"),
+    ]
+    runs = {10: _workflow_run_body(10), 20: _workflow_run_body(20)}
+    run_path = f"/repos/{REPO}/actions/runs/20"
+    calls = _scripted_pages(
+        monkeypatch,
+        artifacts,
+        runs,
+        {10: "success", 20: "success"},
+        faults={
+            run_path: [
+                _http_error(run_path, 503, "unavailable") for _ in range(site_tool.LOOKUP_ATTEMPTS)
+            ]
+        },
+    )
+    started = time.perf_counter()
+    with pytest.raises(site_tool.SiteError, match="Could not read workflow run 20") as caught:
+        site_tool.restore(tmp_path / "site", REPO, "main", 900, "t", dry_run=True)
+    assert time.perf_counter() - started < 0.9
+    assert "500" in str(caught.value) or "503" in str(caught.value)
+    assert clock.sleeps == [site_tool.LOOKUP_BACKOFF_BASE, site_tool.LOOKUP_BACKOFF_BASE * 2]
+    assert clock.monotonic() == sum(clock.sleeps)
+    paths = [_url_path(url) for url in calls]
+    assert paths.count(run_path) == site_tool.LOOKUP_ATTEMPTS
+    assert not any(path.endswith("/runs/10") for path in paths)
+
+
+def test_restore_fail_closes_when_only_a_fork_artifact_is_listed(tmp_path, monkeypatch):
+    """No qualifying deploy, with the live site still up, refuses to publish."""
+    fork = _repository_body(
+        FORK_ID, "livingproof-verification", "attacker/livingproof-verification"
+    )
+    artifacts = [
+        _pages_artifact(
+            2,
+            20,
+            "2026-11-02T00:00:00Z",
+            "https://api.example/fork/zip",
+            head_id=FORK_ID,
+            repository_id=FORK_ID,
+        )
+    ]
+    runs = {20: _workflow_run_body(20, head=fork, repository=fork)}
+    _install_pages_api(monkeypatch, artifacts, runs, {20: "success"})
+    monkeypatch.setattr(site_tool, "_fetch_status", lambda _url: 200)
+    with pytest.raises(site_tool.SiteError, match="reset-history"):
+        site_tool.restore(
+            tmp_path / "site", REPO, "main", 900, "t", site_url="https://docs.example/"
+        )
 
 
 def test_release_rerun_preserves_every_byte_under_reports_and_site_json(tmp_path):
