@@ -723,3 +723,106 @@ def test_float_integration_id_is_not_the_actions_app(remote):
     with pytest.raises(ValueError, match="trusted required check contexts missing"):
         enqueue(remote)
     assert not remote["writes"]
+
+
+def _workflow_listing():
+    return f"actions/runs?head_sha={HEAD}&event=pull_request&per_page=100"
+
+
+def _noise_run(index):
+    return {"id": 5000 + index, "path": f".github/workflows/noise-{index}.yml"}
+
+
+def _read_workflow_pages(remote, pages):
+    """Serve `pages` for the workflow-run listing. Every other read stays on the fixture."""
+    original = remote["read"]
+    seen = []
+
+    def read(path):
+        if path.startswith("actions/runs?"):
+            seen.append(path)
+            if path not in pages:
+                raise AssertionError(path)
+            result = pages[path]
+            if isinstance(result, BaseException):
+                raise result
+            return result
+        return original(path)
+
+    return read, seen
+
+
+def test_workflow_run_on_a_later_page_is_accepted(remote):
+    """The trusted runs are absent from page 1. Acceptance requires the later page."""
+    first = _workflow_listing()
+    second = first + "&page=2"
+    pages = {
+        first: _Page(
+            {"total_count": 102, "workflow_runs": [_noise_run(index) for index in range(100)]},
+            second,
+        ),
+        second: _Page({"total_count": 102, "workflow_runs": remote["runs"]}, None),
+    }
+    read, seen = _read_workflow_pages(remote, pages)
+    snapshot = queue.admission.successful_checks(remote["record"], read)
+    assert seen == [first, second]
+    assert snapshot[".github/workflows/checks.yml"][:3] == (1, 1, 1)
+    assert snapshot[".github/workflows/verify.yml"][:3] == (2, 1, 2)
+
+
+def test_workflow_run_page_error_refuses(remote):
+    first = _workflow_listing()
+    second = first + "&page=2"
+    pages = {
+        first: _Page(
+            {"total_count": 102, "workflow_runs": [_noise_run(index) for index in range(100)]},
+            second,
+        ),
+        second: OSError("workflow page failed"),
+    }
+    read, seen = _read_workflow_pages(remote, pages)
+    with pytest.raises(OSError, match="workflow page failed"):
+        queue.admission.successful_checks(remote["record"], read)
+    assert seen == [first, second]
+
+
+def test_workflow_run_chain_longer_than_the_page_cap_refuses(remote):
+    """Twenty-one pages is past the cap, so the later trusted runs are not accepted."""
+    first = _workflow_listing()
+    paths = [first] + [f"{first}&page={number}" for number in range(2, 22)]
+    pages = {}
+    for index, path in enumerate(paths):
+        nxt = paths[index + 1] if index + 1 < len(paths) else None
+        batch = [_noise_run(index)] if index < 20 else list(remote["runs"])
+        pages[path] = _Page({"total_count": 22, "workflow_runs": batch}, nxt)
+    read, seen = _read_workflow_pages(remote, pages)
+    with pytest.raises(ValueError, match="incomplete workflow evidence"):
+        queue.admission.successful_checks(remote["record"], read)
+    assert paths[-1] not in seen
+    assert seen == paths[:-1]
+
+
+def test_repeated_workflow_run_next_link_refuses(remote):
+    """A next link that returns to an earlier page refuses before the page cap."""
+    first = _workflow_listing()
+    second = first + "&page=2"
+    pages = {
+        first: _Page({"total_count": 50, "workflow_runs": [_noise_run(1)]}, second),
+        second: _Page({"total_count": 50, "workflow_runs": [_noise_run(2)]}, first),
+    }
+    read, seen = _read_workflow_pages(remote, pages)
+    with pytest.raises(ValueError, match="incomplete workflow evidence"):
+        queue.admission.successful_checks(remote["record"], read)
+    assert seen == [first, second]
+
+
+def test_workflow_run_total_count_change_refuses(remote):
+    first = _workflow_listing()
+    second = first + "&page=2"
+    pages = {
+        first: _Page({"total_count": 2, "workflow_runs": [remote["runs"][0]]}, second),
+        second: _Page({"total_count": 3, "workflow_runs": [remote["runs"][1]]}, None),
+    }
+    read, _seen = _read_workflow_pages(remote, pages)
+    with pytest.raises(ValueError, match="incomplete workflow evidence"):
+        queue.admission.successful_checks(remote["record"], read)
