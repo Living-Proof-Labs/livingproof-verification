@@ -35,6 +35,8 @@ def target(number, head, branch):
 
 
 def enqueue(record, read=None):
+    admission.require_created(record)
+    admission.arm_job_deadline()
     read = read or admission.public_read
     number, head, branch = record["pr"], record["head"], record["branch"]
     pr = target(number, head, branch)
@@ -95,37 +97,40 @@ def enqueue(record, read=None):
     print(json.dumps(response["data"]["enqueuePullRequest"]))
 
 
-# Unauthenticated GitHub allows 60 requests an hour, and these reads stay
-# unauthenticated. A pending poll follows every page of both listings. Each
-# listing stops at admission._MAX_EVIDENCE_PAGES (20), so one poll is at most
-# 40 requests. This interval is 2 hours, which is 20 requests an hour: one
-# third of the limit. The one-time repository id read and one Retry-After
-# retry fit in what remains. The receipt itself is only valid for 24 hours
-# (the same window load_receipt enforces). A sleep that would finish after
-# that deadline refuses instead of waiting, and it does not accept evidence.
-POLL_INTERVAL = 2 * 60 * 60
-_RECEIPT_LIFETIME = 86400
-_MAX_POLLS = 25
+# Unauthenticated GitHub allows 60 requests an hour. These reads stay
+# unauthenticated. Poll every 15 minutes. A head with 108 check runs is two
+# pages, and the workflow-run listing is about two pages as well, so a poll
+# is about 4 requests: 16 an hour. A worst-case walk of 20 pages for each
+# listing is 40 requests a poll, 160 an hour, which exceeds 60. Then
+# X-RateLimit-Remaining 0 waits until X-RateLimit-Reset, and a 403 or 429
+# waits for Retry-After. Every one of those waits counts against the same
+# 5.5h deadline. A wait that would pass it refuses. The next scheduled or
+# triggered run retries. This process does not start another cron.
+POLL_INTERVAL = 15 * 60
+# Backstop if the clock does not move. The 5.5h deadline is what stops a wait.
+_MAX_POLLS = 30
 
 
 def wait_for_checks(path, digest):
     # Bounded read-only polling, never retry a mutation or an unknown outcome.
-    # Public API denial and terminal CI failures fail immediately. Recovery is a
-    # failed-job rerun using the original receipt, never another publication.
+    # Public API denial and terminal CI failures fail immediately. Recovery is
+    # the next scheduled or triggered run, never a cron this process starts.
     record = admission.load_receipt(path, digest)
-    created = record["created"] if "created" in record else time.time()
-    deadline = created + _RECEIPT_LIFETIME
+    admission.require_created(record)
+    deadline = time.time() + admission.EVIDENCE_DEADLINE
     admission.arm_deadline(deadline)
-    for attempt in range(_MAX_POLLS):
-        try:
-            return enqueue(record)
-        except admission.PendingEvidence:
-            if attempt == _MAX_POLLS - 1 or time.time() + POLL_INTERVAL > deadline:
-                raise ValueError(
-                    "CI evidence wait exhausted; rerun failed queue job only"
-                ) from None
-            time.sleep(POLL_INTERVAL)
-            record = admission.load_receipt(path, digest)
+    try:
+        for attempt in range(_MAX_POLLS):
+            try:
+                return enqueue(record)
+            except admission.PendingEvidence:
+                if attempt == _MAX_POLLS - 1 or time.time() + POLL_INTERVAL > deadline:
+                    raise ValueError(admission.DEADLINE_MESSAGE) from None
+                time.sleep(POLL_INTERVAL)
+                record = admission.load_receipt(path, digest)
+                admission.require_created(record)
+    finally:
+        admission.arm_deadline(None)
 
 
 def main():

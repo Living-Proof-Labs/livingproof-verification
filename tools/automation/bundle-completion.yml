@@ -78,4 +78,18 @@ jobs:
           test -n "$GH_TOKEN"
           python3 tools/bundle_proposal.py publish \
             --plan "$RUNNER_TEMP/candidate/bundle.json" --sha256 "$DIGEST"
-# No enqueue job until live required checks and merge-group execution are verified.
+  queue:
+    needs: [prepare, publish]
+    if: needs.prepare.outputs.candidate != '{}'
+    runs-on: ubuntu-26.04
+    # GitHub stops a job at 6h. The in-job evidence wait refuses at 5.5h.
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Wait for evidence and enqueue
+        env:
+          RECEIPT_DIGEST: ${{ needs.prepare.outputs.digest }}
+        run: python3 tools/bundle_queue.py --receipt "$RUNNER_TEMP/receipt.json" --sha256 "$RECEIPT_DIGEST"

@@ -228,7 +228,8 @@ def test_dormant_template_separates_generation_and_write_credentials():
     assert template["permissions"] == {"contents": "read"}
     assert template["concurrency"]["cancel-in-progress"] is False
     jobs = template["jobs"]
-    assert set(jobs) == {"prepare", "publish"}
+    assert set(jobs) == {"prepare", "publish", "queue"}
+    assert jobs["queue"]["timeout-minutes"] == 360
     assert "refs/heads/main" in jobs["prepare"]["if"]
     assert "secrets." not in json.dumps(jobs["prepare"])
     assert jobs["publish"]["needs"] == "prepare"

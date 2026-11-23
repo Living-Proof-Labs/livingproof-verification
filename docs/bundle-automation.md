@@ -71,14 +71,16 @@ main it checks out this repository's main and runs, in one concurrency group:
    `enqueuePullRequest` with `expectedHeadOid` and `jump: false`. It does not call
    `enablePullRequestAutoMerge` or `mergePullRequest`. A missing check, a failed
    check, a moved head, or a ruleset that does not match the contract is a refusal.
-   Evidence reads stay unauthenticated, under GitHub's 60 requests an hour. A
-   pending poll can follow every page of the workflow-run listing and of the
-   check-run listing, 20 pages each, which is 40 requests. The poll waits 2 hours,
-   so a long wait stays at 20 requests an hour. The one-time repository id read
-   and one `Retry-After` retry fit in the rest. `X-RateLimit-Remaining: 0` waits
-   until `X-RateLimit-Reset`, and a 403 or 429 with `Retry-After` waits that long.
-   If the next wait would run past the receipt's 24-hour lifetime, the queue
-   stops and does not accept the evidence.
+   Evidence reads stay unauthenticated, under GitHub's 60 requests an hour.
+   The poll is every 15 minutes. A head with 108 check runs is two pages, and
+   the workflow-run listing is about two pages as well, so a poll is about 4
+   requests: 16 an hour. A worst-case walk of 20 pages for each listing is 40
+   requests a poll, 160 an hour, which exceeds 60. `X-RateLimit-Remaining: 0`
+   then waits until `X-RateLimit-Reset`, and a 403 or 429 with `Retry-After`
+   waits that long. Every wait counts against the same 5.5 hour in-job
+   deadline, inside the queue job's `timeout-minutes: 360`. A wait that would
+   pass 5.5 hours refuses. The next scheduled or triggered run retries. This
+   job does not start another cron.
 
 ### Grants required before that run
 

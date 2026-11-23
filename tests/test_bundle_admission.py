@@ -378,7 +378,7 @@ def test_rate_limit_wait_past_the_deadline_refuses(monkeypatch):
     admission.arm_deadline(clock["now"] + 5)
     later = [_Body(b'{"ok": 2}', {})]
     calls = _scripted_opener(monkeypatch, later)
-    with pytest.raises(ValueError, match="deadline"):
+    with pytest.raises(ValueError, match="5.5h"):
         admission.public_read("rules/branches/main")
     assert sleeps == []
     assert calls == []
@@ -393,7 +393,7 @@ def test_retry_after_past_the_deadline_does_not_accept(monkeypatch):
         _Body(b'{"ok": 1}', {}),
     ]
     calls = _scripted_opener(monkeypatch, outcomes)
-    with pytest.raises(ValueError, match="deadline"):
+    with pytest.raises(ValueError, match="5.5h"):
         admission.public_read("rules/branches/main")
     assert sleeps == []
     assert len(calls) == 1

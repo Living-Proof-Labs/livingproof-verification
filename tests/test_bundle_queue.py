@@ -24,7 +24,7 @@ BRANCHES = [
 
 @pytest.fixture
 def remote(monkeypatch):
-    record = {"pr": 1, "head": HEAD, "main": MAIN, "branch": BRANCHES[0]}
+    record = {"pr": 1, "head": HEAD, "main": MAIN, "branch": BRANCHES[0], "created": 1_700_000_000}
     pr = {
         "state": "open",
         "draft": False,
@@ -402,20 +402,28 @@ def test_pending_checks_poll_without_republication(remote, monkeypatch):
 
 
 def test_polling_is_bounded_and_never_retries_unknown_mutation(remote, monkeypatch):
+    clock = {"now": 0}
+    monkeypatch.setattr(queue.time, "time", lambda: clock["now"])
     monkeypatch.setattr(queue.admission, "load_receipt", lambda *args: remote["record"])
     monkeypatch.setattr(queue.admission, "public_read", remote["read"])
     saved = remote["runs"]
     remote["runs"] = []
     waits = []
-    monkeypatch.setattr(queue.time, "sleep", lambda seconds: waits.append(seconds))
-    with pytest.raises(ValueError, match="wait exhausted"):
+
+    def sleep(seconds):
+        waits.append(seconds)
+        clock["now"] += seconds
+
+    monkeypatch.setattr(queue.time, "sleep", sleep)
+    with pytest.raises(ValueError, match="5.5h"):
         queue.wait_for_checks(Path("receipt"), "digest")
-    assert len(waits) == 24 and not remote["writes"]
+    assert waits == [queue.POLL_INTERVAL] * 22 and not remote["writes"]
+    assert sum(waits) == queue.admission.EVIDENCE_DEADLINE
     remote["runs"] = saved
     remote["uncertain"] = True
     with pytest.raises(TimeoutError):
         queue.wait_for_checks(Path("receipt"), "digest")
-    assert len(remote["writes"]) == 1 and len(waits) == 24
+    assert len(remote["writes"]) == 1 and len(waits) == 22
 
 
 @pytest.mark.parametrize("value", [True, None])
@@ -840,24 +848,68 @@ def test_workflow_run_total_count_change_refuses(remote):
         queue.admission.successful_checks(remote["record"], read)
 
 
-def test_poll_refuses_when_the_next_wait_would_pass_the_deadline(remote, monkeypatch):
-    clock = {"now": 10_000}
+def test_poll_refuses_at_five_and_a_half_hours(remote, monkeypatch):
+    clock = {"now": 50_000}
     monkeypatch.setattr(queue.time, "time", lambda: clock["now"])
     sleeps = []
-    monkeypatch.setattr(queue.time, "sleep", lambda seconds: sleeps.append(seconds))
-    record = {
-        **remote["record"],
-        "created": clock["now"] + 100 - queue._RECEIPT_LIFETIME,
-    }
-    monkeypatch.setattr(queue.admission, "load_receipt", lambda *args: record)
+
+    def sleep(seconds):
+        sleeps.append(seconds)
+        clock["now"] += seconds
+
+    monkeypatch.setattr(queue.time, "sleep", sleep)
+    monkeypatch.setattr(queue.admission, "load_receipt", lambda *args: remote["record"])
     monkeypatch.setattr(queue.admission, "public_read", remote["read"])
     remote["runs"][0].update(status="in_progress", conclusion=None)
     try:
-        with pytest.raises(ValueError, match="wait exhausted"):
+        with pytest.raises(ValueError, match="exceeded 5.5h") as caught:
             queue.wait_for_checks(Path("receipt"), "digest")
+        assert "next scheduled or triggered run will retry" in str(caught.value)
+        assert sleeps == [queue.POLL_INTERVAL] * 22
+        assert queue.POLL_INTERVAL == 15 * 60
+        assert not remote["writes"]
+    finally:
+        queue.admission.arm_deadline(None)
+
+
+def test_direct_enqueue_is_bounded_by_the_same_deadline(remote, monkeypatch):
+    clock = {"now": 80_000}
+    monkeypatch.setattr(queue.admission.time, "time", lambda: clock["now"])
+    sleeps = []
+    monkeypatch.setattr(queue.admission.time, "sleep", lambda seconds: sleeps.append(seconds))
+    queue.admission.arm_deadline(None)
+    queue.admission._rate_reset_at = None
+
+    def read(path):
+        queue.admission._rate_reset_at = clock["now"] + queue.admission.EVIDENCE_DEADLINE + 60
+        queue.admission._honor_saved_limit()
+        return remote["read"](path)
+
+    try:
+        with pytest.raises(ValueError, match="exceeded 5.5h"):
+            queue.enqueue(remote["record"], read)
         assert sleeps == [] and not remote["writes"]
     finally:
         queue.admission.arm_deadline(None)
+        queue.admission._rate_reset_at = None
+
+
+@pytest.mark.parametrize("created", [None, "2026-11-23", 1.5, True])
+def test_missing_or_unparseable_created_refuses(remote, monkeypatch, created):
+    record = {key: value for key, value in remote["record"].items() if key != "created"}
+    if created is not None:
+        record["created"] = created
+    monkeypatch.setattr(queue.admission, "load_receipt", lambda *args: record)
+    with pytest.raises(ValueError, match="created"):
+        queue.wait_for_checks(Path("receipt"), "digest")
+    assert not remote["writes"]
+
+
+def test_queue_job_timeout_is_360_minutes():
+    template = yaml.safe_load((ROOT / "tools/automation/bundle-completion.yml").read_text())
+    job = template["jobs"]["queue"]
+    assert job["timeout-minutes"] == 360
+    assert "bundle_queue.py" in job["steps"][-1]["run"]
 
 
 def test_overshoot_refuses_before_the_next_page(remote):

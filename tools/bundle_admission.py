@@ -28,6 +28,10 @@ _NEXT_LINK = re.compile(r"""<([^>]+)>\s*;\s*rel="?next"?(?=;|,|\s|$)""")
 # Cached result of the unauthenticated repository read. Link checks compare
 # against this id; it is not a second copy of a literal.
 _repository_id_cache = None
+# In-job evidence budget. GitHub kills a job at 6h, so the wait refuses at
+# 5.5h and the workflow job timeout is 360 minutes.
+EVIDENCE_DEADLINE = 5 * 60 * 60 + 30 * 60
+DEADLINE_MESSAGE = "evidence wait exceeded 5.5h and the next scheduled or triggered run will retry"
 # Set by the queue wait. A rate-limit sleep that would pass it refuses.
 _wait_deadline = None
 # Unix time of X-RateLimit-Reset after a response reports no remaining calls.
@@ -61,6 +65,20 @@ def arm_deadline(deadline):
     """Refuse a rate-limit or retry wait that would finish after `deadline`."""
     global _wait_deadline
     _wait_deadline = deadline
+
+
+def arm_job_deadline():
+    """Bound a direct enqueue. A wait already in progress keeps its deadline."""
+    if _wait_deadline is None:
+        arm_deadline(time.time() + EVIDENCE_DEADLINE)
+
+
+def require_created(record):
+    """A receipt with no integer `created` time cannot choose a deadline."""
+    created = record.get("created") if isinstance(record, dict) else None
+    if type(created) is not int or created < 0:
+        raise ValueError("receipt created time is missing or unparseable")
+    return created
 
 
 def _repository_id():
@@ -144,7 +162,7 @@ def _wait(seconds):
         raise ValueError("incomplete evidence page")
     now = time.time()
     if _wait_deadline is not None and now + seconds > _wait_deadline:
-        raise ValueError("evidence wait would pass the deadline")
+        raise ValueError(DEADLINE_MESSAGE)
     if seconds:
         time.sleep(seconds)
 
