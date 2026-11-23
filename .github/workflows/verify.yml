@@ -394,7 +394,13 @@ jobs:
           echo "created=$created" >> "$GITHUB_OUTPUT"
           python3 tools/site.py build site --reports reports --evidence evidence \
             --run-id "$RUN_ID" --commit "$COMMIT" --created "$created"
+      # The manual's version page names the release tag when this run published it and
+      # that tag resolves to this commit. A rolling run stays labelled development.
       - name: Build and verify the docs site
+        env:
+          RELEASE_PUBLISHED: ${{ needs.release.outputs.published }}
+          RELEASE_TAG: ${{ needs.release.outputs.git-tag }}
+          RELEASE_COMMIT: ${{ needs.release.outputs.commit }}
         run: |
           task docs:setup
           task docs:build
