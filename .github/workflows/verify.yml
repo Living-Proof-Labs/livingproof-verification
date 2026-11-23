@@ -293,7 +293,7 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
       contents: write
-    uses: Living-Proof-Labs/collaboration-guidelines/.github/workflows/semantic-release.yml@v9.9.4
+    uses: Living-Proof-Labs/collaboration-guidelines/.github/workflows/semantic-release.yml@v9.9.10
   # Publishing (push to main only): generate this run's report pages and, in the same
   # workflow, deploy that site. `pages` runs only after this job succeeds, so the site is
   # not deployed unless the reports are being generated. A rolling run does not read the
