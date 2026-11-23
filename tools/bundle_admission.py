@@ -6,6 +6,8 @@ import json
 import os
 import re
 import time
+import urllib.error
+import urllib.parse
 import urllib.request
 
 import bundle_proposal as writer
@@ -23,6 +25,13 @@ WORKFLOW_REF = "Living-Proof-Labs/.github/.github/workflows/bundle-completion.ym
 _PAGE_SIZE = 100
 _MAX_EVIDENCE_PAGES = 20
 _NEXT_LINK = re.compile(r"""<([^>]+)>\s*;\s*rel="?next"?(?=;|,|\s|$)""")
+# Cached result of the unauthenticated repository read. Link checks compare
+# against this id; it is not a second copy of a literal.
+_repository_id_cache = None
+# Set by the queue wait. A rate-limit sleep that would pass it refuses.
+_wait_deadline = None
+# Unix time of X-RateLimit-Reset after a response reports no remaining calls.
+_rate_reset_at = None
 
 
 class PendingEvidence(ValueError):
@@ -48,43 +57,172 @@ def _evidence_path(path):
     return path
 
 
+def arm_deadline(deadline):
+    """Refuse a rate-limit or retry wait that would finish after `deadline`."""
+    global _wait_deadline
+    _wait_deadline = deadline
+
+
+def _repository_id():
+    """Numeric id of this repository, read once, unauthenticated, and then reused.
+
+    Link headers name the repository as `/repositories/<id>/`. The id comes from
+    this read, not from a literal in the comparison.
+    """
+    global _repository_id_cache
+    if type(_repository_id_cache) is int:
+        return _repository_id_cache
+    payload, _next = _fetch(f"https://api.github.com/repos/{writer.REPO}", parse_link=False)
+    repo_id = payload.get("id") if isinstance(payload, dict) else None
+    if type(repo_id) is not int:
+        raise ValueError("incomplete evidence page")
+    _repository_id_cache = repo_id
+    return repo_id
+
+
+def _relative_next(url):
+    """Path under this repository for one Link URL, or a refusal.
+
+    GitHub sends either `/repos/<owner>/<repo>/` or `/repositories/<id>/` on
+    https://api.github.com. Any other scheme, host, owner, repository, or id
+    refuses, as do userinfo, a port, a fragment, percent-encoding, and `..`.
+    """
+    if any(mark in url for mark in "%\\@ \t\r\n"):
+        raise ValueError("incomplete evidence page")
+    parts = urllib.parse.urlsplit(url)
+    if (
+        parts.scheme != "https"
+        or parts.netloc != "api.github.com"
+        or parts.fragment
+        or parts.username
+        or parts.password
+    ):
+        raise ValueError("incomplete evidence page")
+    name_prefix = f"/repos/{writer.REPO}/"
+    if parts.path.startswith(name_prefix):
+        relative = parts.path[len(name_prefix) :]
+    else:
+        id_prefix = f"/repositories/{_repository_id()}/"
+        if not parts.path.startswith(id_prefix):
+            raise ValueError("incomplete evidence page")
+        relative = parts.path[len(id_prefix) :]
+    if parts.query:
+        relative = f"{relative}?{parts.query}"
+    if "//" in relative:
+        raise ValueError("incomplete evidence page")
+    try:
+        return _evidence_path(relative)
+    except ValueError as error:
+        raise ValueError("incomplete evidence page") from error
+
+
 def _next_path(link):
     """Relative path of rel=next, or None when this page is the last.
 
-    A next URL on another host, or one that is not a safe relative path, refuses.
+    Two rel=next targets refuse. A next URL this repository does not own refuses.
     """
     if not link:
         return None
     found = None
     for match in _NEXT_LINK.finditer(link):
-        url = match.group(1)
-        prefix = f"https://api.github.com/repos/{writer.REPO}/"
-        if not url.startswith(prefix):
-            raise ValueError("incomplete evidence page")
-        path = _evidence_path(url[len(prefix) :])
+        path = _relative_next(match.group(1))
         if found is not None:
             raise ValueError("incomplete evidence page")
         found = path
     return found
 
 
-def _read_page(path):
-    # The App intentionally has no Checks/Actions read grants. Public evidence uses
-    # no credential; rate limits, denied reads, malformed or truncated data refuse.
-    path = _evidence_path(path)
+def _header(headers, name):
+    if headers is None:
+        return None
+    return headers.get(name)
+
+
+def _wait(seconds):
+    """Sleep `seconds` on the fakeable clock, or refuse if that passes the deadline."""
+    if type(seconds) is not int or seconds < 0:
+        raise ValueError("incomplete evidence page")
+    now = time.time()
+    if _wait_deadline is not None and now + seconds > _wait_deadline:
+        raise ValueError("evidence wait would pass the deadline")
+    if seconds:
+        time.sleep(seconds)
+
+
+def _retry_after_seconds(headers):
+    raw = _header(headers, "Retry-After")
+    if raw is None:
+        return None
+    text = str(raw).strip()
+    if not text.isdigit():
+        raise ValueError("incomplete evidence page")
+    return int(text)
+
+
+def _note_rate_limit(headers):
+    """Remember a reset time when this response used the last call in the window."""
+    global _rate_reset_at
+    remaining = _header(headers, "X-RateLimit-Remaining")
+    reset = _header(headers, "X-RateLimit-Reset")
+    if remaining is None or str(remaining).strip() != "0":
+        _rate_reset_at = None
+        return
+    if reset is None or not str(reset).strip().isdigit():
+        raise ValueError("incomplete evidence page")
+    _rate_reset_at = int(str(reset).strip())
+
+
+def _honor_saved_limit():
+    """Wait out a window that the previous response said was exhausted."""
+    global _rate_reset_at
+    if _rate_reset_at is None:
+        return
+    delay = int(_rate_reset_at - time.time())
+    _rate_reset_at = None
+    if delay > 0:
+        _wait(delay)
+
+
+def _fetch(url, parse_link):
+    """GET `url` with no credential. 403 and 429 honour Retry-After once.
+
+    The body of a rate-limited response is never treated as evidence. A wait
+    that would pass the armed deadline raises instead.
+    """
+    _honor_saved_limit()
     request = urllib.request.Request(
-        f"https://api.github.com/repos/{writer.REPO}/{path}",
+        url,
         headers={"Accept": "application/vnd.github+json", "User-Agent": "bundle-admission"},
     )
-    with urllib.request.build_opener(NoRedirect).open(request, timeout=30) as response:
-        payload = json.load(response)
-        headers = getattr(response, "headers", None)
-        link = headers.get("Link") if headers is not None else None
-    return payload, _next_path(link)
+    opener = urllib.request.build_opener(NoRedirect)
+    for attempt in (1, 2):
+        try:
+            with opener.open(request, timeout=30) as response:
+                payload = json.load(response)
+                headers = getattr(response, "headers", None)
+                _note_rate_limit(headers)
+                link = _header(headers, "Link")
+        except urllib.error.HTTPError as error:
+            try:
+                if error.code in (403, 429) and attempt == 1:
+                    delay = _retry_after_seconds(error.headers)
+                    if delay is not None:
+                        _wait(delay)
+                        continue
+                raise
+            finally:
+                error.close()
+        if not parse_link:
+            return payload, None
+        return payload, _next_path(link)
+    raise ValueError("incomplete evidence page")
 
 
 def public_read(path):
-    payload, next_path = _read_page(path)
+    # The App intentionally has no Checks/Actions read grants. Public evidence uses
+    # no credential; rate limits, denied reads, malformed or truncated data refuse.
+    url = f"https://api.github.com/repos/{writer.REPO}/{_evidence_path(path)}"
+    payload, next_path = _fetch(url, parse_link=True)
     if isinstance(payload, dict):
         return _Page(payload, next_path)
     return payload
@@ -133,7 +271,6 @@ def _collect_pages(read, path, collection, evidence):
         if not next_path or not batch:
             raise ValueError(f"incomplete {evidence} evidence")
         current = next_path
-    raise ValueError(f"incomplete {evidence} evidence")
 
 
 def context():

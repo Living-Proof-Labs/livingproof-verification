@@ -140,6 +140,8 @@ def remote(monkeypatch):
 
     monkeypatch.setattr(queue.writer, "api", api)
     monkeypatch.setattr(queue.writer, "command", command)
+    # Link headers name /repositories/<id>/. The id is the one _repository_id reads.
+    monkeypatch.setattr(queue.admission, "_repository_id", lambda: 1442523227)
     state["read"] = read
     return state
 
@@ -396,7 +398,7 @@ def test_pending_checks_poll_without_republication(remote, monkeypatch):
 
     monkeypatch.setattr(queue.time, "sleep", finish)
     queue.wait_for_checks(Path("receipt"), "digest")
-    assert waits == [60] and len(remote["writes"]) == 1
+    assert waits == [queue.POLL_INTERVAL] and len(remote["writes"]) == 1
 
 
 def test_polling_is_bounded_and_never_retries_unknown_mutation(remote, monkeypatch):
@@ -611,6 +613,19 @@ class _Page(dict):
         self.next_path = next_path
 
 
+# The id GitHub put in the recorded Link headers. Tests stub _repository_id to it.
+RECORDED_REPOSITORY_ID = 1442523227
+
+
+def _page(payload, next_relative=None):
+    """A page whose next path is parsed from GitHub's /repositories/<id>/ Link form."""
+    if next_relative is None:
+        return _Page(payload, None)
+    url = f"https://api.github.com/repositories/{RECORDED_REPOSITORY_ID}/{next_relative}"
+    link = f'<{url}>; rel="next"'
+    return _Page(payload, queue.admission._next_path(link))
+
+
 def test_required_context_on_a_later_check_page_is_accepted(remote):
     """More than 100 check runs, several pages, and a required context only on the last."""
     noise = [{"id": 1000 + index, "name": f"noise-{index}"} for index in range(200)]
@@ -619,9 +634,9 @@ def test_required_context_on_a_later_check_page_is_accepted(remote):
     second = first + "&page=2"
     third = first + "&page=3"
     pages = {
-        first: _Page({"total_count": 204, "check_runs": noise[:100]}, second),
-        second: _Page({"total_count": 204, "check_runs": noise[100:]}, third),
-        third: _Page({"total_count": 204, "check_runs": required}, None),
+        first: _page({"total_count": 204, "check_runs": noise[:100]}, second),
+        second: _page({"total_count": 204, "check_runs": noise[100:]}, third),
+        third: _page({"total_count": 204, "check_runs": required}),
     }
     seen = []
     original = remote["read"]
@@ -649,7 +664,7 @@ def test_check_page_error_refuses_the_whole_read(remote):
 
     def read(path):
         if path == first:
-            return _Page(
+            return _page(
                 {"total_count": 204, "check_runs": [{"id": 1, "name": "noise"}] * 100},
                 second,
             )
@@ -669,10 +684,7 @@ def test_truncated_check_page_without_a_next_link_refuses(remote):
 
     def read(path):
         if path == first:
-            return _Page(
-                {"total_count": 150, "check_runs": filler + remote["checks"]},
-                None,
-            )
+            return _page({"total_count": 150, "check_runs": filler + remote["checks"]})
         return original(path)
 
     with pytest.raises(ValueError, match="incomplete check evidence"):
@@ -757,11 +769,11 @@ def test_workflow_run_on_a_later_page_is_accepted(remote):
     first = _workflow_listing()
     second = first + "&page=2"
     pages = {
-        first: _Page(
+        first: _page(
             {"total_count": 102, "workflow_runs": [_noise_run(index) for index in range(100)]},
             second,
         ),
-        second: _Page({"total_count": 102, "workflow_runs": remote["runs"]}, None),
+        second: _page({"total_count": 102, "workflow_runs": remote["runs"]}),
     }
     read, seen = _read_workflow_pages(remote, pages)
     snapshot = queue.admission.successful_checks(remote["record"], read)
@@ -774,7 +786,7 @@ def test_workflow_run_page_error_refuses(remote):
     first = _workflow_listing()
     second = first + "&page=2"
     pages = {
-        first: _Page(
+        first: _page(
             {"total_count": 102, "workflow_runs": [_noise_run(index) for index in range(100)]},
             second,
         ),
@@ -794,7 +806,7 @@ def test_workflow_run_chain_longer_than_the_page_cap_refuses(remote):
     for index, path in enumerate(paths):
         nxt = paths[index + 1] if index + 1 < len(paths) else None
         batch = [_noise_run(index)] if index < 20 else list(remote["runs"])
-        pages[path] = _Page({"total_count": 22, "workflow_runs": batch}, nxt)
+        pages[path] = _page({"total_count": 22, "workflow_runs": batch}, nxt)
     read, seen = _read_workflow_pages(remote, pages)
     with pytest.raises(ValueError, match="incomplete workflow evidence"):
         queue.admission.successful_checks(remote["record"], read)
@@ -807,8 +819,8 @@ def test_repeated_workflow_run_next_link_refuses(remote):
     first = _workflow_listing()
     second = first + "&page=2"
     pages = {
-        first: _Page({"total_count": 50, "workflow_runs": [_noise_run(1)]}, second),
-        second: _Page({"total_count": 50, "workflow_runs": [_noise_run(2)]}, first),
+        first: _page({"total_count": 50, "workflow_runs": [_noise_run(1)]}, second),
+        second: _page({"total_count": 50, "workflow_runs": [_noise_run(2)]}, first),
     }
     read, seen = _read_workflow_pages(remote, pages)
     with pytest.raises(ValueError, match="incomplete workflow evidence"):
@@ -820,9 +832,86 @@ def test_workflow_run_total_count_change_refuses(remote):
     first = _workflow_listing()
     second = first + "&page=2"
     pages = {
-        first: _Page({"total_count": 2, "workflow_runs": [remote["runs"][0]]}, second),
-        second: _Page({"total_count": 3, "workflow_runs": [remote["runs"][1]]}, None),
+        first: _page({"total_count": 2, "workflow_runs": [remote["runs"][0]]}, second),
+        second: _page({"total_count": 3, "workflow_runs": [remote["runs"][1]]}),
     }
+    read, _seen = _read_workflow_pages(remote, pages)
+    with pytest.raises(ValueError, match="incomplete workflow evidence"):
+        queue.admission.successful_checks(remote["record"], read)
+
+
+def test_poll_refuses_when_the_next_wait_would_pass_the_deadline(remote, monkeypatch):
+    clock = {"now": 10_000}
+    monkeypatch.setattr(queue.time, "time", lambda: clock["now"])
+    sleeps = []
+    monkeypatch.setattr(queue.time, "sleep", lambda seconds: sleeps.append(seconds))
+    record = {
+        **remote["record"],
+        "created": clock["now"] + 100 - queue._RECEIPT_LIFETIME,
+    }
+    monkeypatch.setattr(queue.admission, "load_receipt", lambda *args: record)
+    monkeypatch.setattr(queue.admission, "public_read", remote["read"])
+    remote["runs"][0].update(status="in_progress", conclusion=None)
+    try:
+        with pytest.raises(ValueError, match="wait exhausted"):
+            queue.wait_for_checks(Path("receipt"), "digest")
+        assert sleeps == [] and not remote["writes"]
+    finally:
+        queue.admission.arm_deadline(None)
+
+
+def test_overshoot_refuses_before_the_next_page(remote):
+    first = _workflow_listing()
+    second = first + "&page=2"
+    pages = {
+        first: _page({"total_count": 1, "workflow_runs": list(remote["runs"])}, second),
+        second: _page({"total_count": 1, "workflow_runs": [_noise_run(9)]}),
+    }
+    read, seen = _read_workflow_pages(remote, pages)
+    with pytest.raises(ValueError, match="incomplete workflow evidence"):
+        queue.admission.successful_checks(remote["record"], read)
+    assert seen == [first]
+
+
+def test_next_link_on_a_complete_list_refuses(remote):
+    first = _workflow_listing()
+    second = first + "&page=2"
+    pages = {
+        first: _page({"total_count": 2, "workflow_runs": list(remote["runs"])}, second),
+        second: _page({"total_count": 2, "workflow_runs": [_noise_run(9)]}),
+    }
+    read, seen = _read_workflow_pages(remote, pages)
+    with pytest.raises(ValueError, match="incomplete workflow evidence"):
+        queue.admission.successful_checks(remote["record"], read)
+    assert seen == [first]
+
+
+def test_short_page_without_a_next_link_refuses(remote):
+    first = _workflow_listing()
+    pages = {first: _page({"total_count": 3, "workflow_runs": list(remote["runs"])})}
+    read, seen = _read_workflow_pages(remote, pages)
+    with pytest.raises(ValueError, match="incomplete workflow evidence"):
+        queue.admission.successful_checks(remote["record"], read)
+    assert seen == [first]
+
+
+def test_page_larger_than_the_cap_refuses(remote):
+    first = f"commits/{HEAD}/check-runs?filter=latest&per_page=100"
+    batch = [_noise_run(index) for index in range(97)] + remote["checks"]
+    original = remote["read"]
+
+    def read(path):
+        if path == first:
+            return _page({"total_count": 101, "check_runs": batch})
+        return original(path)
+
+    with pytest.raises(ValueError, match="incomplete check evidence"):
+        queue.admission.successful_checks(remote["record"], read)
+
+
+def test_float_total_count_refuses(remote):
+    first = _workflow_listing()
+    pages = {first: _page({"total_count": 2.0, "workflow_runs": list(remote["runs"])})}
     read, _seen = _read_workflow_pages(remote, pages)
     with pytest.raises(ValueError, match="incomplete workflow evidence"):
         queue.admission.successful_checks(remote["record"], read)
