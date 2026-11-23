@@ -144,7 +144,7 @@ and configuration (`<robot>` from the robot repository, `<variant>` from the def
 `tools/site.py` lays the reports out and asks the pinned reporter to render each run page with
 a relative link to that history, the site's evidence paths and the retention setting. The
 verifier grades; the counts are read from `report.json`. Earlier runs are restored from the last successfully deployed Pages
-artifact (kept 90 days), not from a newer upload whose deploy failed; if that artifact has expired the job fails rather than drop history.
+artifact (kept 90 days) of a push or `workflow_dispatch` of this repository's `verify.yml` on `main`. The head repository and the run's repository are compared by id, so a rename still matches and a fork run is skipped. A newer upload whose deploy failed is not the snapshot; if that artifact has expired the job fails rather than drop history.
 If GitHub no longer lists any earlier artifact but the live site still answers (`site.json`,
 written by every build, or `index.html`), the job also fails. Only a manual run of `verify` on
 `main` with the `reset-history` input publishes a new site without the earlier runs.
