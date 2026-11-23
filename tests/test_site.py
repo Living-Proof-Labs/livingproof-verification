@@ -645,6 +645,10 @@ def test_restore_then_build_keeps_history(tmp_path, monkeypatch):
 
     def fake(url, token):
         requested.append(url)
+        if "/jobs" in url:
+            return io.BytesIO(
+                json.dumps({"jobs": [{"name": "pages", "conclusion": "success"}]}).encode()
+            )
         return io.BytesIO(archive if url.endswith("/zip") else json.dumps(listing).encode())
 
     monkeypatch.setattr(site_tool, "_request", fake)
@@ -652,7 +656,7 @@ def test_restore_then_build_keeps_history(tmp_path, monkeypatch):
     monkeypatch.setattr(site_tool, "_open_once", fake)
     restored = tmp_path / "restored"
     assert site_tool.restore(restored, REPO, "main", 200, "t", dry_run=True)["id"] == 7
-    assert not any(restored.iterdir()) and len(requested) == 1
+    assert not any(restored.iterdir()) and len(requested) == 2
     site_tool.restore(restored, REPO, "main", 200, "t")
     site_tool.build(
         restored, reports_for(tmp_path, "two", 19, "PASS"), run("200", "2026-11-03T06:00:00Z")
@@ -763,6 +767,11 @@ def list_pages(monkeypatch, artifacts):
     def request(url, token):
         if isinstance(artifacts, BaseException):
             raise artifacts
+        if "/jobs" in url:
+            # Existing restores are snapshots whose pages deploy succeeded.
+            return io.BytesIO(
+                json.dumps({"jobs": [{"name": "pages", "conclusion": "success"}]}).encode()
+            )
         return io.BytesIO(json.dumps({"artifacts": artifacts}).encode())
 
     monkeypatch.setattr(site_tool, "_request", request)
@@ -963,6 +972,10 @@ def test_reset_history_recovers_from_an_expired_artifact(tmp_path, monkeypatch):
 
     def fake(url, token):
         requested.append(url)
+        if "/jobs" in url:
+            return io.BytesIO(
+                json.dumps({"jobs": [{"name": "pages", "conclusion": "success"}]}).encode()
+            )
         return io.BytesIO(json.dumps(listing).encode())
 
     monkeypatch.setattr(site_tool, "_request", fake)

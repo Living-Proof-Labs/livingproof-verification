@@ -16,13 +16,16 @@ Gating is checked three ways, none of which needs a hosted run:
 from __future__ import annotations
 
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
 import re
 import subprocess
 import sys
+import tarfile
 import urllib.request
+import zipfile
 
 import pytest
 import yaml
@@ -213,17 +216,199 @@ def site_if(event: str, ref: str, results: dict, release: str, reset: bool = Fal
     return evaluate(JOBS["site"]["if"], event=event, ref=ref, needs=needs, reset_history=reset)
 
 
-def test_site_waits_for_the_release_but_never_depends_on_its_outcome():
+def _release_rerun_step() -> dict:
+    return next(
+        step
+        for step in JOBS["site"]["steps"]
+        if step.get("name") == "Re-run reports and the site together for a release"
+    )
+
+
+def test_rolling_runs_are_not_tied_to_a_release_and_deploy_follows_reports():
+    """Rolling report publication does not read the release outcome (#186).
+
+    The site job still waits for `release` so a tag can be recorded, but its `if`
+    does not. Deploy runs only with that publication: `pages` needs `site` and
+    requires the site job to have succeeded, which is what #189 kept.
+    """
     verifications = set(verification_jobs())
     assert len(verifications) >= 7
     assert set(JOBS["site"]["needs"]) == verifications | {"release"}
-    condition = str(JOBS["site"]["if"])
-    assert "!cancelled()" in condition
-    assert "needs.release" not in condition  # a failed, skipped or empty release never blocks
+    condition = " ".join(str(JOBS["site"]["if"]).split())
+    assert condition.startswith("!cancelled() && ")
+    assert "needs.release" not in condition
     for name in verifications:
         assert f"needs.{name}.result == 'success'" in condition, name
+    ordinary = next(
+        step
+        for step in JOBS["site"]["steps"]
+        if step.get("name") == "Add this run and write the index pages"
+    )
+    assert "if" not in ordinary
+    assert "tools/site.py build" in ordinary["run"]
     assert JOBS["pages"]["needs"] == "site"
-    assert not JOBS["pages"].get("if", "").count("always")
+    pages = " ".join(str(JOBS["pages"]["if"]).split())
+    assert pages.startswith("!cancelled() && needs.site.result == 'success' && ")
+    assert "always()" not in pages
+    # The release re-run is a step, not a second way to publish without the reports.
+    assert _release_rerun_step()["if"] == "needs.release.outputs.published == 'true'"
+
+
+def test_a_release_reruns_reports_and_the_site_together():
+    """A published release re-runs report publication in the site job, then pages deploys it.
+
+    Both steps are the same publication. The re-run is skipped when the release
+    did not publish, so a rolling run is not blocked and is not rebuilt twice.
+    """
+    step = _release_rerun_step()
+    assert step["env"]["RELEASE_TAG"] == "${{ needs.release.outputs.git-tag }}"
+    assert step["env"]["RELEASE_COMMIT"] == "${{ needs.release.outputs.commit }}"
+    assert step["env"]["CREATED"] == "${{ steps.publish-reports.outputs.created }}"
+    script = step["run"]
+    assert 'test "$RELEASE_COMMIT" = "$GITHUB_SHA"' in script
+    assert "tools/site.py snapshot-publication" in script
+    assert "tools/site.py build" in script
+    assert "tools/site.py require-preserved" in script
+    publishers = [
+        name
+        for name, job in JOBS.items()
+        if any(
+            str(item.get("uses", "")).startswith("actions/deploy-pages@")
+            for item in job.get("steps") or []
+        )
+    ]
+    assert publishers == ["pages"]
+    results = {name: "success" for name in verification_jobs()}
+    assert site_if("push", MAIN, results, "success") is True
+    assert pages_runs("push", MAIN, "success") is True
+    for release in ("failure", "skipped", "cancelled"):
+        assert site_if("push", MAIN, results, release) is True
+
+
+def _pages_archive(site: Path) -> bytes:
+    tar_buffer = io.BytesIO()
+    with tarfile.open(fileobj=tar_buffer, mode="w") as tar:
+        tar.add(site, arcname=".")
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w") as archive:
+        archive.writestr("artifact.tar", tar_buffer.getvalue())
+    return zip_buffer.getvalue()
+
+
+def _marker_site(root: Path, marker: bytes) -> None:
+    report = root / "reports" / "unitree-g1" / "stock-mujoco-hallway" / "runs" / "9"
+    report.mkdir(parents=True)
+    (report / "report.md").write_bytes(marker)
+    (root / "site.json").write_bytes(b'{"runs": 1, "marker": "' + marker + b'"}\n')
+
+
+def _pages_artifact(identifier: int, run_id: int, created: str, url: str) -> dict:
+    return {
+        "id": identifier,
+        "name": "github-pages",
+        "created_at": created,
+        "expired": False,
+        "archive_download_url": url,
+        "workflow_run": {"id": run_id, "head_branch": "main"},
+    }
+
+
+def test_rebuild_uses_the_last_successful_deploy_when_the_newest_failed(tmp_path, monkeypatch):
+    """A newer upload whose pages job failed is not the snapshot.
+
+    Restore unpacks the last successful deploy, and every byte under reports/
+    and in site.json matches that deploy rather than the failed upload.
+    """
+    good = tmp_path / "good"
+    failed = tmp_path / "failed"
+    _marker_site(good, b"good-report-bytes")
+    _marker_site(failed, b"failed-upload-bytes")
+    archives = {
+        "https://api.example/good/zip": _pages_archive(good),
+        "https://api.example/failed/zip": _pages_archive(failed),
+    }
+    artifacts = [
+        _pages_artifact(1, 10, "2026-11-01T00:00:00Z", "https://api.example/good/zip"),
+        _pages_artifact(2, 20, "2026-11-02T00:00:00Z", "https://api.example/failed/zip"),
+    ]
+    conclusions = {10: "success", 20: "failure"}
+
+    def request(url, token):
+        if "/jobs" in url:
+            run_id = int(url.split("/runs/")[1].split("/")[0])
+            body = {"jobs": [{"name": "pages", "conclusion": conclusions[run_id]}]}
+            return io.BytesIO(json.dumps(body).encode())
+        return io.BytesIO(json.dumps({"artifacts": artifacts}).encode())
+
+    def open_once(url, token):
+        if url not in archives:
+            raise AssertionError(url)
+        return io.BytesIO(archives[url])
+
+    monkeypatch.setattr(site_tool, "_request", request)
+    monkeypatch.setattr(site_tool, "_open_once", open_once)
+    restored = tmp_path / "restored"
+    found = site_tool.restore(restored, REPO, "main", 30, "t")
+    assert found["id"] == 1
+    assert site_tool.publication_bytes(restored) == site_tool.publication_bytes(good)
+    assert site_tool.publication_bytes(restored) != site_tool.publication_bytes(failed)
+    blob = b"".join(site_tool.publication_bytes(restored).values())
+    assert b"good-report-bytes" in blob
+    assert b"failed-upload-bytes" not in blob
+
+
+def test_an_expired_successful_deploy_is_not_replaced_by_an_older_upload():
+    artifacts = [
+        _pages_artifact(1, 10, "2026-11-01T00:00:00Z", "https://api.example/old/zip"),
+        _pages_artifact(2, 20, "2026-11-02T00:00:00Z", "https://api.example/new/zip"),
+    ]
+    artifacts[1]["expired"] = True
+    with pytest.raises(site_tool.SiteError, match="expired"):
+        site_tool.deployed_pages_artifact(artifacts, "main", None, lambda _run: "success")
+
+
+def test_release_rerun_preserves_every_byte_under_reports_and_site_json(tmp_path):
+    """Re-running report publication and assembling docs must not change those bytes.
+
+    The check is the one the release step runs (`require-preserved`): site.json
+    and every file under reports/ are compared, and a single flipped byte fails.
+    """
+    import test_site
+
+    site = tmp_path / "site"
+    reports = test_site.reports_for(tmp_path, "reports", 12, "FAIL")
+    record = test_site.run("100", "2026-11-02T00:00:00Z")
+    site_tool.build(site, reports, record)
+    before = site_tool.publication_bytes(site)
+    assert "site.json" in before
+    assert any(path.startswith("reports/") for path in before)
+
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "index.html").write_text("<p>manual</p>\n")
+    assembly_spec = importlib.util.spec_from_file_location(
+        "docs_assembly", ROOT / "tools/docs/assemble.py"
+    )
+    assembly = importlib.util.module_from_spec(assembly_spec)
+    assembly_spec.loader.exec_module(assembly)
+    assembly.assemble(docs, site)
+    site_tool.require_publication_bytes(site, before)
+
+    snapshot = tmp_path / "publication.json"
+    site_tool.snapshot_publication(site, snapshot)
+    site_tool.build(site, reports, record)
+    site_tool.require_publication_bytes(site, before)
+    site_tool.require_preserved_snapshot(site, snapshot)
+
+    report = next(path for path in before if path.endswith("report.md"))
+    (site / report).write_bytes(before[report] + b"\n")
+    with pytest.raises(site_tool.SiteError, match="report.md"):
+        site_tool.require_publication_bytes(site, before)
+    (site / report).write_bytes(before[report])
+    marker = site / "site.json"
+    marker.write_bytes(before["site.json"] + b" ")
+    with pytest.raises(site_tool.SiteError, match="site.json"):
+        site_tool.require_publication_bytes(site, before)
 
 
 def pages_runs(event: str, ref: str, site: str, reset: bool = False) -> bool:
