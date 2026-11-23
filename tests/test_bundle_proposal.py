@@ -239,7 +239,7 @@ def test_dormant_template_separates_generation_and_write_credentials():
     writes = [s for s in jobs["publish"]["steps"] if "run" in s]
     assert len(writes) == 1
     assert "publish" in writes[0]["run"] and "prepare" not in writes[0]["run"]
-    assert "pip" not in writes[0]["run"] and "pytest" not in writes[0]["run"]
+    assert "pip install" not in writes[0]["run"] and "pytest" not in writes[0]["run"]
 
 
 @pytest.mark.parametrize("invalid", ["major", "malformed", "custom", "deleted"])

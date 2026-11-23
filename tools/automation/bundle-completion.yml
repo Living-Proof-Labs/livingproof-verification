@@ -6,6 +6,7 @@
 # https://docs.github.com/en/actions/using-workflows/triggering-a-workflow#triggering-a-workflow-from-a-workflow
 # "events triggered by the GITHUB_TOKEN will not create a new workflow run, with the following exceptions"
 # merge_group is not an exception, so the job refuses before enqueue.
+# Queue permissions stay contents: read until a token source is decided.
 name: Complete dependency bundle
 on:
   workflow_dispatch:
@@ -82,6 +83,7 @@ jobs:
           GH_TOKEN: ${{ secrets.BUNDLE_WRITER_TOKEN }}
           DIGEST: ${{ needs.prepare.outputs.digest }}
         run: |
+          set -o pipefail
           test -n "$GH_TOKEN"
           python3 tools/bundle_operations.py publish \
             --plan "$RUNNER_TEMP/candidate/bundle.json" \
@@ -101,12 +103,10 @@ jobs:
     runs-on: ubuntu-26.04
     # GitHub stops a job at 6h. The in-job evidence wait refuses at 5.5h.
     timeout-minutes: 360
-    # Job token only. gh reads GH_TOKEN; bundle_queue does not read a secret.
-    # contents: write covers the checkout. pull-requests: write is the enqueue
-    # mutation. Workflow permissions stay contents: read. No new secret or App.
+    # gh reads GH_TOKEN. contents stays read until a token that can start
+    # merge_group workflows is approved. No pull-requests grant, new secret, or App.
     permissions:
-      contents: write
-      pull-requests: write
+      contents: read
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -129,5 +129,4 @@ jobs:
             --receipt "$RUNNER_TEMP/receipt/receipt.json" \
             --sha256 "$RECEIPT_DIGEST" \
             --run-id "$RUN_ID" \
-            --run-attempt "$RUN_ATTEMPT" \
-            --refuse-github-token
+            --run-attempt "$RUN_ATTEMPT"

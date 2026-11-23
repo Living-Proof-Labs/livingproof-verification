@@ -175,19 +175,19 @@ def wait_for_checks(path, digest):
         admission.arm_deadline(None)
 
 
-def main():
+def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--receipt", type=Path)
     parser.add_argument("--sha256")
     parser.add_argument("--run-id", type=int)
     parser.add_argument("--run-attempt", type=int)
     parser.add_argument(
-        "--refuse-github-token",
+        "--allow-enqueue-with-approved-token",
         action="store_true",
-        help="check the receipt handoff, then refuse before enqueue",
+        help="opt in to enqueue; only for a future token that can start merge_group workflows",
     )
-    args = parser.parse_args()
-    if args.refuse_github_token:
+    args = parser.parse_args(argv)
+    if args.run_id is not None or args.run_attempt is not None:
         if (
             args.receipt is None
             or args.sha256 is None
@@ -196,6 +196,7 @@ def main():
         ):
             raise ValueError("receipt handoff requires the receipt, its digest, and this run")
         verify_receipt_handoff(args.receipt, args.sha256, args.run_id, args.run_attempt)
+    if not args.allow_enqueue_with_approved_token:
         refuse_github_token_enqueue()
     if args.receipt is None or args.sha256 is None:
         parser.error("--receipt and --sha256 are required")

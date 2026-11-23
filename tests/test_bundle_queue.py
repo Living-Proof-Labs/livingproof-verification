@@ -917,7 +917,8 @@ def test_queue_job_timeout_is_360_minutes():
     assert "--receipt" in publish["steps"][2]["run"]
     job = template["jobs"]["queue"]
     assert job["timeout-minutes"] == 360
-    assert job["permissions"] == {"contents": "write", "pull-requests": "write"}
+    assert job["permissions"] == {"contents": "read"}
+    assert "pull-requests" not in job["permissions"]
     assert "secrets." not in json.dumps(job)
     downloaded = next(step for step in job["steps"] if "download-artifact" in str(step.get("uses")))
     assert downloaded["with"]["name"] == "receipt-${{ github.run_id }}-${{ github.run_attempt }}"
@@ -925,7 +926,9 @@ def test_queue_job_timeout_is_360_minutes():
     assert step["env"]["GH_TOKEN"] == "${{ github.token }}"
     assert step["env"]["RECEIPT_DIGEST"] == "${{ needs.publish.outputs.receipt_digest }}"
     assert "needs.prepare.outputs.digest" not in step["env"]["RECEIPT_DIGEST"]
-    assert "--refuse-github-token" in step["run"]
+    assert "--allow-enqueue-with-approved-token" not in step["run"]
+    assert "--refuse-github-token" not in step["run"]
+    assert "set -o pipefail" in publish["steps"][2]["run"]
     assert "merge_group" in text
     assert "enqueuePullRequest" not in step["run"]
 
@@ -966,6 +969,17 @@ def test_github_token_enqueue_refuses_before_the_mutation(tmp_path):
         queue.refuse_github_token_enqueue()
     assert "GITHUB_TOKEN" in str(caught.value)
     assert "triggering-a-workflow" in str(caught.value)
+
+
+def test_direct_run_without_opt_in_refuses_before_enqueue(tmp_path, monkeypatch):
+    path, digest = _sealed_receipt(tmp_path)
+    called = []
+    monkeypatch.setattr(queue, "wait_for_checks", lambda *args, **kwargs: called.append("wait"))
+    monkeypatch.setattr(queue, "enqueue", lambda *args, **kwargs: called.append("enqueue"))
+    with pytest.raises(ValueError, match="GITHUB_TOKEN") as caught:
+        queue.main(["--receipt", str(path), "--sha256", digest])
+    assert "merge_group" in str(caught.value)
+    assert called == []
 
 
 def test_overshoot_refuses_before_the_next_page(remote):
