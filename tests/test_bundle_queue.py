@@ -2,6 +2,7 @@
 """Offline admission/refusal and recovery simulations; no hosted activation evidence."""
 
 import copy
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -906,10 +907,65 @@ def test_missing_or_unparseable_created_refuses(remote, monkeypatch, created):
 
 
 def test_queue_job_timeout_is_360_minutes():
-    template = yaml.safe_load((ROOT / "tools/automation/bundle-completion.yml").read_text())
+    text = (ROOT / "tools/automation/bundle-completion.yml").read_text()
+    template = yaml.safe_load(text)
+    assert template["permissions"] == {"contents": "read"}
+    publish = template["jobs"]["publish"]
+    assert publish["outputs"]["receipt_digest"] == "${{ steps.publish.outputs.receipt_digest }}"
+    uploaded = next(step for step in publish["steps"] if "upload-artifact" in str(step.get("uses")))
+    assert uploaded["with"]["name"] == "receipt-${{ github.run_id }}-${{ github.run_attempt }}"
+    assert "--receipt" in publish["steps"][2]["run"]
     job = template["jobs"]["queue"]
     assert job["timeout-minutes"] == 360
-    assert "bundle_queue.py" in job["steps"][-1]["run"]
+    assert job["permissions"] == {"contents": "write", "pull-requests": "write"}
+    assert "secrets." not in json.dumps(job)
+    downloaded = next(step for step in job["steps"] if "download-artifact" in str(step.get("uses")))
+    assert downloaded["with"]["name"] == "receipt-${{ github.run_id }}-${{ github.run_attempt }}"
+    step = job["steps"][-1]
+    assert step["env"]["GH_TOKEN"] == "${{ github.token }}"
+    assert step["env"]["RECEIPT_DIGEST"] == "${{ needs.publish.outputs.receipt_digest }}"
+    assert "needs.prepare.outputs.digest" not in step["env"]["RECEIPT_DIGEST"]
+    assert "--refuse-github-token" in step["run"]
+    assert "merge_group" in text
+    assert "enqueuePullRequest" not in step["run"]
+
+
+def _sealed_receipt(tmp_path, run_id=10, attempt=1):
+    record = {"run_id": run_id, "attempt": attempt, "created": 1_700_000_000, "head": "a" * 40}
+    raw = (json.dumps(record, sort_keys=True) + "\n").encode()
+    path = tmp_path / "receipt.json"
+    path.write_bytes(raw)
+    return path, hashlib.sha256(raw).hexdigest()
+
+
+def test_missing_receipt_artifact_refuses(tmp_path):
+    with pytest.raises(ValueError, match="receipt artifact is missing"):
+        queue.verify_receipt_handoff(tmp_path / "receipt.json", "a" * 64, 10, 1)
+
+
+def test_receipt_digest_mismatch_refuses(tmp_path):
+    path, digest = _sealed_receipt(tmp_path)
+    wrong = ("0" if digest[0] != "0" else "1") * 64
+    with pytest.raises(ValueError, match="receipt digest does not match"):
+        queue.verify_receipt_handoff(path, wrong, 10, 1)
+
+
+def test_wrong_or_stale_run_attempt_refuses(tmp_path):
+    path, digest = _sealed_receipt(tmp_path, run_id=10, attempt=1)
+    with pytest.raises(ValueError, match="wrong or stale"):
+        queue.verify_receipt_handoff(path, digest, 10, 2)
+    with pytest.raises(ValueError, match="wrong or stale"):
+        queue.verify_receipt_handoff(path, digest, 11, 1)
+
+
+def test_github_token_enqueue_refuses_before_the_mutation(tmp_path):
+    path, digest = _sealed_receipt(tmp_path)
+    record = queue.verify_receipt_handoff(path, digest, 10, 1)
+    assert record["attempt"] == 1
+    with pytest.raises(ValueError, match="merge_group") as caught:
+        queue.refuse_github_token_enqueue()
+    assert "GITHUB_TOKEN" in str(caught.value)
+    assert "triggering-a-workflow" in str(caught.value)
 
 
 def test_overshoot_refuses_before_the_next_page(remote):

@@ -81,6 +81,19 @@ main it checks out this repository's main and runs, in one concurrency group:
    deadline, inside the queue job's `timeout-minutes: 360`. A wait that would
    pass 5.5 hours refuses. The next scheduled or triggered run retries. This
    job does not start another cron.
+   Publish writes the receipt, uploads it as `receipt-<run id>-<run attempt>`,
+   and outputs that file's sha256. The queue job downloads that same artifact
+   and checks the receipt digest, not the plan digest. It refuses a missing
+   artifact, a digest that does not match, or a run attempt that is wrong or
+   stale. Its token is the job `GITHUB_TOKEN` (`GH_TOKEN`), with `contents:
+   write` and `pull-requests: write` only. No workflow-level grant, new secret,
+   or App is added. That token must not enqueue: [Triggering a workflow](https://docs.github.com/en/actions/using-workflows/triggering-a-workflow#triggering-a-workflow-from-a-workflow)
+   says "When you use the repository's `GITHUB_TOKEN` to perform tasks, events
+   triggered by the `GITHUB_TOKEN` will not create a new workflow run, with the
+   following exceptions," and `merge_group` is not one of them. The queue job
+   therefore refuses before `enqueuePullRequest`. The next scheduled or
+   triggered run does not change that; a token that can create `merge_group`
+   runs is still a separate decision.
 
 ### Grants required before that run
 

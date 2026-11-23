@@ -7,7 +7,9 @@ publisher job. Never discover completion commits by message/author or execute PR
 """
 
 import argparse
+import hashlib
 import json
+import re
 import time
 from pathlib import Path
 
@@ -32,6 +34,46 @@ def target(number, head, branch):
     ):
         raise ValueError("publication head/target changed; do not enqueue")
     return pr
+
+
+def verify_receipt_handoff(path, expected_digest, run_id, run_attempt):
+    """The receipt downloaded for this run id and attempt, or a refusal.
+
+    The file has to be the artifact publish uploaded for this run, and its
+    sha256 has to be the receipt digest publish output, not the plan digest.
+    """
+    receipt = Path(path)
+    if not receipt.is_file():
+        raise ValueError("receipt artifact is missing")
+    if type(run_id) is not int or type(run_attempt) is not int or run_id < 1 or run_attempt < 1:
+        raise ValueError("receipt run attempt is wrong or stale")
+    raw = receipt.read_bytes()
+    actual = hashlib.sha256(raw).hexdigest()
+    if not re.fullmatch(r"[0-9a-f]{64}", str(expected_digest)):
+        raise ValueError("receipt digest does not match")
+    if actual != expected_digest:
+        raise ValueError("receipt digest does not match")
+    record = json.loads(raw)
+    if record.get("run_id") != run_id or record.get("attempt") != run_attempt:
+        raise ValueError("receipt run attempt is wrong or stale")
+    return record
+
+
+def refuse_github_token_enqueue():
+    """Stop before enqueuePullRequest when the only token is GITHUB_TOKEN.
+
+    https://docs.github.com/en/actions/using-workflows/triggering-a-workflow#triggering-a-workflow-from-a-workflow
+    says events triggered by GITHUB_TOKEN do not create a workflow run, except
+    workflow_dispatch, repository_dispatch, and some pull_request activity.
+    merge_group is not one of those exceptions, so a queue entry made with
+    GITHUB_TOKEN would not run the required merge-group checks.
+    """
+    raise ValueError(
+        "Refusing to enqueue with GITHUB_TOKEN: events triggered by the "
+        "GITHUB_TOKEN will not create a merge_group workflow run "
+        "(https://docs.github.com/en/actions/using-workflows/triggering-a-workflow"
+        "#triggering-a-workflow-from-a-workflow)"
+    )
 
 
 def enqueue(record, read=None):
@@ -135,9 +177,28 @@ def wait_for_checks(path, digest):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--receipt", type=Path, required=True)
-    parser.add_argument("--sha256", required=True)
+    parser.add_argument("--receipt", type=Path)
+    parser.add_argument("--sha256")
+    parser.add_argument("--run-id", type=int)
+    parser.add_argument("--run-attempt", type=int)
+    parser.add_argument(
+        "--refuse-github-token",
+        action="store_true",
+        help="check the receipt handoff, then refuse before enqueue",
+    )
     args = parser.parse_args()
+    if args.refuse_github_token:
+        if (
+            args.receipt is None
+            or args.sha256 is None
+            or args.run_id is None
+            or args.run_attempt is None
+        ):
+            raise ValueError("receipt handoff requires the receipt, its digest, and this run")
+        verify_receipt_handoff(args.receipt, args.sha256, args.run_id, args.run_attempt)
+        refuse_github_token_enqueue()
+    if args.receipt is None or args.sha256 is None:
+        parser.error("--receipt and --sha256 are required")
     wait_for_checks(args.receipt, args.sha256)
 
 
