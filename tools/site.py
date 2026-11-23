@@ -33,9 +33,10 @@ to that same commit in the checkout (`bundle_tag`); otherwise the commit stands 
 already published are never retagged.
 
 Earlier runs come from the last successfully deployed Pages artifact (`restore`)
-of a push of this workflow on this repository. The head repository and the run's
-repository are compared by id, not by name, so a fork run is skipped and a rename
-is not. A newer upload whose deploy failed is not the snapshot. History survives
+of a push or workflow_dispatch of this workflow on this repository's main branch.
+The head repository and the run's repository are compared by id, not by name, so
+a fork run is skipped and a rename is not. A newer upload whose deploy failed is
+not the snapshot. History survives
 without committing anything to git. If that artifact is listed but the download
 fails or the archive is corrupt, or the last good artifact has expired, restore
 fails instead of publishing a site that drops those runs. A release re-run of
@@ -68,6 +69,9 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[1]
 PAGES_ARTIFACT = "github-pages"
 VERIFY_WORKFLOW = ".github/workflows/verify.yml"
+# Push publishes the site. workflow_dispatch publishes only for reset-history,
+# which needs write access here. Both are sources the next push may restore.
+VERIFY_DEPLOY_EVENTS = frozenset({"push", "workflow_dispatch"})
 SEGMENT = re.compile(r"[a-z0-9][a-z0-9.-]*")
 RUN_ID = re.compile(r"[0-9]+(-[0-9]+)?")
 REPORT_FILES = ("report.html", "report.json", "report.md", "report.txt")
@@ -162,6 +166,11 @@ def targets(verifications: Path = ROOT / "verifications") -> list[dict]:
 DOWNLOAD_ATTEMPTS = 5
 DOWNLOAD_BACKOFF_BASE = 10
 DOWNLOAD_JITTER = (0.8, 1.2)
+# A transient 5xx on a restore lookup is tried this many times. The waits after
+# a failed attempt are 1s and 2s, with no jitter. The third 5xx refuses. A 4xx
+# or a timeout is the server's answer or a hard failure, and is not retried.
+LOOKUP_ATTEMPTS = 3
+LOOKUP_BACKOFF_BASE = 1.0
 _REDIRECTS = frozenset({301, 302, 303, 307, 308})
 _MAX_REDIRECTS = 5
 
@@ -223,6 +232,37 @@ def _error_text(error: BaseException) -> str:
 def _backoff_seconds(failed_attempt: int) -> float:
     """Wait after failed attempt 1, 2, 3, 4: about 10s, 20s, 40s, 80s, with jitter."""
     return DOWNLOAD_BACKOFF_BASE * (2 ** (failed_attempt - 1)) * random.uniform(*DOWNLOAD_JITTER)
+
+
+def _lookup_backoff(failed_attempt: int) -> float:
+    """Wait after failed lookup attempt 1 and 2: 1s, then 2s."""
+    return LOOKUP_BACKOFF_BASE * (2 ** (failed_attempt - 1))
+
+
+def _read_json(url: str, token: str | None):
+    """GET JSON for a restore lookup.
+
+    A transient HTTP 5xx is tried `LOOKUP_ATTEMPTS` times, with backoff between
+    tries. The last 5xx is re-raised so the caller refuses the publish. A 4xx
+    or a timeout is not retried.
+    """
+    for attempt in range(1, LOOKUP_ATTEMPTS + 1):
+        try:
+            with _request(url, token) as response:
+                return json.load(response)
+        except urllib.error.HTTPError as error:
+            if error.code < 500 or error.code >= 600 or attempt >= LOOKUP_ATTEMPTS:
+                raise
+            detail = _error_text(error)
+            error.close()
+            delay = _lookup_backoff(attempt)
+            print(
+                f"Lookup attempt {attempt}/{LOOKUP_ATTEMPTS} failed: {detail}; "
+                f"retrying in {delay:.1f}s.",
+                flush=True,
+            )
+            time.sleep(delay)
+    raise SiteError(f"Could not read {url}. Refusing to publish a site without its earlier runs.")
 
 
 def _redirect_target(current: str, error: urllib.error.HTTPError) -> str:
@@ -320,8 +360,7 @@ def _list_pages_artifacts(repository: str, token: str | None, api: str) -> tuple
             f"&per_page=100&page={page}"
         )
         try:
-            with _request(url, token) as response:
-                batch = json.load(response)["artifacts"]
+            batch = _read_json(url, token)["artifacts"]
         except urllib.error.HTTPError as error:
             if error.code == 404 and page == 1:
                 error.close()
@@ -392,11 +431,18 @@ def _listed_run_is_this_repository(artifact: dict, repository_id: int) -> bool:
     )
 
 
-def _fetched_run_is_verify_push(run: dict | None, repository_id: int, branch: str) -> bool:
-    """A push of verify.yml on `branch` whose head and run repositories are this one."""
+def _fetched_run_is_verify_deploy(run: dict | None, repository_id: int, branch: str) -> bool:
+    """A push or workflow_dispatch of verify.yml on `branch` from this repository.
+
+    The workflow path is the whole string, not a suffix, so ``evil-verify.yml`` and
+    a copy nested under another directory do not match. The head branch is checked
+    again here; the artifact listing filters it too.
+    """
     if not isinstance(run, dict):
         return False
-    if run.get("event") != "push" or run.get("path") != VERIFY_WORKFLOW:
+    if run.get("event") not in VERIFY_DEPLOY_EVENTS:
+        return False
+    if run.get("path") != VERIFY_WORKFLOW:
         return False
     if run.get("head_branch") != branch:
         return False
@@ -407,23 +453,14 @@ def _fetched_run_is_verify_push(run: dict | None, repository_id: int, branch: st
     return _same_repository(head.get("id"), own.get("id"), repository_id)
 
 
-def _same_repository_pushes(
-    candidates: list[dict], branch: str, repository_id: int, run_of
-) -> list[dict]:
-    """Keep a push of verify.yml on `branch` in this repository. Any other run is skipped.
-
-    The artifact listing and the workflow run must each carry this repository's id
-    on both the head repository and the run's own repository.
-    """
-    accepted = []
-    for artifact in candidates:
-        workflow_run = artifact.get("workflow_run") or {}
-        run_id = workflow_run.get("id")
-        if run_id is None or not _listed_run_is_this_repository(artifact, repository_id):
-            continue
-        if _fetched_run_is_verify_push(run_of(run_id), repository_id, branch):
-            accepted.append(artifact)
-    return accepted
+def _artifact_is_verify_deploy(artifact: dict, repository_id: int, branch: str, run_of) -> bool:
+    """The listing and the fetched run both name this repository's verify deploy."""
+    if not _listed_run_is_this_repository(artifact, repository_id):
+        return False
+    run_id = (artifact.get("workflow_run") or {}).get("id")
+    if run_id is None:
+        return False
+    return _fetched_run_is_verify_deploy(run_of(run_id), repository_id, branch)
 
 
 def latest_pages_artifact(artifacts: list[dict], branch: str, current_run: int | None):
@@ -440,14 +477,20 @@ def latest_pages_artifact(artifacts: list[dict], branch: str, current_run: int |
     return newest
 
 
-def deployed_pages_artifact(artifacts: list[dict], branch: str, current_run, conclusion_of):
+def deployed_pages_artifact(
+    artifacts: list[dict], branch: str, current_run, conclusion_of, *, accept=None
+):
     """Newest Pages artifact on `branch` whose pages deploy succeeded.
 
     `conclusion_of(run_id)` is the `pages` job conclusion (`success`, `failure`,
-    `skipped`, `cancelled`) or None when that run never deployed. A newer upload
-    from a failed or unfinished deploy is not the snapshot. The newest successful
-    artifact is an error when it has expired: an older deploy is not a substitute
-    for history that was published and then aged out.
+    `skipped`, `cancelled`) or None when that run never deployed. Candidates are
+    walked newest first. `accept(artifact)`, when given, has to hold before a
+    deploy counts; restore uses it for this repository's verify runs. The first
+    accepted successful deploy is the snapshot, and older candidates are not
+    looked up. A newer upload from a failed or unfinished deploy is not the
+    snapshot. That newest successful artifact is an error when it has expired:
+    an older deploy is not a substitute for history that was published and then
+    aged out.
     """
     ranked = sorted(
         _pages_candidates(artifacts, branch, current_run),
@@ -456,7 +499,11 @@ def deployed_pages_artifact(artifacts: list[dict], branch: str, current_run, con
     )
     for artifact in ranked:
         run_id = (artifact.get("workflow_run") or {}).get("id")
-        if run_id is None or conclusion_of(run_id) != "success":
+        if run_id is None:
+            continue
+        if accept is not None and not accept(artifact):
+            continue
+        if conclusion_of(run_id) != "success":
             continue
         if artifact.get("expired"):
             raise SiteError(
@@ -478,8 +525,7 @@ def _pages_conclusion(repository: str, run_id: int, token: str | None, api: str)
             f"?filter=latest&per_page=100&page={page}"
         )
         try:
-            with _request(url, token) as response:
-                payload = json.load(response)
+            payload = _read_json(url, token)
         except urllib.error.HTTPError as error:
             if error.code == 404:
                 error.close()
@@ -520,8 +566,7 @@ def _repository_id(repository: str, token: str | None, api: str) -> int:
     """Numeric id of `repository`. A failed read refuses; the id is stable across renames."""
     url = f"{api}/repos/{repository}"
     try:
-        with _request(url, token) as response:
-            payload = json.load(response)
+        payload = _read_json(url, token)
     except urllib.error.HTTPError as error:
         detail = _error_text(error)
         error.close()
@@ -547,8 +592,7 @@ def _workflow_run(repository: str, run_id: int, token: str | None, api: str) -> 
     """The workflow run, or None when GitHub no longer has it."""
     url = f"{api}/repos/{repository}/actions/runs/{run_id}"
     try:
-        with _request(url, token) as response:
-            payload = json.load(response)
+        payload = _read_json(url, token)
     except urllib.error.HTTPError as error:
         if error.code == 404:
             error.close()
@@ -754,21 +798,27 @@ def restore(
     artifacts, why_empty = _list_pages_artifacts(repository, token, api)
     candidates = _pages_candidates(artifacts, branch, current_run)
     if candidates:
-        # Same repository by id (head and the run's repository), and a push of
-        # verify.yml on this branch. Any other run is skipped before the deploy check.
-        eligible = _same_repository_pushes(
-            candidates,
-            branch,
-            _repository_id(repository, token, api),
-            _workflow_runs(repository, token, api),
-        )
+        # Same repository by id (head and the run's repository), and a push or
+        # workflow_dispatch of verify.yml on this branch. Any other event,
+        # workflow, branch or repository is skipped. Walk newest first and stop
+        # at the first deployed match so older runs are not fetched.
+        repository_id = _repository_id(repository, token, api)
+        run_of = _workflow_runs(repository, token, api)
+
+        def accept(artifact):
+            return _artifact_is_verify_deploy(artifact, repository_id, branch, run_of)
+
         artifact = deployed_pages_artifact(
-            eligible, branch, current_run, _conclusion_of(repository, token, api)
+            artifacts,
+            branch,
+            current_run,
+            _conclusion_of(repository, token, api),
+            accept=accept,
         )
         if artifact is None:
             why_empty = (
-                "no Pages artifact from a push of verify.yml on this repository "
-                "whose deploy succeeded"
+                "no Pages artifact from a push or workflow_dispatch of verify.yml "
+                "on this repository whose deploy succeeded"
             )
     else:
         artifact = None
